@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { executeRemoteCommand, getRemoteCommandHelp } from '../src/lib/remote';
+import { executeRemoteCommand, getRemoteCommandHelp } from '../src/lib/remote.js';
 
 function makeInputFile(content: string): { dir: string; filePath: string } {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-remote-'));

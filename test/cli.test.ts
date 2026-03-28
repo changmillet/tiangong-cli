@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { executeCli } from '../src/cli';
-import type { DotEnvLoadResult } from '../src/lib/dotenv';
-import type { FetchLike } from '../src/lib/http';
+import { executeCli } from '../src/cli.js';
+import type { DotEnvLoadResult } from '../src/lib/dotenv.js';
+import type { FetchLike } from '../src/lib/http.js';
 
 const dotEnvStatus: DotEnvLoadResult = {
   loaded: false,
@@ -70,7 +70,7 @@ test('executeCli doctor text reports loaded dotenv metadata and missing keys', a
     ['doctor'],
     {
       env: {
-        OPENAI_API_KEY: 'secret',
+        TIANGONG_KB_API_KEY: 'secret',
       } as NodeJS.ProcessEnv,
       dotEnvStatus: {
         loaded: true,

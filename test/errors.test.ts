@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CliError, toErrorPayload } from '../src/lib/errors';
+import { CliError, toErrorPayload } from '../src/lib/errors.js';
 
 test('CliError stores code, exitCode, and details', () => {
   const error = new CliError('boom', {

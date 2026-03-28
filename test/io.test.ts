@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { readJsonInput, stringifyJson } from '../src/lib/io';
+import { readJsonInput, stringifyJson } from '../src/lib/io.js';
 
 test('readJsonInput reads valid json files', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-io-valid-'));

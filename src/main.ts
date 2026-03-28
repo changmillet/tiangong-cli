@@ -3,8 +3,8 @@
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { executeCli } from './cli';
-import { loadDotEnv } from './lib/dotenv';
+import { executeCli } from './cli.js';
+import { loadDotEnv } from './lib/dotenv.js';
 
 export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env): Promise<number> {
   const dotEnvStatus = loadDotEnv(process.cwd(), env);

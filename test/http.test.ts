@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { postJson } from '../src/lib/http';
+import { postJson } from '../src/lib/http.js';
 
 test('postJson returns parsed JSON payloads', async () => {
   const payload = await postJson({

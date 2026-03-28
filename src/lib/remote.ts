@@ -1,7 +1,7 @@
-import { CliError } from './errors';
-import type { FetchLike } from './http';
-import { postJson } from './http';
-import { readJsonInput, stringifyJson } from './io';
+import { CliError } from './errors.js';
+import type { FetchLike } from './http.js';
+import { postJson } from './http.js';
+import { readJsonInput, stringifyJson } from './io.js';
 
 type RemoteCommandSpec = {
   endpoint: string;

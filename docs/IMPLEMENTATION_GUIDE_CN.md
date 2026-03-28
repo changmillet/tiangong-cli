@@ -51,15 +51,14 @@ tiangong
 - 包管理：npm
 - 测试：`node:test`
 - 覆盖率：`c8`
-- 运行器：`tsx`
+- 构建产物：`dist/`
+- 开发期运行器：`tsx`
 
-这里只有一个运行时依赖是有意保留的：`tsx`。
+这里的边界现在很明确：
 
-原因不是“喜欢堆包”，而是为了让仓库保持：
-
-- TS 直接开发
-- 不引入额外 bundle 流程
-- `bin` 入口可直接指向 TS 源码
+- 运行时不再依赖 `tsx`
+- `bin` 入口只加载 `dist/src/main.js`
+- `tsx` 只保留给开发期和测试期
 
 ## 3. 目录职责
 
@@ -68,6 +67,7 @@ tiangong-lca-cli/
   bin/
     tiangong.js
     tiangong.d.ts
+  dist/
   src/
     cli.ts
     main.ts
@@ -80,12 +80,13 @@ tiangong-lca-cli/
 
 职责边界：
 
-- `bin/`：启动器，只负责把 `tiangong` 命令接到 TS 主入口
+- `bin/`：稳定启动器，只负责把 `tiangong` 命令接到 `dist/src/main.js`
+- `dist/`：构建产物，供正式运行路径使用
 - `src/cli.ts`：命令分发、参数解析、命令帮助、错误出口
-- `src/main.ts`：进程入口、`.env` 加载、stdout/stderr 输出
+- `src/main.ts`：进程入口源码，构建后输出到 `dist/src/main.js`
 - `src/lib/`：纯功能模块
 - `test/`：单元测试和 smoke test
-- `scripts/assert-full-coverage.ts`：覆盖率硬门
+- `scripts/assert-full-coverage.ts`：覆盖率硬门源码，构建后输出到 `dist/scripts/`
 
 ## 4. 命令设计原则
 
@@ -144,9 +145,6 @@ TIANGONG_API_BASE_URL=
 TIANGONG_API_KEY=
 TIANGONG_REGION=us-east-1
 
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5
-
 TIANGONG_KB_BASE_URL=
 TIANGONG_KB_API_KEY=
 
@@ -188,8 +186,8 @@ npm run prepush:gate
 原因：
 
 - `bin/tiangong.js` 是极薄启动器
+- 运行时真正执行的是由 `src/**/*.ts` 编译出来的 `dist/` 产物
 - 它的价值主要在 smoke test，而不是复杂业务逻辑
-- `tsx` loader + child process 场景会污染 V8 coverage remap
 
 所以当前做法是：
 
@@ -242,7 +240,8 @@ npm run prepush:gate
 调用方式优先顺序：
 
 1. `node "${TIANGONG_CLI_DIR}/bin/tiangong.js" ...`
-2. `npm exec --prefix "${TIANGONG_CLI_DIR}" tiangong -- ...`
+2. `node "${TIANGONG_CLI_DIR}/dist/src/main.js" ...`
+3. `npm exec --prefix "${TIANGONG_CLI_DIR}" tiangong -- ...`
 
 不要再在 skill 内部重复实现一套 `curl` 参数解析和环境变量规则。
 

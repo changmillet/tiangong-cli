@@ -34,19 +34,6 @@ export const ENV_SPECS: EnvSpec[] = [
     defaultValue: 'us-east-1',
   },
   {
-    canonical: 'OPENAI_API_KEY',
-    aliases: [],
-    required: false,
-    description: 'LLM API key for review / remediation / build workflows',
-  },
-  {
-    canonical: 'OPENAI_MODEL',
-    aliases: [],
-    required: false,
-    description: 'Default LLM model',
-    defaultValue: 'gpt-5',
-  },
-  {
     canonical: 'TIANGONG_KB_BASE_URL',
     aliases: [],
     required: false,

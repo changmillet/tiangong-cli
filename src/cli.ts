@@ -1,9 +1,9 @@
 import { parseArgs } from 'node:util';
-import { buildDoctorReport } from './lib/env';
-import type { DotEnvLoadResult } from './lib/dotenv';
-import { CliError, toErrorPayload } from './lib/errors';
-import type { FetchLike } from './lib/http';
-import { executeRemoteCommand, getRemoteCommandHelp } from './lib/remote';
+import { buildDoctorReport } from './lib/env.js';
+import type { DotEnvLoadResult } from './lib/dotenv.js';
+import { CliError, toErrorPayload } from './lib/errors.js';
+import type { FetchLike } from './lib/http.js';
+import { executeRemoteCommand, getRemoteCommandHelp } from './lib/remote.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;

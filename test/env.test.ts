@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDoctorReport, maskSecret, resolveEnv } from '../src/lib/env';
+import { buildDoctorReport, maskSecret, resolveEnv } from '../src/lib/env.js';
 
 test('resolveEnv prefers canonical env keys', () => {
   const resolved = resolveEnv(

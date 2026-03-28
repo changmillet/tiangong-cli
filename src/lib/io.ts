@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { CliError } from './errors';
+import { CliError } from './errors.js';
 
 export function readJsonInput(inputPath: string): unknown {
   if (!inputPath) {

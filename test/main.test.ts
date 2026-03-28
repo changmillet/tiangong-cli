@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { isDirectEntry, main, maybeRunFromProcess } from '../src/main';
+import { isDirectEntry, main, maybeRunFromProcess } from '../src/main.js';
 
 const integrationTest = process.env.TIANGONG_COVERAGE === '1' ? test.skip : test;
 
@@ -152,24 +152,20 @@ integrationTest('bin entrypoint executes successfully in a child process', () =>
   }
 });
 
-integrationTest('src/main.ts executes successfully when run directly in a child process', () => {
+integrationTest('dist/main.js executes successfully when run directly in a child process', () => {
   const repoRoot = path.resolve(process.cwd());
-  const entryPath = path.join(repoRoot, 'src', 'main.ts');
+  const entryPath = path.join(repoRoot, 'dist', 'src', 'main.js');
 
-  try {
-    const result = spawnSync(process.execPath, ['--import', 'tsx', entryPath, 'doctor', '--json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
-        TIANGONG_API_KEY: 'secret-token',
-      },
-    });
+  const result = spawnSync(process.execPath, [entryPath, 'doctor', '--json'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+      TIANGONG_API_KEY: 'secret-token',
+    },
+  });
 
-    assert.equal(result.status, 0);
-    assert.match(result.stdout, /"ok":true/u);
-  } finally {
-    // no temp files created for this direct-entry smoke test
-  }
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /"ok":true/u);
 });

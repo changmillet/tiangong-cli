@@ -1,6 +1,6 @@
 # 项目配置
 
-本项目是 TianGong 的统一 CLI 仓库，运行时基线固定为 Node 24，源码直接使用 TypeScript。
+本项目是 TianGong 的统一 CLI 仓库，运行时基线固定为 Node 24，源码使用 TypeScript，但运行时执行 `dist/` 下的构建产物。
 
 设计原则：
 
@@ -50,9 +50,6 @@ TIANGONG_API_BASE_URL=
 TIANGONG_API_KEY=
 TIANGONG_REGION=us-east-1
 
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5
-
 TIANGONG_KB_BASE_URL=
 TIANGONG_KB_API_KEY=
 
@@ -84,6 +81,11 @@ npm start -- admin embedding-run --input ./jobs.json --dry-run
 npm run dev -- --help
 ```
 
+说明：
+
+- `npm run dev` 仍可使用 `tsx` 做开发期直接运行
+- 正式运行入口不再依赖 `tsx`，而是执行构建后的 `dist/` 产物
+
 ## 检查与测试
 
 ```bash
@@ -102,7 +104,7 @@ npm run prepush:gate
 
 ## 构建项目
 
-当前不做额外 bundle，`build` 只执行语法校验：
+当前 `build` 会把 CLI 源码编译到 `dist/`：
 
 ```bash
 npm run build
@@ -114,8 +116,13 @@ npm run build
 
 - `npm start -- ...`
 - `node ./bin/tiangong.js ...`
+- `node ./dist/src/main.js ...`
 
-`package.json` 也声明了 `bin.tiangong`，所以在本仓库内可直接通过 `npm exec tiangong -- ...` 调用。
+其中：
+
+- `npm start -- ...` 会先构建再运行
+- `node ./bin/tiangong.js ...` 会加载 `dist/src/main.js`
+- `package.json` 也声明了 `bin.tiangong`，所以在本仓库内可直接通过 `npm exec tiangong -- ...` 调用
 
 ## 与 skills 的联动约定
 
@@ -136,6 +143,7 @@ tiangong-lca-cli/
   DEV_CN.md
   README.md
   bin/
+  dist/
   docs/
   scripts/
   src/

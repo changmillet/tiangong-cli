@@ -1,4 +1,4 @@
-import { CliError } from './errors';
+import { CliError } from './errors.js';
 
 export type ResponseLike = {
   ok: boolean;

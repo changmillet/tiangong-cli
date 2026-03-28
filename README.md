@@ -5,10 +5,11 @@
 Current implementation choices:
 
 - TypeScript on Node 24
+- ship built JavaScript artifacts from `dist/`
 - direct REST / Edge Function calls instead of MCP
 - file-first input and JSON-first output
 - one stable command surface for humans, agents, CI, and skills
-- minimal runtime dependency footprint
+- zero npm production runtime dependencies
 
 ## Implemented commands
 
@@ -18,7 +19,7 @@ Current implementation choices:
 - `tiangong search lifecyclemodel`
 - `tiangong admin embedding-run`
 
-The bin entrypoint is `bin/tiangong.js`, and `npm start -- ...` dogfoods the same path.
+The stable launcher is `bin/tiangong.js`. It loads the compiled runtime at `dist/src/main.js`, while `npm start -- ...` rebuilds and dogfoods the same launcher path.
 
 ## Quality gate
 
@@ -60,6 +61,13 @@ npm start -- doctor
 npm start -- doctor --json
 npm start -- search flow --input ./request.json --dry-run
 npm start -- admin embedding-run --input ./jobs.json --dry-run
+```
+
+Run the built artifact directly:
+
+```bash
+node ./bin/tiangong.js doctor
+node ./dist/src/main.js doctor --json
 ```
 
 ## Workspace usage
