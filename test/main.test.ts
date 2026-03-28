@@ -1,0 +1,175 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { isDirectEntry, main, maybeRunFromProcess } from '../src/main';
+
+const integrationTest = process.env.TIANGONG_COVERAGE === '1' ? test.skip : test;
+
+test('main writes stdout and stderr from CLI results', async () => {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  let stdout = '';
+  let stderr = '';
+
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += String(chunk);
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    const exitCode = await main(['process', 'auto-build'], {
+      TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+      TIANGONG_API_KEY: 'secret-token',
+    });
+
+    assert.equal(exitCode, 2);
+    assert.equal(stdout, '');
+    assert.match(stderr, /not implemented yet/u);
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+});
+
+test('main writes stdout for successful command results', async () => {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  let stdout = '';
+  let stderr = '';
+
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += String(chunk);
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    const exitCode = await main(['doctor', '--json'], {
+      TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+      TIANGONG_API_KEY: 'secret-token',
+    });
+
+    assert.equal(exitCode, 0);
+    assert.match(stdout, /"ok":true/u);
+    assert.equal(stderr, '');
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+});
+
+test('isDirectEntry reports direct and non-direct execution states', () => {
+  const direct = isDirectEntry('file:///tmp/main.ts', '/tmp/main.ts');
+  const notDirect = isDirectEntry('file:///tmp/main.ts', '/tmp/other.ts');
+  const missing = isDirectEntry('file:///tmp/main.ts', undefined);
+
+  assert.equal(direct, true);
+  assert.equal(notDirect, false);
+  assert.equal(missing, false);
+});
+
+test('maybeRunFromProcess returns null when not running as the entry module', async () => {
+  const exitCode = await maybeRunFromProcess(
+    ['/usr/local/bin/node', '/tmp/other.ts', 'doctor', '--json'],
+    {
+      TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+      TIANGONG_API_KEY: 'secret-token',
+    },
+    'file:///tmp/main.ts',
+  );
+
+  assert.equal(exitCode, null);
+});
+
+test('maybeRunFromProcess executes the CLI when running as the entry module', async () => {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const originalExitCode = process.exitCode;
+  let stdout = '';
+  let stderr = '';
+
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    stdout += String(chunk);
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: string | Uint8Array) => {
+    stderr += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    const exitCode = await maybeRunFromProcess(
+      ['/usr/local/bin/node', '/tmp/main.ts', 'doctor', '--json'],
+      {
+        TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+        TIANGONG_API_KEY: 'secret-token',
+      },
+      'file:///tmp/main.ts',
+    );
+
+    assert.equal(exitCode, 0);
+    assert.equal(process.exitCode, 0);
+    assert.match(stdout, /"ok":true/u);
+    assert.equal(stderr, '');
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+    process.exitCode = originalExitCode;
+  }
+});
+
+integrationTest('bin entrypoint executes successfully in a child process', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-main-'));
+  const repoRoot = path.resolve(process.cwd());
+  const binPath = path.join(repoRoot, 'bin', 'tiangong.js');
+
+  writeFileSync(
+    path.join(dir, '.env'),
+    ['TIANGONG_API_BASE_URL=https://example.com/functions/v1', 'TIANGONG_API_KEY=secret-token'].join('\n'),
+    'utf8',
+  );
+
+  try {
+    const result = spawnSync(process.execPath, [binPath, 'doctor', '--json'], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /"ok":true/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+integrationTest('src/main.ts executes successfully when run directly in a child process', () => {
+  const repoRoot = path.resolve(process.cwd());
+  const entryPath = path.join(repoRoot, 'src', 'main.ts');
+
+  try {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', entryPath, 'doctor', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        TIANGONG_API_BASE_URL: 'https://example.com/functions/v1',
+        TIANGONG_API_KEY: 'secret-token',
+      },
+    });
+
+    assert.equal(result.status, 0);
+    assert.match(result.stdout, /"ok":true/u);
+  } finally {
+    // no temp files created for this direct-entry smoke test
+  }
+});

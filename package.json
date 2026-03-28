@@ -1,0 +1,39 @@
+{
+  "name": "@tiangong-lca/cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Unified TianGong LCA CLI with direct REST adapters and low-entropy command surface.",
+  "type": "module",
+  "bin": {
+    "tiangong": "./bin/tiangong.js"
+  },
+  "scripts": {
+    "start": "node ./bin/tiangong.js",
+    "dev": "tsx watch src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck",
+    "test": "node --import tsx --test",
+    "test:coverage": "TIANGONG_COVERAGE=1 c8 --reporter=text --reporter=text-summary --reporter=json-summary --report-dir coverage node --import tsx --test",
+    "test:coverage:assert-full": "node --import tsx scripts/assert-full-coverage.ts",
+    "prepush:gate": "npm run lint && npm run test:coverage && npm run test:coverage:assert-full",
+    "build": "npm run typecheck"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "keywords": [
+    "tiangong",
+    "lca",
+    "cli",
+    "rest"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "c8": "^11.0.0",
+    "typescript": "^6.0.2"
+  }
+}
