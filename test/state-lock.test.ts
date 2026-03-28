@@ -1,0 +1,380 @@
+import assert from 'node:assert/strict';
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import {
+  StateLockTimeoutError,
+  isProcessAlive,
+  lockPathForState,
+  readStateLockMetadata,
+  withStateFileLock,
+} from '../src/lib/state-lock.js';
+
+test('lockPathForState and readStateLockMetadata handle missing, empty, invalid, primitive, and valid lock files', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-metadata-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+
+  try {
+    assert.equal(lockPath, `${statePath}.lock`);
+    assert.equal(readStateLockMetadata(lockPath), null);
+
+    writeFileSync(lockPath, '\n', 'utf8');
+    assert.equal(readStateLockMetadata(lockPath), null);
+
+    writeFileSync(lockPath, 'not-json', 'utf8');
+    assert.deepEqual(readStateLockMetadata(lockPath), { raw: 'not-json' });
+
+    writeFileSync(lockPath, '"primitive"', 'utf8');
+    assert.equal(readStateLockMetadata(lockPath), null);
+
+    writeFileSync(
+      lockPath,
+      `${JSON.stringify({ ownerPid: process.pid, reason: 'demo', ownerHost: 'host', updatedAt: 'now' })}\n`,
+      'utf8',
+    );
+    assert.deepEqual(readStateLockMetadata(lockPath), {
+      ownerPid: process.pid,
+      reason: 'demo',
+      ownerHost: 'host',
+      updatedAt: 'now',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('isProcessAlive distinguishes current, missing, and invalid processes', () => {
+  assert.equal(isProcessAlive(process.pid), true);
+  assert.equal(isProcessAlive(999_999_999), false);
+  assert.equal(isProcessAlive(Number.NaN), true);
+});
+
+test('withStateFileLock acquires, writes metadata, supports reentrancy, and releases the lock file', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-basic-'));
+  const statePath = path.join(dir, 'cache', 'state.json');
+  const observations: string[] = [];
+
+  try {
+    const result = await withStateFileLock(
+      statePath,
+      {
+        reason: 'outer',
+        host: 'unit-host',
+        pid: 12345,
+        now: new Date('2026-03-28T09:00:00.000Z'),
+      },
+      async () => {
+        const lockPath = lockPathForState(statePath);
+        observations.push(readFileSync(lockPath, 'utf8'));
+
+        return withStateFileLock(
+          statePath,
+          {
+            reason: 'inner',
+          },
+          () => {
+            observations.push('inner');
+            return 'locked';
+          },
+        );
+      },
+    );
+
+    assert.equal(result, 'locked');
+    assert.equal(observations[1], 'inner');
+    assert.match(observations[0], /"ownerPid": 12345/u);
+    assert.equal(readStateLockMetadata(lockPathForState(statePath)), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock removes stale lock files before acquiring', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-stale-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({ ownerPid: 999_999_999, ownerHost: 'old-host', reason: 'stale', updatedAt: 'old' })}\n`,
+    'utf8',
+  );
+
+  try {
+    const result = await withStateFileLock(
+      statePath,
+      {
+        reason: 'fresh',
+        timeoutMs: 50,
+        pollMs: 10,
+      },
+      () => 'recovered',
+    );
+
+    assert.equal(result, 'recovered');
+    assert.equal(readStateLockMetadata(lockPath), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock waits for a live owner, clamps pollMs, and retries acquisition', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-retry-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+  const sleepCalls: number[] = [];
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({ ownerPid: process.pid, ownerHost: 'live-host', reason: 'busy', updatedAt: 'now' })}\n`,
+    'utf8',
+  );
+
+  try {
+    const result = await withStateFileLock(
+      statePath,
+      {
+        reason: 'retry',
+        timeoutMs: 100,
+        pollMs: 1,
+        sleep: async (ms) => {
+          sleepCalls.push(ms);
+          unlinkSync(lockPath);
+        },
+      },
+      () => 'acquired',
+    );
+
+    assert.equal(result, 'acquired');
+    assert.deepEqual(sleepCalls, [10]);
+    assert.equal(readStateLockMetadata(lockPath), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock uses the default sleep path when retrying a live lock', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-default-sleep-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({ ownerPid: process.pid, ownerHost: 'live-host', reason: 'busy', updatedAt: 'now' })}\n`,
+    'utf8',
+  );
+
+  const releaseTimer = setTimeout(() => {
+    unlinkSync(lockPath);
+  }, 5);
+
+  try {
+    const result = await withStateFileLock(
+      statePath,
+      {
+        reason: 'default-sleep',
+        timeoutMs: 100,
+        pollMs: 10,
+      },
+      () => 'acquired-with-default-sleep',
+    );
+
+    assert.equal(result, 'acquired-with-default-sleep');
+    assert.equal(readStateLockMetadata(lockPath), null);
+  } finally {
+    clearTimeout(releaseTimer);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock throws StateLockTimeoutError when another live owner keeps the lock', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-timeout-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+  const fd = openSync(lockPath, 'w');
+
+  writeFileSync(
+    fd,
+    `${JSON.stringify({ ownerPid: process.pid, ownerHost: 'live-host', reason: 'busy', updatedAt: 'now' })}\n`,
+    'utf8',
+  );
+
+  try {
+    await assert.rejects(
+      () =>
+        withStateFileLock(
+          statePath,
+          {
+            reason: 'contender',
+            timeoutMs: 0,
+          },
+          () => 'never',
+        ),
+      (error: unknown) => {
+        assert.equal(error instanceof StateLockTimeoutError, true);
+        assert.match(String(error), /Timed out after \d+ms acquiring state lock/u);
+        return true;
+      },
+    );
+  } finally {
+    closeSync(fd);
+    unlinkSync(lockPath);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock times out after waiting when a live owner never releases the lock', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-timeout-after-wait-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+  const originalDateNow = Date.now;
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({ ownerPid: process.pid, ownerHost: 'live-host', reason: 'busy', updatedAt: 'now' })}\n`,
+    'utf8',
+  );
+
+  Date.now = () => 1_020;
+  let firstNow = true;
+  Date.now = () => {
+    if (firstNow) {
+      firstNow = false;
+      return 1_000;
+    }
+
+    return 1_020;
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        withStateFileLock(
+          statePath,
+          {
+            reason: 'contender',
+            timeoutMs: 10,
+            pollMs: 1,
+            sleep: async () => {
+              throw new Error('sleep should not run when timeout is already reached');
+            },
+          },
+          () => 'never',
+        ),
+      (error: unknown) => {
+        assert.equal(error instanceof StateLockTimeoutError, true);
+        assert.match(String(error), /Timed out after 20ms acquiring state lock/u);
+        return true;
+      },
+    );
+  } finally {
+    Date.now = originalDateNow;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock rethrows stale lock cleanup failures', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-stale-error-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+
+  writeFileSync(
+    lockPath,
+    `${JSON.stringify({ ownerPid: 999_999_999, ownerHost: 'old-host', reason: 'stale', updatedAt: 'old' })}\n`,
+    'utf8',
+  );
+
+  chmodSync(dir, 0o555);
+
+  try {
+    await assert.rejects(
+      () =>
+        withStateFileLock(
+          statePath,
+          {
+            reason: 'fresh',
+            timeoutMs: 50,
+            pollMs: 10,
+          },
+          () => 'never',
+        ),
+      (error: unknown) => {
+        assert.equal((error as NodeJS.ErrnoException).code, 'EACCES');
+        return true;
+      },
+    );
+  } finally {
+    chmodSync(dir, 0o755);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock logs lock cleanup errors after task completion', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-cleanup-error-'));
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+  const stderrMessages: string[] = [];
+  const originalWrite = process.stderr.write;
+
+  process.stderr.write = ((chunk: unknown) => {
+    stderrMessages.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+
+  try {
+    const result = await withStateFileLock(
+      statePath,
+      {
+        reason: 'cleanup-error',
+      },
+      () => {
+        unlinkSync(lockPath);
+        mkdirSync(lockPath);
+        return 'done';
+      },
+    );
+
+    assert.equal(result, 'done');
+    assert.deepEqual(stderrMessages, [`Failed to remove state lock file: ${lockPath}\n`]);
+  } finally {
+    process.stderr.write = originalWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('withStateFileLock rethrows unexpected acquisition errors', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-open-error-'));
+  const statePath = path.join(dir, `${'x'.repeat(300)}.json`);
+
+  try {
+    await assert.rejects(
+      () =>
+        withStateFileLock(
+          statePath,
+          {
+            reason: 'open-error',
+            timeoutMs: 10,
+          },
+          () => 'never',
+        ),
+      (error: unknown) => {
+        assert.equal((error as NodeJS.ErrnoException).code, 'ENAMETOOLONG');
+        return true;
+      },
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

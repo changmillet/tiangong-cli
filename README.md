@@ -93,3 +93,4 @@ node ./dist/src/main.js doctor --json
 
 - Chinese setup guide: [DEV_CN.md](./DEV_CN.md)
 - Detailed implementation guide: [docs/IMPLEMENTATION_GUIDE_CN.md](./docs/IMPLEMENTATION_GUIDE_CN.md)
+- Skills migration checklist: [docs/SKILLS_TO_CLI_MIGRATION_CHECKLIST_CN.md](./docs/SKILLS_TO_CLI_MIGRATION_CHECKLIST_CN.md)
