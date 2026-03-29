@@ -24,12 +24,14 @@
 - `tiangong search flow`
 - `tiangong search process`
 - `tiangong search lifecyclemodel`
+- `tiangong process get`
 - `tiangong process auto-build`
 - `tiangong process resume-build`
 - `tiangong process publish-build`
 - `tiangong process batch-build`
 - `tiangong lifecyclemodel build-resulting-process`
 - `tiangong lifecyclemodel publish-resulting-process`
+- `tiangong review process`
 - `tiangong publish run`
 - `tiangong validation run`
 - `tiangong admin embedding-run`
@@ -68,13 +70,22 @@ TIANGONG_LCA_API_KEY=
 TIANGONG_LCA_REGION=us-east-1
 ```
 
-不再兼容旧变量名，也不再把 KB、TianGong unstructured service、OpenAI、MCP 相关 env 预先塞进统一 CLI。
+此外，只有在显式启用 `tiangong review process --enable-llm` 时，才会额外使用这一组可选变量：
+
+```bash
+TIANGONG_LCA_LLM_BASE_URL=
+TIANGONG_LCA_LLM_API_KEY=
+TIANGONG_LCA_LLM_MODEL=
+```
+
+不再兼容旧变量名，也不再把 KB、TianGong unstructured service、MCP 相关 env 预先塞进统一 CLI。
 
 原因很直接：
 
 - 当前 CLI 已实现命令只直连 TianGong LCA 的 REST / Edge Functions
+- `review process` 的可选语义审核统一走 `TIANGONG_LCA_LLM_*`，不再使用 `OPENAI_*`
 - `publish run` / `validation run` 只做本地契约和执行收口，不新增远程 env
-- 知识库、OCR、LLM、远程连接目前仍属于 legacy workflow 层（当前主要在 `tiangong-lca-skills`）
+- 知识库、OCR、其余远程连接目前仍属于 legacy workflow 层（当前主要在 `tiangong-lca-skills`）
 - 若未来 CLI 真正落地对应子命令，再按命令面新增 env，而不是提前暴露一整组无实际消费者的配置
 
 命令级 env 现实如下：
@@ -88,6 +99,7 @@ TIANGONG_LCA_REGION=us-east-1
 | `process auto-build | resume-build | publish-build | batch-build` | 无 |
 | `lifecyclemodel build-resulting-process` | 本地运行默认无；若 request 打开 `process_sources.allow_remote_lookup=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY` |
 | `lifecyclemodel publish-resulting-process` | 无 |
+| `review process` | 纯规则 review 默认无；若显式启用 `--enable-llm`，则需要 `TIANGONG_LCA_LLM_BASE_URL`、`TIANGONG_LCA_LLM_API_KEY`、`TIANGONG_LCA_LLM_MODEL` |
 | `publish run` | 无 |
 | `validation run` | 无 |
 
@@ -105,12 +117,13 @@ npm start -- process publish-build --run-id <run-id> --json
 npm start -- process batch-build --input ./examples/process-batch-build.request.json --json
 npm start -- lifecyclemodel build-resulting-process --input ./request.json --json
 npm start -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
+npm start -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
 npm start -- publish run --input ./examples/publish-run.request.json --dry-run
 npm start -- validation run --input-dir ./tidas-package --engine auto
 npm start -- admin embedding-run --input ./jobs.json --dry-run
 ```
 
-## process / publish / validation 边界
+## process / review / publish / validation 边界
 
 `tiangong process get` 现在是统一 CLI 持有的只读 process 详情命令，负责：
 
@@ -177,6 +190,19 @@ npm start -- admin embedding-run --input ./jobs.json --dry-run
 - 不走 MCP，不走语义检索，不改变本地 artifact 契约
 
 也就是说，这个命令现在解决的是“缺 process JSON 时的 deterministic direct-read”，不是把整个 lifecyclemodel build workflow 变成远端编排。
+
+`tiangong review process` 现在也已经进入可执行状态，负责：
+
+- 从 `--run-root` 读取 `exports/processes/*.json`
+- 沿用当前 process review 的平衡核查、基础信息核查、单位疑似问题记录逻辑
+- 输出 `one_flow_rerun_timing.md`
+- 输出 `one_flow_rerun_review_v2_1_zh.md`
+- 输出 `one_flow_rerun_review_v2_1_en.md`
+- 输出 `flow_unit_issue_log.md`
+- 输出 `review_summary_v2_1.json`
+- 输出 `process-review-report.json`
+
+这个命令当前保持本地 artifact-first。若显式传入 `--enable-llm`，则通过 CLI 内部统一的 `TIANGONG_LCA_LLM_*` 运行时做可选语义审核；即使 LLM 失败，也不会影响规则层 review 主流程。
 
 `tiangong publish run` 现在已经成为统一 publish 契约入口，负责：
 

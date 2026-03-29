@@ -40,6 +40,11 @@ import {
   type RunProcessPublishBuildOptions,
 } from './lib/process-publish-build.js';
 import { runPublish, type PublishReport, type RunPublishOptions } from './lib/publish.js';
+import {
+  runProcessReview,
+  type ProcessReviewReport,
+  type RunProcessReviewOptions,
+} from './lib/review-process.js';
 import { executeRemoteCommand, getRemoteCommandHelp } from './lib/remote.js';
 import {
   runValidation,
@@ -72,6 +77,7 @@ export type CliDeps = {
   runProcessPublishBuildImpl?: (
     options: RunProcessPublishBuildOptions,
   ) => Promise<ProcessPublishBuildReport>;
+  runProcessReviewImpl?: (options: RunProcessReviewOptions) => Promise<ProcessReviewReport>;
 };
 
 export type CliResult = {
@@ -105,6 +111,7 @@ Implemented Commands:
   search     flow | process | lifecyclemodel
   process    get | auto-build | resume-build | publish-build | batch-build
   lifecyclemodel build-resulting-process | publish-resulting-process
+  review     process
   publish    run
   validation run
   admin      embedding-run
@@ -112,7 +119,7 @@ Implemented Commands:
 Planned Surface (not implemented yet):
   auth       whoami | doctor-auth
   lifecyclemodel auto-build | validate-build | publish-build
-  review     flow | process
+  review     flow | lifecyclemodel
   flow       get | list | remediate | publish-version | regen-product
   job        get | wait | logs
 
@@ -127,6 +134,7 @@ Examples:
   tiangong process resume-build --run-id <id>
   tiangong process publish-build --run-id <id>
   tiangong process batch-build --input ./batch-request.json
+  tiangong review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review
   tiangong publish run --input ./publish-request.json --dry-run
   tiangong validation run --input-dir ./package --engine auto
   tiangong admin embedding-run --input ./jobs.json
@@ -200,6 +208,44 @@ Options:
   --engine <mode>      auto | sdk | tools | all (default: auto)
   --report-file <file> Write the structured validation report to a file
   --json               Print compact JSON
+  -h, --help
+`.trim();
+}
+
+function renderReviewHelp(): string {
+  return `Usage:
+  tiangong review <subcommand> [options]
+
+Implemented Subcommands:
+  process      Review one local process build run and emit artifact-first findings
+
+Planned Subcommands:
+  flow           Review flow governance artifacts through the unified CLI
+  lifecyclemodel Review lifecycle model build artifacts through the unified CLI
+
+Examples:
+  tiangong review --help
+  tiangong review process --help
+  tiangong review flow --help
+  tiangong review lifecyclemodel --help
+`.trim();
+}
+
+function renderReviewProcessHelp(): string {
+  return `Usage:
+  tiangong review process --run-root <dir> --run-id <id> --out-dir <dir> [options]
+
+Options:
+  --run-root <dir>          Process build run root containing exports/processes
+  --run-id <id>             Process build run identifier
+  --out-dir <dir>           Review artifact output directory
+  --start-ts <iso>          Optional run start timestamp
+  --end-ts <iso>            Optional run end timestamp
+  --logic-version <name>    Review logic version label (default: v2.1)
+  --enable-llm              Enable optional semantic review via the CLI LLM client
+  --llm-model <name>        Override TIANGONG_LCA_LLM_MODEL for this command
+  --llm-max-processes <n>   Cap how many process summaries are sent to the LLM (default: 8)
+  --json                    Print compact JSON
   -h, --help
 `.trim();
 }
@@ -377,12 +423,42 @@ Status:
 `.trim(),
 } as const;
 
+const reviewPlannedHelp = {
+  flow: `Usage:
+  tiangong review flow --input <file> [options]
+
+Planned contract:
+  - load one local flow governance subject or run bundle
+  - emit artifact-first review findings and remediation handoff
+  - remove direct MCP / OpenAI logic from skill wrappers
+
+Status:
+  Planned command. Execution is not implemented yet.
+`.trim(),
+  lifecyclemodel: `Usage:
+  tiangong review lifecyclemodel --input <file> [options]
+
+Planned contract:
+  - load one lifecycle model build run or normalized review request
+  - emit artifact-first lifecycle model review findings and handoff metadata
+  - keep semantic review behind the CLI LLM abstraction instead of skill-local logic
+
+Status:
+  Planned command. Execution is not implemented yet.
+`.trim(),
+} as const;
+
 type LifecyclemodelPlannedSubcommand = keyof typeof lifecyclemodelPlannedHelp;
+type ReviewPlannedSubcommand = keyof typeof reviewPlannedHelp;
 
 function isLifecyclemodelPlannedSubcommand(
   value: string | null,
 ): value is LifecyclemodelPlannedSubcommand {
   return Boolean(value && value in lifecyclemodelPlannedHelp);
+}
+
+function isReviewPlannedSubcommand(value: string | null): value is ReviewPlannedSubcommand {
+  return Boolean(value && value in reviewPlannedHelp);
 }
 
 function renderDoctorText(report: ReturnType<typeof buildDoctorReport>): string {
@@ -632,6 +708,76 @@ function parseValidationFlags(args: string[]): {
     inputDir: typeof values['input-dir'] === 'string' ? values['input-dir'] : '',
     engine: typeof values.engine === 'string' ? values.engine : undefined,
     reportFile: typeof values['report-file'] === 'string' ? values['report-file'] : null,
+  };
+}
+
+function parseReviewProcessFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  runRoot: string;
+  runId: string;
+  outDir: string;
+  startTs: string | undefined;
+  endTs: string | undefined;
+  logicVersion: string | undefined;
+  enableLlm: boolean;
+  llmModel: string | undefined;
+  llmMaxProcesses: number | undefined;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'run-root': { type: 'string' },
+        'run-id': { type: 'string' },
+        'out-dir': { type: 'string' },
+        'start-ts': { type: 'string' },
+        'end-ts': { type: 'string' },
+        'logic-version': { type: 'string' },
+        'enable-llm': { type: 'boolean' },
+        'llm-model': { type: 'string' },
+        'llm-max-processes': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const llmMaxProcessesValue =
+    typeof values['llm-max-processes'] === 'string'
+      ? Number.parseInt(values['llm-max-processes'], 10)
+      : undefined;
+
+  if (
+    values['llm-max-processes'] !== undefined &&
+    (!Number.isInteger(llmMaxProcessesValue) || (llmMaxProcessesValue as number) <= 0)
+  ) {
+    throw new CliError('Expected --llm-max-processes to be a positive integer.', {
+      code: 'INVALID_LLM_MAX_PROCESSES',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    runRoot: typeof values['run-root'] === 'string' ? values['run-root'] : '',
+    runId: typeof values['run-id'] === 'string' ? values['run-id'] : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    startTs: typeof values['start-ts'] === 'string' ? values['start-ts'] : undefined,
+    endTs: typeof values['end-ts'] === 'string' ? values['end-ts'] : undefined,
+    logicVersion: typeof values['logic-version'] === 'string' ? values['logic-version'] : undefined,
+    enableLlm: Boolean(values['enable-llm']),
+    llmModel: typeof values['llm-model'] === 'string' ? values['llm-model'] : undefined,
+    llmMaxProcesses: llmMaxProcessesValue,
   };
 }
 
@@ -912,6 +1058,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const processBatchBuildImpl = deps.runProcessBatchBuildImpl ?? runProcessBatchBuild;
     const processResumeBuildImpl = deps.runProcessResumeBuildImpl ?? runProcessResumeBuild;
     const processPublishBuildImpl = deps.runProcessPublishBuildImpl ?? runProcessPublishBuild;
+    const processReviewImpl = deps.runProcessReviewImpl ?? runProcessReview;
 
     if (flags.version) {
       return { exitCode: 0, stdout: '0.0.1\n', stderr: '' };
@@ -1217,6 +1364,48 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         stdout: stringifyJson(report, validationFlags.json),
         stderr: '',
       };
+    }
+
+    if (command === 'review' && !subcommand) {
+      return { exitCode: 0, stdout: `${renderReviewHelp()}\n`, stderr: '' };
+    }
+
+    if (command === 'review' && subcommand === 'process') {
+      const reviewFlags = parseReviewProcessFlags(commandArgs);
+      if (reviewFlags.help) {
+        return { exitCode: 0, stdout: `${renderReviewProcessHelp()}\n`, stderr: '' };
+      }
+
+      const report = await processReviewImpl({
+        runRoot: reviewFlags.runRoot,
+        runId: reviewFlags.runId,
+        outDir: reviewFlags.outDir,
+        startTs: reviewFlags.startTs,
+        endTs: reviewFlags.endTs,
+        logicVersion: reviewFlags.logicVersion,
+        enableLlm: reviewFlags.enableLlm,
+        llmModel: reviewFlags.llmModel,
+        llmMaxProcesses: reviewFlags.llmMaxProcesses,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode: 0,
+        stdout: stringifyJson(report, reviewFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'review' && isReviewPlannedSubcommand(subcommand)) {
+      if (commandArgs.includes('--help') || commandArgs.includes('-h')) {
+        return {
+          exitCode: 0,
+          stdout: `${reviewPlannedHelp[subcommand]}\n`,
+          stderr: '',
+        };
+      }
+      return plannedCommand(command, subcommand);
     }
 
     return plannedCommand(command, subcommand ?? undefined);

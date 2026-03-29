@@ -46,6 +46,8 @@ tiangong
   lifecyclemodel
     build-resulting-process
     publish-resulting-process
+  review
+    process
   publish
     run
   validation
@@ -69,6 +71,7 @@ tiangong
 | `tiangong process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
 | `tiangong lifecyclemodel build-resulting-process` | 本地 lifecycle model resulting process 聚合、内部 flow 抵消、artifact 输出 |
 | `tiangong lifecyclemodel publish-resulting-process` | 读取 resulting-process run，生成 `publish-bundle.json` / `publish-intent.json` 本地交付物 |
+| `tiangong review process` | 本地 process review、artifact-first 报告输出、可选 CLI LLM 语义审核 |
 | `tiangong publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出 |
 | `tiangong validation run` | 本地 `tidas-sdk` / `tidas-tools` 校验收口 |
 | `tiangong admin embedding-run` | `embedding_ft` |
@@ -78,6 +81,12 @@ tiangong
 - `tiangong lifecyclemodel build-resulting-process` 已可执行
 - `tiangong lifecyclemodel publish-resulting-process` 已可执行
 - `auto-build`、`validate-build`、`publish-build` 仍处于 planned 状态
+
+`tiangong review ...` 也已经开始进入统一命令树，其中：
+
+- `tiangong review process` 已可执行
+- `tiangong review flow` 处于 planned 状态
+- `tiangong review lifecyclemodel` 处于 planned 状态
 
 `tiangong process ...` 也已经开始承接 `process_from_flow` 主链迁移，其中：
 
@@ -101,6 +110,7 @@ tiangong
 - 已实现的 `build-resulting-process` 和 `publish-resulting-process` 都走本地优先、artifact-first 路径，不依赖 Python 或 MCP
 - `build-resulting-process` 现在还支持一个显式的 deterministic direct-read 补全路径：当 request 打开 `process_sources.allow_remote_lookup=true` 时，CLI 会从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase REST 路径，按 `process_id/version` 直接补齐缺失的 process dataset
 - `publish-resulting-process` 当前负责生成本地 publish handoff 产物，还没有把提交语义直接并入 `publish run`
+- 已实现的 `review process` 保留本地 artifact-first review contract，把规则核查、报告输出和可选 LLM 语义审核统一收口到 CLI；语义审核只使用 `TIANGONG_LCA_LLM_*`，不再透出 `OPENAI_*`
 - 其余未实现的 `lifecyclemodel` / `process` 子命令仍只提供 help 和固定命名
 - 这样做的目的不是“假装已完成”，而是先固定命令树，再逐个把 workflow 迁入 TypeScript CLI
 
@@ -202,7 +212,7 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 
 而不是长自然语言参数和不稳定的 shell 拼接。
 
-### 4.4 process / publish / validation 的当前边界
+### 4.4 process / review / publish / validation 的当前边界
 
 `process auto-build` 现在固定的是“本地 process-from-flow intake 与 scaffold 契约层”。
 
@@ -279,6 +289,22 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 - 并发调度、daemon、远端 CRUD、历史 Python orchestrator 复刻
 - `process get`
 
+`review process` 现在固定的是“本地 process review 契约层”。
+
+它负责：
+
+- 从 `--run-root` 读取 `exports/processes/*.json`
+- 延续现有 v2.1 review 规则做基础信息核查、物料平衡核查和单位疑似问题记录
+- 写出中英文 markdown review、timing、unit issue log、summary 和 report
+- 在显式启用 `--enable-llm` 时，通过 CLI 的 `TIANGONG_LCA_LLM_*` 运行时做可选语义审核
+
+它现在还不负责：
+
+- flow governance review
+- lifecycle model review
+- 远端 remediation / publish
+- 任何 skill 私有的 `OPENAI_*` 调用路径
+
 `publish run` 现在固定的是“稳定 publish 契约层”，不是历史 MCP 写库脚本的 TypeScript 复刻。
 
 它负责：
@@ -315,6 +341,14 @@ TIANGONG_LCA_API_KEY=
 TIANGONG_LCA_REGION=us-east-1
 ```
 
+当前已落地命令额外还会按需使用：
+
+```bash
+TIANGONG_LCA_LLM_BASE_URL=
+TIANGONG_LCA_LLM_API_KEY=
+TIANGONG_LCA_LLM_MODEL=
+```
+
 这就是当前 CLI 的完整 env 面。
 
 规则是：
@@ -322,6 +356,7 @@ TIANGONG_LCA_REGION=us-east-1
 - 只为当前已实现的命令暴露 env
 - 不为了历史实现或未来猜测保留 alias
 - 某类能力如果还停留在 skills / Python workflow 层，就继续由那一层自己管理 env
+- `review process` 的可选语义审核统一走 `TIANGONG_LCA_LLM_*`，不再引入 `OPENAI_*`
 - `publish run` / `validation run` 都是本地契约与执行收口，不新增远程 env
 - 因此当前不预放 `TIANGONG_KB_*`、`TIANGONG_MINERU_*`、`OPENAI_*` 或 `TIANGONG_LCA_REMOTE_*`
 
@@ -336,6 +371,7 @@ TIANGONG_LCA_REGION=us-east-1
 | `process auto-build | resume-build | publish-build | batch-build` | 无 |
 | `lifecyclemodel build-resulting-process` | 本地运行默认无；若 request 开启 `process_sources.allow_remote_lookup=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY` |
 | `lifecyclemodel publish-resulting-process` | 无 |
+| `review process` | 纯规则 review 默认无；若显式开启 `--enable-llm`，则需要 `TIANGONG_LCA_LLM_BASE_URL`、`TIANGONG_LCA_LLM_API_KEY`、`TIANGONG_LCA_LLM_MODEL` |
 | `publish run` | 无 |
 | `validation run` | 无 |
 
@@ -397,6 +433,8 @@ npm run prepush:gate
   - 已落地 `tiangong process publish-build`
   - 已落地 `tiangong process batch-build`
 - `lifecycleinventory-review`
+  - 已落地 `tiangong review process`
+  - `review lifecyclemodel` 仍处于 planned 状态
 - 其他重型 Python workflow
 
 更合理的路径是：

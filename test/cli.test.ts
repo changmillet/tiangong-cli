@@ -41,6 +41,7 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /process\s+auto-build/u);
   assert.match(result.stdout, /lifecyclemodel build-resulting-process/u);
   assert.match(result.stdout, /publish-resulting-process/u);
+  assert.match(result.stdout, /review\s+process/u);
   assert.match(result.stdout, /exit with code 2/u);
   assert.equal(result.stderr, '');
 });
@@ -130,6 +131,10 @@ test('executeCli returns help for publish and validation namespaces', async () =
   const validationHelp = await executeCli(['validation', '--help'], makeDeps());
   assert.equal(validationHelp.exitCode, 0);
   assert.match(validationHelp.stdout, /tiangong validation run/u);
+
+  const reviewHelp = await executeCli(['review', '--help'], makeDeps());
+  assert.equal(reviewHelp.exitCode, 0);
+  assert.match(reviewHelp.stdout, /tiangong review <subcommand>/u);
 });
 
 test('executeCli returns help for publish and validation subcommands', async () => {
@@ -140,6 +145,14 @@ test('executeCli returns help for publish and validation subcommands', async () 
   const validationHelp = await executeCli(['validation', 'run', '--help'], makeDeps());
   assert.equal(validationHelp.exitCode, 0);
   assert.match(validationHelp.stdout, /--report-file/u);
+
+  const reviewHelp = await executeCli(['review', 'process', '--help'], makeDeps());
+  assert.equal(reviewHelp.exitCode, 0);
+  assert.match(
+    reviewHelp.stdout,
+    /tiangong review process --run-root <dir> --run-id <id> --out-dir <dir>/u,
+  );
+  assert.match(reviewHelp.stdout, /--enable-llm/u);
 });
 
 test('executeCli returns group help for search and admin namespaces', async () => {
@@ -1115,6 +1128,28 @@ test('executeCli returns parsing errors for invalid publish and validation flags
   const validationResult = await executeCli(['validation', 'run', '--bad-flag'], makeDeps());
   assert.equal(validationResult.exitCode, 2);
   assert.match(validationResult.stderr, /INVALID_ARGS/u);
+
+  const reviewFlagResult = await executeCli(['review', 'process', '--bad-flag'], makeDeps());
+  assert.equal(reviewFlagResult.exitCode, 2);
+  assert.match(reviewFlagResult.stderr, /INVALID_ARGS/u);
+
+  const reviewResult = await executeCli(
+    [
+      'review',
+      'process',
+      '--run-root',
+      '/tmp/run',
+      '--run-id',
+      'run',
+      '--out-dir',
+      '/tmp/out',
+      '--llm-max-processes',
+      '0',
+    ],
+    makeDeps(),
+  );
+  assert.equal(reviewResult.exitCode, 2);
+  assert.match(reviewResult.stderr, /INVALID_LLM_MAX_PROCESSES/u);
 });
 
 test('executeCli returns parsing errors for invalid lifecyclemodel build, process get/build, resume, publish-build, and batch-build flags', async () => {
@@ -1218,6 +1253,149 @@ test('executeCli executes validation run with injected implementation and report
   }
 });
 
+test('executeCli executes review process with injected implementation', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-review-cli-'));
+
+  try {
+    const result = await executeCli(
+      [
+        'review',
+        'process',
+        '--run-root',
+        path.join(dir, 'run-root'),
+        '--run-id',
+        'run-001',
+        '--out-dir',
+        path.join(dir, 'review'),
+        '--start-ts',
+        '2026-03-30T00:00:00.000Z',
+        '--end-ts',
+        '2026-03-30T00:05:00.000Z',
+        '--logic-version',
+        'v2.2',
+        '--enable-llm',
+        '--llm-model',
+        'gpt-5.4',
+        '--llm-max-processes',
+        '4',
+      ],
+      {
+        ...makeDeps(),
+        runProcessReviewImpl: async (options) => {
+          assert.equal(options.startTs, '2026-03-30T00:00:00.000Z');
+          assert.equal(options.endTs, '2026-03-30T00:05:00.000Z');
+          assert.equal(options.logicVersion, 'v2.2');
+          assert.equal(options.llmModel, 'gpt-5.4');
+          assert.equal(options.llmMaxProcesses, 4);
+          return {
+            schema_version: 1,
+            generated_at_utc: '2026-03-30T00:00:00.000Z',
+            status: 'completed_local_process_review',
+            run_id: options.runId,
+            run_root: options.runRoot,
+            out_dir: options.outDir,
+            logic_version: options.logicVersion ?? 'v2.1',
+            process_count: 1,
+            totals: {
+              raw_input: 1,
+              product_plus_byproduct_plus_waste: 1,
+              delta: 0,
+              relative_deviation: 0,
+              energy_excluded: 0,
+            },
+            files: {
+              review_zh: path.join(dir, 'review', 'zh.md'),
+              review_en: path.join(dir, 'review', 'en.md'),
+              timing: path.join(dir, 'review', 'timing.md'),
+              unit_issue_log: path.join(dir, 'review', 'unit.md'),
+              summary: path.join(dir, 'review', 'summary.json'),
+              report: path.join(dir, 'review', 'report.json'),
+            },
+            llm: {
+              enabled: true,
+              ok: true,
+              result: {
+                findings: [],
+              },
+            },
+          };
+        },
+      },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /"status": "completed_local_process_review"/u);
+    assert.match(result.stdout, /"run_id": "run-001"/u);
+    assert.match(result.stdout, /"logic_version": "v2\.2"/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('executeCli executes review process with only required flags', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-review-cli-required-'));
+
+  try {
+    const result = await executeCli(
+      [
+        'review',
+        'process',
+        '--run-root',
+        path.join(dir, 'run-root'),
+        '--run-id',
+        'run-required',
+        '--out-dir',
+        path.join(dir, 'review'),
+      ],
+      {
+        ...makeDeps(),
+        runProcessReviewImpl: async (options) => {
+          assert.equal(options.startTs, undefined);
+          assert.equal(options.endTs, undefined);
+          assert.equal(options.logicVersion, undefined);
+          assert.equal(options.enableLlm, false);
+          assert.equal(options.llmModel, undefined);
+          assert.equal(options.llmMaxProcesses, undefined);
+          return {
+            schema_version: 1,
+            generated_at_utc: '2026-03-30T00:00:00.000Z',
+            status: 'completed_local_process_review',
+            run_id: options.runId,
+            run_root: options.runRoot,
+            out_dir: options.outDir,
+            logic_version: 'v2.1',
+            process_count: 0,
+            totals: {
+              raw_input: 0,
+              product_plus_byproduct_plus_waste: 0,
+              delta: 0,
+              relative_deviation: null,
+              energy_excluded: 0,
+            },
+            files: {
+              review_zh: path.join(dir, 'review', 'zh.md'),
+              review_en: path.join(dir, 'review', 'en.md'),
+              timing: path.join(dir, 'review', 'timing.md'),
+              unit_issue_log: path.join(dir, 'review', 'unit.md'),
+              summary: path.join(dir, 'review', 'summary.json'),
+              report: path.join(dir, 'review', 'report.json'),
+            },
+            llm: {
+              enabled: false,
+              reason: 'disabled',
+            },
+          };
+        },
+      },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /"run_id": "run-required"/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('executeCli returns success for validation reports that are ok', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-validation-cli-ok-'));
 
@@ -1285,6 +1463,31 @@ test('executeCli returns planned command message for lifecyclemodel subcommands 
   assert.equal(result.exitCode, 2);
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /Command 'lifecyclemodel auto-build'/u);
+});
+
+test('executeCli returns planned command message and dedicated help for review flow and lifecyclemodel', async () => {
+  const flowResult = await executeCli(['review', 'flow'], makeDeps());
+  assert.equal(flowResult.exitCode, 2);
+  assert.equal(flowResult.stdout, '');
+  assert.match(flowResult.stderr, /Command 'review flow'/u);
+
+  const flowHelpResult = await executeCli(['review', 'flow', '--help'], makeDeps());
+  assert.equal(flowHelpResult.exitCode, 0);
+  assert.match(flowHelpResult.stdout, /Planned contract:/u);
+  assert.match(flowHelpResult.stdout, /flow governance/u);
+
+  const lifecyclemodelResult = await executeCli(['review', 'lifecyclemodel'], makeDeps());
+  assert.equal(lifecyclemodelResult.exitCode, 2);
+  assert.equal(lifecyclemodelResult.stdout, '');
+  assert.match(lifecyclemodelResult.stderr, /Command 'review lifecyclemodel'/u);
+
+  const lifecyclemodelHelpResult = await executeCli(
+    ['review', 'lifecyclemodel', '--help'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelHelpResult.exitCode, 0);
+  assert.match(lifecyclemodelHelpResult.stdout, /Planned contract:/u);
+  assert.match(lifecyclemodelHelpResult.stdout, /lifecycle model build run/u);
 });
 
 test('executeCli returns planned command message for other unimplemented process subcommands', async () => {

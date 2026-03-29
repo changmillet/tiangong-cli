@@ -33,6 +33,7 @@ This prevents reintroducing a generic MCP transport layer into the CLI runtime.
 - `tiangong process batch-build`
 - `tiangong lifecyclemodel build-resulting-process`
 - `tiangong lifecyclemodel publish-resulting-process`
+- `tiangong review process`
 - `tiangong publish run`
 - `tiangong validation run`
 - `tiangong admin embedding-run`
@@ -44,6 +45,8 @@ The `lifecyclemodel` and `process` namespaces are now partially implemented. The
 - `tiangong lifecyclemodel auto-build`
 - `tiangong lifecyclemodel validate-build`
 - `tiangong lifecyclemodel publish-build`
+- `tiangong review flow`
+- `tiangong review lifecyclemodel`
 
 These remaining commands are intentionally not executable yet. They print an explicit `not implemented yet` message and exit with code `2` until the corresponding workflows are migrated into TypeScript.
 
@@ -90,6 +93,14 @@ TIANGONG_LCA_API_KEY=
 TIANGONG_LCA_REGION=us-east-1
 ```
 
+Optional env that only applies to implemented commands which opt into semantic review:
+
+```bash
+TIANGONG_LCA_LLM_BASE_URL=
+TIANGONG_LCA_LLM_API_KEY=
+TIANGONG_LCA_LLM_MODEL=
+```
+
 Command-level env reality:
 
 | Command group | Required env |
@@ -104,10 +115,11 @@ Command-level env reality:
 | `process batch-build` | none |
 | `lifecyclemodel build-resulting-process` | none for local-only runs; `TIANGONG_LCA_API_BASE_URL` and `TIANGONG_LCA_API_KEY` when `process_sources.allow_remote_lookup=true` |
 | `lifecyclemodel publish-resulting-process` | none |
+| `review process` | none for rule-only review; optional `TIANGONG_LCA_LLM_BASE_URL`, `TIANGONG_LCA_LLM_API_KEY`, and `TIANGONG_LCA_LLM_MODEL` when `--enable-llm` is set |
 | `publish run` | none |
 | `validation run` | none |
 
-This CLI does not currently require KB, TianGong unstructured service, MCP, or OpenAI env keys. Those remain legacy workflow concerns until the corresponding subcommands are implemented in this repository.
+This CLI does not currently require KB, TianGong unstructured service, MCP, or `OPENAI_*` env keys. Optional semantic review now goes through the canonical `TIANGONG_LCA_LLM_*` keys instead of legacy provider-specific names.
 
 Run the CLI:
 
@@ -123,6 +135,7 @@ npm start -- process publish-build --run-id <run-id> --json
 npm start -- process batch-build --input ./examples/process-batch-build.request.json --json
 npm start -- lifecyclemodel build-resulting-process --input ./request.json --json
 npm start -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
+npm start -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
 npm start -- publish run --input ./examples/publish-run.request.json --dry-run
 npm start -- validation run --input-dir ./tidas-package --engine auto
 npm start -- admin embedding-run --input ./jobs.json --dry-run
@@ -145,6 +158,8 @@ The command keeps the legacy per-run layout that later stages still expect, incl
 `resume-build`, `publish-build`, and `batch-build` all still stop at local handoff boundaries. They do not execute remote publish CRUD or commit mode themselves; that boundary remains in `tiangong publish run`.
 
 `tiangong lifecyclemodel build-resulting-process` remains local-first, but it no longer hard-fails when a request explicitly enables `process_sources.allow_remote_lookup`. In that mode the CLI derives a deterministic Supabase REST read path from `TIANGONG_LCA_API_BASE_URL`, resolves missing process datasets by exact `id/version` with a latest-version fallback, and keeps the same local artifact contract instead of routing through MCP or semantic search.
+
+`tiangong review process` is the first migrated review slice. It reopens one local `process_from_flow` run under `exports/processes/`, replays the existing artifact-first review contract, writes bilingual markdown findings plus structured JSON reports, and keeps optional semantic review behind the CLI-owned `TIANGONG_LCA_LLM_*` abstraction instead of direct `OPENAI_*` calls in a skill script.
 
 ## Publish and validation
 
