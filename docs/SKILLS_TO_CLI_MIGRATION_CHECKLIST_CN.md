@@ -71,7 +71,7 @@
 | `embedding-ft` | 已有等价 CLI | shell wrapper | 只保留 skill 文档，调用 `tiangong admin embedding-run` | P0 |
 | `process-automated-builder` | 仍是重 workflow | shell + Python + LangGraph + MCP + OpenAI + AI edge search + TianGong unstructured | 迁成 `tiangong process ...` 主链 | P1 |
 | `lifecyclemodel-automated-builder` | 仍是重 workflow | shell + Python + MCP + OpenAI | 迁成 `tiangong lifecyclemodel ...` 主链 | P1 |
-| `lifecyclemodel-resulting-process-builder` | CLI 本地 build 已落地，skill 仍未切换 | Python builder + 可选 MCP lookup | 迁成 `skill -> tiangong lifecyclemodel build/publish-resulting-process` | P1 |
+| `lifecyclemodel-resulting-process-builder` | CLI 本地 build/publish handoff 已落地，skill 仍未切换 | Python builder + 可选 MCP lookup | 迁成 `skill -> tiangong lifecyclemodel build/publish-resulting-process` | P1 |
 | `lifecycleinventory-review` | 仍是 review workflow | Python review script | 迁成 `tiangong review process` | P2 |
 | `flow-governance-review` | 仍是治理 workflow | shell + 多个 Python helper + 可选 MCP | 迁成 `tiangong flow ...` / `tiangong review flow` | P2 |
 | `lifecyclemodel-recursive-orchestrator` | 仍是 orchestrator | Python orchestrator，串联多个技能 | 迁成 CLI 编排命令 | P3 |
@@ -200,18 +200,20 @@ ToDo：
 当前状态：
 
 - `tiangong lifecyclemodel build-resulting-process` 已在 CLI 中落地，且通过 `npm run prepush:gate`
-- 仍未完成 `publish-resulting-process`、skill wrapper 收口、旧 Python 主入口删除
+- `tiangong lifecyclemodel publish-resulting-process` 已在 CLI 中落地，且通过 `npm run prepush:gate`
+- 仍未完成 skill wrapper 收口、旧 Python 主入口删除、远程 lookup 收口
 
 目标命令：
 
 - [x] `tiangong lifecyclemodel build-resulting-process`
-- [ ] `tiangong lifecyclemodel publish-resulting-process`
+- [x] `tiangong lifecyclemodel publish-resulting-process`
 
 ToDo：
 
 - [x] 在 CLI 中补齐 `lifecyclemodel` 顶层命名空间
 - [x] 将 lifecycle model 读取、拓扑解析、聚合投影逻辑迁到 TS
 - [x] 将 process catalog / local run 解析改为复用 CLI 模块
+- [x] 将 resulting-process publish handoff 生成迁到 TS CLI
 - [ ] 将远程 process lookup 从可选 MCP lookup 改为直接 REST 查询
 - [ ] 保留 `publish-bundle.json` 契约，但发布入口统一走 CLI publish
 - [ ] skill wrapper 改为只调用 CLI
@@ -429,13 +431,13 @@ ToDo：
 
 如果只按最短路径推进，下一轮建议严格做这 8 件事：
 
-当前已完成：1-4。
+当前已完成：1-5。
 
 1. 修 CLI help，让命令面和真实实现一致。
 2. 修 skills 文档中的 `TIANGONG_CLI_DIR` 残留。
 3. 正式引入 `tiangong lifecyclemodel ...` 命名空间。
 4. 先完成 `tiangong lifecyclemodel build-resulting-process`。
-5. 再完成 `tiangong lifecyclemodel publish-resulting-process`。
+5. 完成 `tiangong lifecyclemodel publish-resulting-process`。
 6. 把 `lifecyclemodel-resulting-process-builder` 改成薄 wrapper。
 7. 把 `lca-publish-executor` 收口到 `tiangong publish run`。
 8. 再进入 `tiangong process auto-build` 主链迁移。
