@@ -32,6 +32,7 @@ tiangong
     lifecyclemodel
   lifecyclemodel
     build-resulting-process
+    publish-resulting-process
   publish
     run
   validation
@@ -49,6 +50,7 @@ tiangong
 | `tiangong search process` | `process_hybrid_search` |
 | `tiangong search lifecyclemodel` | `lifecyclemodel_hybrid_search` |
 | `tiangong lifecyclemodel build-resulting-process` | 本地 lifecycle model resulting process 聚合、内部 flow 抵消、artifact 输出 |
+| `tiangong lifecyclemodel publish-resulting-process` | 读取 resulting-process run，生成 `publish-bundle.json` / `publish-intent.json` 本地交付物 |
 | `tiangong publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出 |
 | `tiangong validation run` | 本地 `tidas-sdk` / `tidas-tools` 校验收口 |
 | `tiangong admin embedding-run` | `embedding_ft` |
@@ -56,11 +58,13 @@ tiangong
 此外，CLI 现在已经正式引入 `tiangong lifecyclemodel ...` 一级命名空间，其中：
 
 - `tiangong lifecyclemodel build-resulting-process` 已可执行
-- `publish-resulting-process`、`auto-build`、`validate-build`、`publish-build` 仍处于 planned 状态
+- `tiangong lifecyclemodel publish-resulting-process` 已可执行
+- `auto-build`、`validate-build`、`publish-build` 仍处于 planned 状态
 
 注意：
 
-- 已实现的 `build-resulting-process` 走本地优先、artifact-first 路径，不依赖 Python 或 MCP
+- 已实现的 `build-resulting-process` 和 `publish-resulting-process` 都走本地优先、artifact-first 路径，不依赖 Python 或 MCP
+- `publish-resulting-process` 当前负责生成本地 publish handoff 产物，还没有把提交语义直接并入 `publish run`
 - 其余未实现的 `lifecyclemodel` 子命令仍只提供 help 和固定命名
 - 这样做的目的不是“假装已完成”，而是先固定命令树，再逐个把 workflow 迁入 TypeScript CLI
 

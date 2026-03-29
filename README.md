@@ -18,6 +18,7 @@ Current implementation choices:
 - `tiangong search process`
 - `tiangong search lifecyclemodel`
 - `tiangong lifecyclemodel build-resulting-process`
+- `tiangong lifecyclemodel publish-resulting-process`
 - `tiangong publish run`
 - `tiangong validation run`
 - `tiangong admin embedding-run`
@@ -26,7 +27,6 @@ Current implementation choices:
 
 The `lifecyclemodel` namespace is now partially implemented. The remaining planned surface is:
 
-- `tiangong lifecyclemodel publish-resulting-process`
 - `tiangong lifecyclemodel auto-build`
 - `tiangong lifecyclemodel validate-build`
 - `tiangong lifecyclemodel publish-build`
@@ -86,12 +86,15 @@ npm start -- doctor
 npm start -- doctor --json
 npm start -- search flow --input ./request.json --dry-run
 npm start -- lifecyclemodel build-resulting-process --input ./request.json --json
+npm start -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
 npm start -- publish run --input ./publish-request.json --dry-run
 npm start -- validation run --input-dir ./tidas-package --engine auto
 npm start -- admin embedding-run --input ./jobs.json --dry-run
 ```
 
 ## Publish and validation
+
+`tiangong lifecyclemodel publish-resulting-process` is the lifecyclemodel-side local publish handoff command. It reads a prior resulting-process run, writes `publish-bundle.json` and `publish-intent.json`, and preserves the old builder's artifact contract without reintroducing Python or MCP into the CLI.
 
 `tiangong publish run` is the CLI-side publish contract boundary. It normalizes publish requests, ingests upstream `publish-bundle.json` inputs, writes `normalized-request.json`, `collected-inputs.json`, `relation-manifest.json`, and `publish-report.json`, and keeps commit-mode execution behind explicit executors instead of reintroducing MCP-specific logic into the CLI.
 

@@ -38,6 +38,7 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /Implemented Commands:/u);
   assert.match(result.stdout, /Planned Surface \(not implemented yet\):/u);
   assert.match(result.stdout, /lifecyclemodel build-resulting-process/u);
+  assert.match(result.stdout, /publish-resulting-process/u);
   assert.match(result.stdout, /exit with code 2/u);
   assert.equal(result.stderr, '');
 });
@@ -149,11 +150,12 @@ test('executeCli returns group help for search and admin namespaces', async () =
   assert.match(adminHelp.stdout, /tiangong admin embedding-run/u);
 });
 
-test('executeCli returns help for the lifecyclemodel namespace and planned subcommands', async () => {
+test('executeCli returns help for the lifecyclemodel namespace and implemented subcommands', async () => {
   const lifecyclemodelHelp = await executeCli(['lifecyclemodel'], makeDeps());
   assert.equal(lifecyclemodelHelp.exitCode, 0);
   assert.match(lifecyclemodelHelp.stdout, /tiangong lifecyclemodel <subcommand>/u);
   assert.match(lifecyclemodelHelp.stdout, /build-resulting-process/u);
+  assert.match(lifecyclemodelHelp.stdout, /publish-resulting-process/u);
 
   const buildHelp = await executeCli(
     ['lifecyclemodel', 'build-resulting-process', '--help'],
@@ -162,6 +164,18 @@ test('executeCli returns help for the lifecyclemodel namespace and planned subco
   assert.equal(buildHelp.exitCode, 0);
   assert.match(buildHelp.stdout, /tiangong lifecyclemodel build-resulting-process --input <file>/u);
   assert.doesNotMatch(buildHelp.stdout, /Planned command/u);
+
+  const publishHelp = await executeCli(
+    ['lifecyclemodel', 'publish-resulting-process', '--help'],
+    makeDeps(),
+  );
+  assert.equal(publishHelp.exitCode, 0);
+  assert.match(
+    publishHelp.stdout,
+    /tiangong lifecyclemodel publish-resulting-process --run-dir <dir>/u,
+  );
+  assert.match(publishHelp.stdout, /--publish-processes/u);
+  assert.doesNotMatch(publishHelp.stdout, /Planned command/u);
 });
 
 test('executeCli executes lifecyclemodel build-resulting-process with injected implementation', async () => {
@@ -216,6 +230,57 @@ test('executeCli executes lifecyclemodel build-resulting-process with injected i
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /"status":"prepared_local_bundle"/u);
     assert.match(result.stdout, /"process_projection_bundle"/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('executeCli executes lifecyclemodel publish-resulting-process with injected implementation', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-publish-cli-'));
+
+  try {
+    const result = await executeCli(
+      [
+        'lifecyclemodel',
+        'publish-resulting-process',
+        '--json',
+        '--run-dir',
+        dir,
+        '--publish-processes',
+      ],
+      {
+        ...makeDeps(),
+        runLifecyclemodelPublishResultingProcessImpl: async (options) => {
+          assert.equal(options.runDir, dir);
+          assert.equal(options.publishProcesses, true);
+          assert.equal(options.publishRelations, false);
+          return {
+            generated_at_utc: '2026-03-29T00:00:00.000Z',
+            run_dir: dir,
+            status: 'prepared_local_publish_bundle',
+            publish_processes: true,
+            publish_relations: false,
+            counts: {
+              projected_processes: 1,
+              relations: 0,
+            },
+            source_model: {
+              id: 'lm-demo',
+            },
+            files: {
+              projection_bundle: path.join(dir, 'process-projection-bundle.json'),
+              projection_report: path.join(dir, 'projection-report.json'),
+              publish_bundle: path.join(dir, 'publish-bundle.json'),
+              publish_intent: path.join(dir, 'publish-intent.json'),
+            },
+          };
+        },
+      },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stdout, /"status":"prepared_local_publish_bundle"/u);
+    assert.match(result.stdout, /"publish_bundle"/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -534,7 +599,7 @@ test('executeCli returns parsing errors for invalid publish and validation flags
   assert.match(validationResult.stderr, /INVALID_ARGS/u);
 });
 
-test('executeCli returns parsing errors for invalid lifecyclemodel build flags', async () => {
+test('executeCli returns parsing errors for invalid lifecyclemodel build and publish flags', async () => {
   const result = await executeCli(
     ['lifecyclemodel', 'build-resulting-process', '--bad-flag'],
     makeDeps(),
@@ -542,6 +607,14 @@ test('executeCli returns parsing errors for invalid lifecyclemodel build flags',
   assert.equal(result.exitCode, 2);
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /INVALID_ARGS/u);
+
+  const publishResult = await executeCli(
+    ['lifecyclemodel', 'publish-resulting-process', '--bad-flag'],
+    makeDeps(),
+  );
+  assert.equal(publishResult.exitCode, 2);
+  assert.equal(publishResult.stdout, '');
+  assert.match(publishResult.stderr, /INVALID_ARGS/u);
 });
 
 test('executeCli executes validation run with injected implementation and report file', async () => {

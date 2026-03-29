@@ -9,6 +9,11 @@ import {
   type LifecyclemodelResultingProcessReport,
   type RunLifecyclemodelResultingProcessOptions,
 } from './lib/lifecyclemodel-resulting-process.js';
+import {
+  runLifecyclemodelPublishResultingProcess,
+  type LifecyclemodelPublishResultingProcessReport,
+  type RunLifecyclemodelPublishResultingProcessOptions,
+} from './lib/lifecyclemodel-publish-resulting-process.js';
 import { runPublish, type PublishReport, type RunPublishOptions } from './lib/publish.js';
 import { executeRemoteCommand, getRemoteCommandHelp } from './lib/remote.js';
 import {
@@ -26,6 +31,9 @@ export type CliDeps = {
   runLifecyclemodelBuildResultingProcessImpl?: (
     options: RunLifecyclemodelResultingProcessOptions,
   ) => Promise<LifecyclemodelResultingProcessReport>;
+  runLifecyclemodelPublishResultingProcessImpl?: (
+    options: RunLifecyclemodelPublishResultingProcessOptions,
+  ) => Promise<LifecyclemodelPublishResultingProcessReport>;
 };
 
 export type CliResult = {
@@ -57,14 +65,14 @@ Commands:
 Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
-  lifecyclemodel build-resulting-process
+  lifecyclemodel build-resulting-process | publish-resulting-process
   publish    run
   validation run
   admin      embedding-run
 
 Planned Surface (not implemented yet):
   auth       whoami | doctor-auth
-  lifecyclemodel publish-resulting-process | auto-build | validate-build | publish-build
+  lifecyclemodel auto-build | validate-build | publish-build
   review     flow | process
   flow       get | list | remediate | publish-version | regen-product
   process    get | auto-build | resume-build | publish-build | batch-build
@@ -165,15 +173,28 @@ Options:
 `.trim();
 }
 
+function renderLifecyclemodelPublishResultingProcessHelp(): string {
+  return `Usage:
+  tiangong lifecyclemodel publish-resulting-process --run-dir <dir> [options]
+
+Options:
+  --run-dir <dir>         Existing lifecyclemodel resulting-process run directory
+  --publish-processes     Include projected processes in publish-bundle.json
+  --publish-relations     Include lifecyclemodel/resulting-process relations in publish-bundle.json
+  --json                  Print compact JSON
+  -h, --help
+`.trim();
+}
+
 function renderLifecyclemodelHelp(): string {
   return `Usage:
   tiangong lifecyclemodel <subcommand> [options]
 
 Implemented Subcommands:
   build-resulting-process   Deterministically aggregate a lifecycle model into a resulting process bundle
+  publish-resulting-process Prepare publish-bundle.json and publish-intent.json from a prior resulting-process run
 
 Planned Subcommands:
-  publish-resulting-process Publish a previously built resulting process run through the unified publish layer
   auto-build                Assemble lifecycle models from discovered candidate processes
   validate-build            Re-run local validation on a lifecycle model build run
   publish-build             Publish a lifecycle model build run through the unified publish layer
@@ -186,17 +207,6 @@ Examples:
 }
 
 const lifecyclemodelPlannedHelp = {
-  'publish-resulting-process': `Usage:
-  tiangong lifecyclemodel publish-resulting-process --run-dir <dir> [options]
-
-Planned contract:
-  - read one prior resulting-process run directory
-  - ingest its publish handoff artifacts
-  - delegate commit semantics to the unified publish module
-
-Status:
-  Planned command. Execution is not implemented yet.
-`.trim(),
   'auto-build': `Usage:
   tiangong lifecyclemodel auto-build --input <file> [options]
 
@@ -490,6 +500,43 @@ function parseValidationFlags(args: string[]): {
   };
 }
 
+function parseLifecyclemodelPublishFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  runDir: string;
+  publishProcesses: boolean;
+  publishRelations: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'run-dir': { type: 'string' },
+        'publish-processes': { type: 'boolean' },
+        'publish-relations': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    runDir: typeof values['run-dir'] === 'string' ? values['run-dir'] : '',
+    publishProcesses: Boolean(values['publish-processes']),
+    publishRelations: Boolean(values['publish-relations']),
+  };
+}
+
 function parseLifecyclemodelBuildFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -553,6 +600,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const validationImpl = deps.runValidationImpl ?? runValidation;
     const lifecyclemodelBuildImpl =
       deps.runLifecyclemodelBuildResultingProcessImpl ?? runLifecyclemodelBuildResultingProcess;
+    const lifecyclemodelPublishImpl =
+      deps.runLifecyclemodelPublishResultingProcessImpl ?? runLifecyclemodelPublishResultingProcess;
 
     if (flags.version) {
       return { exitCode: 0, stdout: '0.0.1\n', stderr: '' };
@@ -621,6 +670,29 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       const report = await lifecyclemodelBuildImpl({
         inputPath: lifecyclemodelFlags.inputPath,
         outDir: lifecyclemodelFlags.outDir,
+      });
+
+      return {
+        exitCode: 0,
+        stdout: stringifyJson(report, lifecyclemodelFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'lifecyclemodel' && subcommand === 'publish-resulting-process') {
+      const lifecyclemodelFlags = parseLifecyclemodelPublishFlags(commandArgs);
+      if (lifecyclemodelFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderLifecyclemodelPublishResultingProcessHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report = await lifecyclemodelPublishImpl({
+        runDir: lifecyclemodelFlags.runDir,
+        publishProcesses: lifecyclemodelFlags.publishProcesses,
+        publishRelations: lifecyclemodelFlags.publishRelations,
       });
 
       return {
