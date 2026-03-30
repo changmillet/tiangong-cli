@@ -105,7 +105,7 @@ tiangong
 - `tiangong flow list` 已可执行
 - `tiangong flow remediate` 已可执行
 - `tiangong flow publish-version` 已可执行
-- `regen-product` 仍处于 planned 状态
+- `tiangong flow regen-product` 已可执行
 
 `tiangong process ...` 也已经开始承接 `process_from_flow` 主链迁移，其中：
 
@@ -415,7 +415,26 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 
 - round2 remote-validation retry
 - reviewed-data publish contract
-- regen-product 或其他治理后处理
+- 其他治理后处理
+- 任何 MCP transport
+
+`flow regen-product` 现在固定的是“治理后 process-side 再生产物契约层”。
+
+它负责：
+
+- 读取 process JSON / JSONL 输入
+- 读取一个或多个 scope flow JSON / JSONL 输入
+- 可选读取 catalog flow 与 alias map
+- 在一个命令下执行 `scan -> repair plan -> optional apply -> optional validate`
+- 输出 `scan/`、`repair/`、`repair-apply/`、`validate/` 工件目录
+- 输出顶层 `flow-regen-product-report.json`
+- 在 `--apply` 后可选同步 `process-pool-file`
+
+它现在还不负责：
+
+- 任何远端 publish/write
+- reviewed-data publish contract
+- round2 remote-validation retry
 - 任何 MCP transport
 
 `publish run` 现在固定的是“稳定 publish 契约层”，不是历史 MCP 写库脚本的 TypeScript 复刻。
@@ -560,7 +579,7 @@ npm run prepush:gate
   - 已落地 `tiangong flow list`（覆盖治理链中的 deterministic direct-read list slice）
   - 已落地 `tiangong flow remediate`（覆盖 `remediate-flows` / round1 deterministic remediation slice）
   - 已落地 `tiangong flow publish-version`（覆盖 remediated-flow publish/update slice，并保留历史 sync artifacts）
-  - `tiangong flow regen-product|...` 仍处于 planned 状态
+  - 已落地 `tiangong flow regen-product`（覆盖治理后的 process-side 再生产物 slice）
 - 其他重型 Python workflow
 
 更合理的路径是：

@@ -272,7 +272,18 @@ npm start -- admin embedding-run --input ./jobs.json --dry-run
 - 在 dry-run 或 commit 模式下决定 `insert` / `update_existing` / failure
 - 输出历史兼容的 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report`
 
-这个命令当前只负责 remediated flow version 的 publish/update 契约，不负责 round2 失败再修复，也不负责 `flow regen-product` 之类后续治理切片。
+这个命令当前只负责 remediated flow version 的 publish/update 契约，不负责 round2 失败再修复；后续产品侧再生已经由 `tiangong flow regen-product` 单独承接。
+
+`tiangong flow regen-product` 现在已经承担 flow governance 的产品侧再生切片，负责：
+
+- 读取本地 process JSON / JSONL 输入
+- 读取一个或多个 scope/catalog flow JSON / JSONL 输入
+- 在一个统一命令下执行 `scan -> repair plan -> optional apply -> optional validate`
+- 输出 `flow-regen-product-report.json`
+- 输出 `scan/`、`repair/`、`repair-apply/`、`validate/` 工件目录
+- 在 `--apply` 后可选同步 `process-pool-file`
+
+这个命令当前只负责本地 deterministic 再生产物链，不负责远端 publish/write，也不负责 round2 remote-validation retry。
 
 `tiangong publish run` 现在已经成为统一 publish 契约入口，负责：
 

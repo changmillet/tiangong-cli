@@ -7,6 +7,7 @@ import { executeCli } from '../src/cli.js';
 import type { DotEnvLoadResult } from '../src/lib/dotenv.js';
 import type { FetchLike } from '../src/lib/http.js';
 import type { RunFlowPublishVersionOptions } from '../src/lib/flow-publish-version.js';
+import type { RunFlowRegenProductOptions } from '../src/lib/flow-regen-product.js';
 import type { RunFlowRemediateOptions } from '../src/lib/flow-remediate.js';
 import type { RunFlowReviewOptions } from '../src/lib/review-flow.js';
 
@@ -146,6 +147,7 @@ test('executeCli returns help for publish and validation namespaces', async () =
   assert.match(flowHelp.stdout, /list/u);
   assert.match(flowHelp.stdout, /remediate/u);
   assert.match(flowHelp.stdout, /publish-version/u);
+  assert.match(flowHelp.stdout, /regen-product/u);
 });
 
 test('executeCli returns help for publish and validation subcommands', async () => {
@@ -204,6 +206,16 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.match(flowListHelp.stdout, /--type-of-dataset/u);
   assert.match(flowListHelp.stdout, /--page-size/u);
   assert.doesNotMatch(flowListHelp.stdout, /Planned command/u);
+
+  const flowRegenHelp = await executeCli(['flow', 'regen-product', '--help'], makeDeps());
+  assert.equal(flowRegenHelp.exitCode, 0);
+  assert.match(
+    flowRegenHelp.stdout,
+    /tiangong flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+  );
+  assert.match(flowRegenHelp.stdout, /--auto-patch-policy/u);
+  assert.match(flowRegenHelp.stdout, /repair-apply\/ \(only with --apply\)/u);
+  assert.doesNotMatch(flowRegenHelp.stdout, /Planned contract:/u);
 });
 
 test('executeCli returns group help for search and admin namespaces', async () => {
@@ -1726,11 +1738,11 @@ test('executeCli prints main help for the explicit help command', async () => {
   assert.match(result.stdout, /Unified TianGong command entrypoint/u);
 });
 
-test('executeCli returns planned command message for unimplemented command', async () => {
+test('executeCli validates missing required flow regen-product inputs once the command is implemented', async () => {
   const result = await executeCli(['flow', 'regen-product'], makeDeps());
   assert.equal(result.exitCode, 2);
   assert.equal(result.stdout, '');
-  assert.match(result.stderr, /not implemented yet/u);
+  assert.match(result.stderr, /FLOW_REGEN_PROCESSES_FILE_REQUIRED/u);
 });
 
 test('executeCli returns planned command message for lifecyclemodel subcommands after help is introduced', async () => {
@@ -2023,6 +2035,262 @@ test('executeCli dispatches flow publish-version to the implemented CLI module',
   }
 });
 
+test('executeCli dispatches flow regen-product to the implemented CLI module and maps validation failures to exit code 1', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-flow-regen-product-dispatch-'));
+  const processesFile = path.join(dir, 'processes.jsonl');
+  const scopeFlowFile = path.join(dir, 'scope-flows.jsonl');
+  const catalogFlowFile = path.join(dir, 'catalog-flows.jsonl');
+  const aliasMapFile = path.join(dir, 'alias-map.json');
+  const processPoolFile = path.join(dir, 'process-pool.jsonl');
+
+  writeFileSync(processesFile, '[]\n', 'utf8');
+  writeFileSync(scopeFlowFile, '[]\n', 'utf8');
+  writeFileSync(catalogFlowFile, '[]\n', 'utf8');
+  writeFileSync(aliasMapFile, '{}\n', 'utf8');
+  writeFileSync(processPoolFile, '[]\n', 'utf8');
+
+  try {
+    let observedOptions: RunFlowRegenProductOptions | undefined;
+    const result = await executeCli(
+      [
+        'flow',
+        'regen-product',
+        '--processes-file',
+        processesFile,
+        '--scope-flow-file',
+        scopeFlowFile,
+        '--catalog-flow-file',
+        catalogFlowFile,
+        '--alias-map',
+        aliasMapFile,
+        '--exclude-emergy',
+        '--auto-patch-policy',
+        'alias-or-unique-name',
+        '--apply',
+        '--process-pool-file',
+        processPoolFile,
+        '--tidas-mode',
+        'required',
+        '--out-dir',
+        path.join(dir, 'regen-product'),
+        '--json',
+      ],
+      {
+        ...makeDeps(),
+        runFlowRegenProductImpl: async (options) => {
+          observedOptions = options;
+          return {
+            schema_version: 1,
+            generated_at_utc: '2026-03-30T11:00:00.000Z',
+            status: 'completed_local_flow_regen_product',
+            mode: 'apply',
+            processes_file: processesFile,
+            scope_flow_files: [scopeFlowFile],
+            catalog_flow_files: [catalogFlowFile],
+            alias_map_file: aliasMapFile,
+            exclude_emergy: true,
+            auto_patch_policy: 'alias-or-unique-name',
+            process_pool_file: processPoolFile,
+            tidas_mode: 'required',
+            out_dir: path.join(dir, 'regen-product'),
+            counts: {
+              process_count_before_emergy_exclusion: 3,
+              process_count: 2,
+              emergy_excluded_process_count: 1,
+              exchange_count: 2,
+              issue_counts: {
+                alias_target_available: 1,
+              },
+              processes_with_issues: 1,
+              repair_item_count: 2,
+              decision_counts: {
+                auto_patch: 1,
+                manual_review: 1,
+              },
+              patched_process_count: 1,
+              validation_passed_count: 0,
+              validation_failed_count: 1,
+            },
+            validation: {
+              enabled: true,
+              tidas_validation: true,
+              ok: false,
+            },
+            files: {
+              report: path.join(dir, 'regen-product', 'flow-regen-product-report.json'),
+              scan: {
+                out_dir: path.join(dir, 'regen-product', 'scan'),
+                emergy_excluded_processes: path.join(
+                  dir,
+                  'regen-product',
+                  'scan',
+                  'emergy-excluded-processes.json',
+                ),
+                summary: path.join(dir, 'regen-product', 'scan', 'scan-summary.json'),
+                findings: path.join(dir, 'regen-product', 'scan', 'scan-findings.json'),
+                findings_jsonl: path.join(dir, 'regen-product', 'scan', 'scan-findings.jsonl'),
+              },
+              repair: {
+                out_dir: path.join(dir, 'regen-product', 'repair'),
+                plan: path.join(dir, 'regen-product', 'repair', 'repair-plan.json'),
+                plan_jsonl: path.join(dir, 'regen-product', 'repair', 'repair-plan.jsonl'),
+                manual_review_queue: path.join(
+                  dir,
+                  'regen-product',
+                  'repair',
+                  'manual-review-queue.jsonl',
+                ),
+                summary: path.join(dir, 'regen-product', 'repair', 'repair-summary.json'),
+              },
+              apply: {
+                out_dir: path.join(dir, 'regen-product', 'repair-apply'),
+                plan: path.join(dir, 'regen-product', 'repair-apply', 'repair-plan.json'),
+                plan_jsonl: path.join(dir, 'regen-product', 'repair-apply', 'repair-plan.jsonl'),
+                manual_review_queue: path.join(
+                  dir,
+                  'regen-product',
+                  'repair-apply',
+                  'manual-review-queue.jsonl',
+                ),
+                summary: path.join(dir, 'regen-product', 'repair-apply', 'repair-summary.json'),
+                patched_processes: path.join(
+                  dir,
+                  'regen-product',
+                  'repair-apply',
+                  'patched-processes.json',
+                ),
+                patch_root: path.join(dir, 'regen-product', 'repair-apply', 'process-patches'),
+              },
+              validate: {
+                out_dir: path.join(dir, 'regen-product', 'validate'),
+                report: path.join(dir, 'regen-product', 'validate', 'validation-report.json'),
+                failures: path.join(dir, 'regen-product', 'validate', 'validation-failures.jsonl'),
+              },
+            },
+          };
+        },
+      },
+    );
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stderr, '');
+    assert.equal(JSON.parse(result.stdout).status, 'completed_local_flow_regen_product');
+    assert.deepEqual(observedOptions, {
+      processesFile,
+      scopeFlowFiles: [scopeFlowFile],
+      catalogFlowFiles: [catalogFlowFile],
+      aliasMapFile,
+      excludeEmergy: true,
+      autoPatchPolicy: 'alias-or-unique-name',
+      apply: true,
+      processPoolFile,
+      tidasMode: 'required',
+      outDir: path.join(dir, 'regen-product'),
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('executeCli returns exit code 0 for successful flow regen-product reports', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-flow-regen-product-success-'));
+  const processesFile = path.join(dir, 'processes.jsonl');
+  const scopeFlowFile = path.join(dir, 'scope-flows.jsonl');
+
+  writeFileSync(processesFile, '[]\n', 'utf8');
+  writeFileSync(scopeFlowFile, '[]\n', 'utf8');
+
+  try {
+    const result = await executeCli(
+      [
+        'flow',
+        'regen-product',
+        '--processes-file',
+        processesFile,
+        '--scope-flow-file',
+        scopeFlowFile,
+        '--out-dir',
+        path.join(dir, 'regen-product'),
+      ],
+      {
+        ...makeDeps(),
+        runFlowRegenProductImpl: async () => ({
+          schema_version: 1,
+          generated_at_utc: '2026-03-30T11:05:00.000Z',
+          status: 'completed_local_flow_regen_product',
+          mode: 'plan',
+          processes_file: processesFile,
+          scope_flow_files: [scopeFlowFile],
+          catalog_flow_files: [scopeFlowFile],
+          alias_map_file: null,
+          exclude_emergy: false,
+          auto_patch_policy: 'alias-only',
+          process_pool_file: null,
+          tidas_mode: 'auto',
+          out_dir: path.join(dir, 'regen-product'),
+          counts: {
+            process_count_before_emergy_exclusion: 1,
+            process_count: 1,
+            emergy_excluded_process_count: 0,
+            exchange_count: 1,
+            issue_counts: {
+              exists_in_target: 1,
+            },
+            processes_with_issues: 0,
+            repair_item_count: 1,
+            decision_counts: {
+              keep_as_is: 1,
+            },
+            patched_process_count: 0,
+            validation_passed_count: null,
+            validation_failed_count: null,
+          },
+          validation: {
+            enabled: false,
+            tidas_validation: false,
+            ok: null,
+          },
+          files: {
+            report: path.join(dir, 'regen-product', 'flow-regen-product-report.json'),
+            scan: {
+              out_dir: path.join(dir, 'regen-product', 'scan'),
+              emergy_excluded_processes: path.join(
+                dir,
+                'regen-product',
+                'scan',
+                'emergy-excluded-processes.json',
+              ),
+              summary: path.join(dir, 'regen-product', 'scan', 'scan-summary.json'),
+              findings: path.join(dir, 'regen-product', 'scan', 'scan-findings.json'),
+              findings_jsonl: path.join(dir, 'regen-product', 'scan', 'scan-findings.jsonl'),
+            },
+            repair: {
+              out_dir: path.join(dir, 'regen-product', 'repair'),
+              plan: path.join(dir, 'regen-product', 'repair', 'repair-plan.json'),
+              plan_jsonl: path.join(dir, 'regen-product', 'repair', 'repair-plan.jsonl'),
+              manual_review_queue: path.join(
+                dir,
+                'regen-product',
+                'repair',
+                'manual-review-queue.jsonl',
+              ),
+              summary: path.join(dir, 'regen-product', 'repair', 'repair-summary.json'),
+            },
+            apply: null,
+            validate: null,
+          },
+        }),
+      },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stderr, '');
+    assert.equal(JSON.parse(result.stdout).mode, 'plan');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('executeCli maps flow publish-version failure reports to exit code 1', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-flow-publish-version-failure-exit-'));
   const inputFile = path.join(dir, 'ready-flows.jsonl');
@@ -2085,7 +2353,7 @@ test('executeCli maps flow publish-version failure reports to exit code 1', asyn
   }
 });
 
-test('executeCli returns parsing errors for invalid flow get, list, remediate, and publish-version flags', async () => {
+test('executeCli returns parsing errors for invalid flow get, list, remediate, publish-version, and regen-product flags', async () => {
   const invalidGetArgsResult = await executeCli(['flow', 'get', '--bad-flag'], makeDeps());
   assert.equal(invalidGetArgsResult.exitCode, 2);
   assert.match(invalidGetArgsResult.stderr, /INVALID_ARGS/u);
@@ -2154,6 +2422,34 @@ test('executeCli returns parsing errors for invalid flow get, list, remediate, a
   );
   assert.equal(invalidLimitResult.exitCode, 2);
   assert.match(invalidLimitResult.stderr, /INVALID_FLOW_PUBLISH_VERSION_LIMIT/u);
+
+  const invalidRegenArgsResult = await executeCli(
+    ['flow', 'regen-product', '--bad-flag'],
+    makeDeps(),
+  );
+  assert.equal(invalidRegenArgsResult.exitCode, 2);
+  assert.match(invalidRegenArgsResult.stderr, /INVALID_ARGS/u);
+
+  const invalidRegenPolicyResult = await executeCli(
+    ['flow', 'regen-product', '--auto-patch-policy', 'bad-policy'],
+    makeDeps(),
+  );
+  assert.equal(invalidRegenPolicyResult.exitCode, 2);
+  assert.match(invalidRegenPolicyResult.stderr, /INVALID_FLOW_REGEN_AUTO_PATCH_POLICY/u);
+
+  const invalidRegenTidasModeResult = await executeCli(
+    ['flow', 'regen-product', '--tidas-mode', 'bad-mode'],
+    makeDeps(),
+  );
+  assert.equal(invalidRegenTidasModeResult.exitCode, 2);
+  assert.match(invalidRegenTidasModeResult.stderr, /INVALID_FLOW_REGEN_TIDAS_MODE/u);
+
+  const invalidRegenPoolResult = await executeCli(
+    ['flow', 'regen-product', '--process-pool-file', './pool.jsonl'],
+    makeDeps(),
+  );
+  assert.equal(invalidRegenPoolResult.exitCode, 2);
+  assert.match(invalidRegenPoolResult.stderr, /FLOW_REGEN_PROCESS_POOL_REQUIRES_APPLY/u);
 });
 
 test('executeCli supports alternate review flow input modes and validates numeric review-flow flags', async () => {
@@ -2330,8 +2626,8 @@ test('executeCli returns planned command message for other unimplemented process
 
   const flowRegenHelp = await executeCli(['flow', 'regen-product', '--help'], makeDeps());
   assert.equal(flowRegenHelp.exitCode, 0);
-  assert.match(flowRegenHelp.stdout, /Planned contract:/u);
-  assert.match(flowRegenHelp.stdout, /product-side artifacts/u);
+  assert.match(flowRegenHelp.stdout, /tiangong flow regen-product/u);
+  assert.match(flowRegenHelp.stdout, /Apply deterministic patches and run local validation/u);
 });
 
 test('executeCli returns dedicated help for planned lifecyclemodel subcommands', async () => {

@@ -39,6 +39,7 @@ This prevents reintroducing a generic MCP transport layer into the CLI runtime.
 - `tiangong flow list`
 - `tiangong flow remediate`
 - `tiangong flow publish-version`
+- `tiangong flow regen-product`
 - `tiangong publish run`
 - `tiangong validation run`
 - `tiangong admin embedding-run`
@@ -51,7 +52,6 @@ The `lifecyclemodel` and `process` namespaces are now partially implemented. The
 - `tiangong lifecyclemodel validate-build`
 - `tiangong lifecyclemodel publish-build`
 - `tiangong review lifecyclemodel`
-- `tiangong flow regen-product`
 
 These remaining commands are intentionally not executable yet. They print an explicit `not implemented yet` message and exit with code `2` until the corresponding workflows are migrated into TypeScript.
 
@@ -126,6 +126,7 @@ Command-level env reality:
 | `flow list` | `TIANGONG_LCA_API_BASE_URL`, `TIANGONG_LCA_API_KEY` |
 | `flow remediate` | none |
 | `flow publish-version` | `TIANGONG_LCA_API_BASE_URL`, `TIANGONG_LCA_API_KEY` |
+| `flow regen-product` | none |
 | `publish run` | none |
 | `validation run` | none |
 
@@ -151,6 +152,7 @@ npm start -- flow get --id <flow-id> --version <version> --json
 npm start -- flow list --id <flow-id> --state-code 100 --limit 20 --json
 npm start -- flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation --json
 npm start -- flow publish-version --input-file ./ready-flows.jsonl --out-dir ./flow-publish --dry-run --json
+npm start -- flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regen --apply --json
 npm start -- publish run --input ./examples/publish-run.request.json --dry-run
 npm start -- validation run --input-dir ./tidas-package --engine auto
 npm start -- admin embedding-run --input ./jobs.json --dry-run
@@ -184,7 +186,9 @@ The command keeps the legacy per-run layout that later stages still expect, incl
 
 `tiangong flow remediate` is the first CLI-owned remediation slice for flow governance. It reads one invalid-flow JSON or JSONL input, applies deterministic round1 local remediation, and writes the historical remediation artifacts under one output directory without reintroducing Python or MCP.
 
-`tiangong flow publish-version` is the first CLI-owned remote write slice for flow governance. It reads one ready-for-publish JSON or JSONL input, derives a deterministic Supabase REST path from `TIANGONG_LCA_API_BASE_URL`, performs dry-run or commit mode against `/rest/v1/flows`, and preserves the historical success-list, remote-failure, and sync-report artifact names for downstream follow-up. It does not implement round2 retry or `flow regen-product` yet.
+`tiangong flow publish-version` is the first CLI-owned remote write slice for flow governance. It reads one ready-for-publish JSON or JSONL input, derives a deterministic Supabase REST path from `TIANGONG_LCA_API_BASE_URL`, performs dry-run or commit mode against `/rest/v1/flows`, and preserves the historical success-list, remote-failure, and sync-report artifact names for downstream follow-up. It still does not implement round2 retry; post-governance product-side regeneration now lives in `tiangong flow regen-product`.
+
+`tiangong flow regen-product` is the CLI-owned local product-side regeneration slice for flow governance. It reads one local process row set plus one or more local scope/catalog flow row sets, runs `scan -> repair plan -> optional apply -> optional validate` under one run root, writes stable `scan/`, `repair/`, `repair-apply/`, `validate/`, and `flow-regen-product-report.json` artifacts, and keeps exit code `1` reserved for validation failures after `--apply`.
 
 ## Publish and validation
 

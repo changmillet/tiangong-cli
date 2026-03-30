@@ -62,6 +62,11 @@ import {
   type FlowPublishVersionReport,
   type RunFlowPublishVersionOptions,
 } from './lib/flow-publish-version.js';
+import {
+  runFlowRegenProduct,
+  type FlowRegenProductReport,
+  type RunFlowRegenProductOptions,
+} from './lib/flow-regen-product.js';
 import { executeRemoteCommand, getRemoteCommandHelp } from './lib/remote.js';
 import {
   runValidation,
@@ -102,6 +107,9 @@ export type CliDeps = {
   runFlowPublishVersionImpl?: (
     options: RunFlowPublishVersionOptions,
   ) => Promise<FlowPublishVersionReport>;
+  runFlowRegenProductImpl?: (
+    options: RunFlowRegenProductOptions,
+  ) => Promise<FlowRegenProductReport>;
 };
 
 export type CliResult = {
@@ -134,7 +142,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | auto-build | resume-build | publish-build | batch-build
-  flow       get | list | remediate | publish-version
+  flow       get | list | remediate | publish-version | regen-product
   lifecyclemodel build-resulting-process | publish-resulting-process
   review     process | flow
   publish    run
@@ -145,7 +153,6 @@ Planned Surface (not implemented yet):
   auth       whoami | doctor-auth
   lifecyclemodel auto-build | validate-build | publish-build
   review     lifecyclemodel
-  flow       regen-product
   job        get | wait | logs
 
 Planned commands currently print an explicit "not implemented yet" message and exit with code 2.
@@ -163,6 +170,7 @@ Examples:
   tiangong flow list --id <flow-id> --state-code 100 --limit 20
   tiangong flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation
   tiangong flow publish-version --input-file ./ready-flows.jsonl --out-dir ./flow-publish --commit
+  tiangong flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regeneration --apply
   tiangong review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review
   tiangong review flow --rows-file ./flows.json --out-dir ./review
   tiangong publish run --input ./publish-request.json --dry-run
@@ -251,9 +259,7 @@ Implemented Subcommands:
   list         Enumerate flow datasets through direct Supabase REST with deterministic filters
   remediate    Deterministically repair invalid local flow rows and emit artifact-first outputs
   publish-version Publish remediated flow versions through the unified CLI surface
-
-Planned Subcommands:
-  regen-product   Regenerate later product-side artifacts from a flow workflow slice
+  regen-product Regenerate local process-side artifacts after flow governance changes
 
 Examples:
   tiangong flow --help
@@ -261,6 +267,7 @@ Examples:
   tiangong flow list --help
   tiangong flow remediate --help
   tiangong flow publish-version --help
+  tiangong flow regen-product --help
 `.trim();
 }
 
@@ -355,6 +362,33 @@ Outputs written under --out-dir:
   - flows_tidas_sdk_plus_classification_mcp_success_list.json
   - flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl
   - flows_tidas_sdk_plus_classification_mcp_sync_report.json
+`.trim();
+}
+
+function renderFlowRegenProductHelp(): string {
+  return `Usage:
+  tiangong flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+
+Options:
+  --processes-file <file>         Process rows as JSON or JSONL
+  --scope-flow-file <file>        Repeatable target flow scope file as JSON or JSONL
+  --catalog-flow-file <file>      Repeatable catalog flow file; defaults to the scope files
+  --alias-map <file>              Optional flow alias map JSON object
+  --exclude-emergy                Exclude emergy-named processes before scan and repair
+  --auto-patch-policy <mode>      disabled | alias-only | alias-or-unique-name (default: alias-only)
+  --apply                         Apply deterministic patches and run local validation
+  --process-pool-file <file>      Optional process pool file to sync after --apply
+  --tidas-mode <mode>             auto | required | skip (default: auto)
+  --out-dir <dir>                 Run root for scan / repair / validate artifacts
+  --json                          Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - flow-regen-product-report.json
+  - scan/
+  - repair/
+  - repair-apply/ (only with --apply)
+  - validate/ (only with --apply)
 `.trim();
 }
 
@@ -607,22 +641,8 @@ Status:
 `.trim(),
 } as const;
 
-const flowPlannedHelp = {
-  'regen-product': `Usage:
-  tiangong flow regen-product --input <file> [options]
-
-Planned contract:
-  - regenerate later product-side artifacts from a flow-centered workflow slice
-  - keep artifact boundaries explicit and file-first
-
-Status:
-  Planned command. Execution is not implemented yet.
-`.trim(),
-} as const;
-
 type LifecyclemodelPlannedSubcommand = keyof typeof lifecyclemodelPlannedHelp;
 type ReviewPlannedSubcommand = keyof typeof reviewPlannedHelp;
-type FlowPlannedSubcommand = keyof typeof flowPlannedHelp;
 
 function isLifecyclemodelPlannedSubcommand(
   value: string | null,
@@ -632,10 +652,6 @@ function isLifecyclemodelPlannedSubcommand(
 
 function isReviewPlannedSubcommand(value: string | null): value is ReviewPlannedSubcommand {
   return Boolean(value && value in reviewPlannedHelp);
-}
-
-function isFlowPlannedSubcommand(value: string | null): value is FlowPlannedSubcommand {
-  return Boolean(value && value in flowPlannedHelp);
 }
 
 function renderDoctorText(report: ReturnType<typeof buildDoctorReport>): string {
@@ -1017,6 +1033,100 @@ function parseFlowPublishVersionFlags(args: string[]): {
       'INVALID_FLOW_PUBLISH_VERSION_LIMIT',
     ),
     targetUserId: typeof values['target-user-id'] === 'string' ? values['target-user-id'] : null,
+  };
+}
+
+function parseFlowRegenProductFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  processesFile: string;
+  scopeFlowFiles: string[];
+  catalogFlowFiles: string[];
+  aliasMapFile: string | null;
+  excludeEmergy: boolean;
+  autoPatchPolicy: 'disabled' | 'alias-only' | 'alias-or-unique-name';
+  apply: boolean;
+  processPoolFile: string | null;
+  tidasMode: 'auto' | 'required' | 'skip';
+  outDir: string;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'processes-file': { type: 'string' },
+        'scope-flow-file': { type: 'string', multiple: true },
+        'catalog-flow-file': { type: 'string', multiple: true },
+        'alias-map': { type: 'string' },
+        'exclude-emergy': { type: 'boolean' },
+        'auto-patch-policy': { type: 'string' },
+        apply: { type: 'boolean' },
+        'process-pool-file': { type: 'string' },
+        'tidas-mode': { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const autoPatchPolicy =
+    typeof values['auto-patch-policy'] === 'string' ? values['auto-patch-policy'] : 'alias-only';
+  if (
+    autoPatchPolicy !== 'disabled' &&
+    autoPatchPolicy !== 'alias-only' &&
+    autoPatchPolicy !== 'alias-or-unique-name'
+  ) {
+    throw new CliError(
+      'Expected --auto-patch-policy to be one of disabled, alias-only, or alias-or-unique-name.',
+      {
+        code: 'INVALID_FLOW_REGEN_AUTO_PATCH_POLICY',
+        exitCode: 2,
+      },
+    );
+  }
+
+  const tidasMode = typeof values['tidas-mode'] === 'string' ? values['tidas-mode'] : 'auto';
+  if (tidasMode !== 'auto' && tidasMode !== 'required' && tidasMode !== 'skip') {
+    throw new CliError('Expected --tidas-mode to be one of auto, required, or skip.', {
+      code: 'INVALID_FLOW_REGEN_TIDAS_MODE',
+      exitCode: 2,
+    });
+  }
+
+  if (typeof values['process-pool-file'] === 'string' && !values.apply) {
+    throw new CliError('Use --process-pool-file only with --apply.', {
+      code: 'FLOW_REGEN_PROCESS_POOL_REQUIRES_APPLY',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    processesFile: typeof values['processes-file'] === 'string' ? values['processes-file'] : '',
+    scopeFlowFiles: Array.isArray(values['scope-flow-file'])
+      ? values['scope-flow-file'].filter((value): value is string => typeof value === 'string')
+      : [],
+    catalogFlowFiles: Array.isArray(values['catalog-flow-file'])
+      ? values['catalog-flow-file'].filter((value): value is string => typeof value === 'string')
+      : [],
+    aliasMapFile: typeof values['alias-map'] === 'string' ? values['alias-map'] : null,
+    excludeEmergy: Boolean(values['exclude-emergy']),
+    autoPatchPolicy,
+    apply: Boolean(values.apply),
+    processPoolFile:
+      typeof values['process-pool-file'] === 'string' ? values['process-pool-file'] : null,
+    tidasMode,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
   };
 }
 
@@ -1674,6 +1784,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const flowGetImpl = deps.runFlowGetImpl ?? runFlowGet;
     const flowListImpl = deps.runFlowListImpl ?? runFlowList;
     const flowPublishVersionImpl = deps.runFlowPublishVersionImpl ?? runFlowPublishVersion;
+    const flowRegenProductImpl = deps.runFlowRegenProductImpl ?? runFlowRegenProduct;
 
     if (flags.version) {
       return { exitCode: 0, stdout: '0.0.1\n', stderr: '' };
@@ -1999,15 +2110,30 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
-    if (command === 'flow' && isFlowPlannedSubcommand(subcommand)) {
-      if (commandArgs.includes('--help') || commandArgs.includes('-h')) {
-        return {
-          exitCode: 0,
-          stdout: `${flowPlannedHelp[subcommand]}\n`,
-          stderr: '',
-        };
+    if (command === 'flow' && subcommand === 'regen-product') {
+      const flowFlags = parseFlowRegenProductFlags(commandArgs);
+      if (flowFlags.help) {
+        return { exitCode: 0, stdout: `${renderFlowRegenProductHelp()}\n`, stderr: '' };
       }
-      return plannedCommand(command, subcommand);
+
+      const report = await flowRegenProductImpl({
+        processesFile: flowFlags.processesFile,
+        scopeFlowFiles: flowFlags.scopeFlowFiles,
+        catalogFlowFiles: flowFlags.catalogFlowFiles,
+        aliasMapFile: flowFlags.aliasMapFile,
+        excludeEmergy: flowFlags.excludeEmergy,
+        autoPatchPolicy: flowFlags.autoPatchPolicy,
+        apply: flowFlags.apply,
+        processPoolFile: flowFlags.processPoolFile,
+        tidasMode: flowFlags.tidasMode,
+        outDir: flowFlags.outDir,
+      });
+
+      return {
+        exitCode: report.validation.ok === false ? 1 : 0,
+        stdout: stringifyJson(report, flowFlags.json),
+        stderr: '',
+      };
     }
 
     if (command === 'admin' && !subcommand && commandArgs.includes('--help')) {
