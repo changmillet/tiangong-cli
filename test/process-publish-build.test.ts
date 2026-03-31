@@ -541,18 +541,19 @@ test('runProcessPublishBuild rejects invalid inputs and corrupted publish-build 
 });
 
 test('process publish-build internals cover fallback layout and report helpers', () => {
+  const sampleRunDir = path.resolve(path.join(path.sep, 'tmp', 'process-run', 'run-123'));
   const resolvedLayout = __testInternals.resolveLayout({
-    runDir: '/tmp/process-run/run-123',
+    runDir: sampleRunDir,
   });
   assert.equal(resolvedLayout.runId, 'run-123');
   assert.equal(
     resolvedLayout.statePath,
-    '/tmp/process-run/run-123/cache/process_from_flow_state.json',
+    path.join(sampleRunDir, 'cache', 'process_from_flow_state.json'),
   );
   assert.equal(
     __testInternals.resolveLayout({
       runId: '   ',
-      runDir: '/tmp/process-run/run-123',
+      runDir: sampleRunDir,
     }).runId,
     'run-123',
   );
@@ -571,7 +572,7 @@ test('process publish-build internals cover fallback layout and report helpers',
   assert.deepEqual(__testInternals.readDatasetArrayFromState({}, 'process_datasets'), []);
 
   const stateFallbackDatasets = __testInternals.collectCanonicalDatasets(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {
       process_datasets: [makeCanonicalProcess('proc-state-only')],
       source_datasets: [makeSource('source-state-only')],
@@ -598,7 +599,7 @@ test('process publish-build internals cover fallback layout and report helpers',
   });
 
   const publishIntent = __testInternals.buildPublishIntent(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {
       processes: 2,
       sources: 1,
@@ -613,7 +614,7 @@ test('process publish-build internals cover fallback layout and report helpers',
       build_status: 'resume_prepared',
       step_markers: 'bad-shape',
     },
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {
       processes: 2,
       sources: 1,
@@ -633,14 +634,14 @@ test('process publish-build internals cover fallback layout and report helpers',
   assert.equal(updatedMarkers.publish_handoff_prepared?.status, 'completed');
 
   const invocationIndex = __testInternals.buildInvocationIndex(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {
       schema_version: 2,
       invocations: [{ command: ['existing'] }],
     },
     {
       runId: 'run-123',
-      runDir: '/tmp/process-run/run-123',
+      runDir: sampleRunDir,
       cwd: '/tmp/workspace',
     },
     new Date('2026-03-29T06:30:00Z'),
@@ -650,7 +651,7 @@ test('process publish-build internals cover fallback layout and report helpers',
   assert.equal(invocationIndex.invocations.length, 2);
 
   const fallbackInvocationIndex = __testInternals.buildInvocationIndex(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {},
     {
       runId: 'run-123',
@@ -671,7 +672,7 @@ test('process publish-build internals cover fallback layout and report helpers',
   assert.equal(fallbackInvocationIndex.invocations[0]?.cwd, process.cwd());
 
   const report = __testInternals.buildReport(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
     {},
     {
       processes: 2,
@@ -697,7 +698,7 @@ test('process publish-build internals cover fallback layout and report helpers',
   assert.equal(report.counts.processes, 2);
 
   const nextActions = __testInternals.buildNextActions(
-    __testInternals.buildLayout('/tmp/process-run/run-123', 'run-123'),
+    __testInternals.buildLayout(sampleRunDir, 'run-123'),
   );
   assert.match(nextActions[3] ?? '', /future: wire publish executors/u);
 });

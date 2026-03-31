@@ -122,7 +122,9 @@ test('run helpers apply fallback defaults for ids, latest markers, and metadata'
 });
 
 test('buildRunManifest and buildResumeMetadata emit deterministic metadata payloads', () => {
-  const layout = resolveRunLayout('/tmp/artifacts', 'flow', 'run-abc');
+  const artifactsRoot = path.join(path.sep, 'tmp', 'artifacts');
+  const workspaceCwd = path.join(path.sep, 'tmp', 'workspace');
+  const layout = resolveRunLayout(artifactsRoot, 'flow', 'run-abc');
   const createdAt = new Date('2026-03-28T08:40:00.000Z');
   const resumedAt = new Date('2026-03-28T08:50:00.000Z');
 
@@ -130,7 +132,7 @@ test('buildRunManifest and buildResumeMetadata emit deterministic metadata paylo
     buildRunManifest({
       layout,
       command: ['tiangong', 'flow', 'get'],
-      cwd: '/tmp/workspace',
+      cwd: workspaceCwd,
       createdAt,
     }),
     {
@@ -138,19 +140,19 @@ test('buildRunManifest and buildResumeMetadata emit deterministic metadata paylo
       namespace: 'flow',
       runId: 'run-abc',
       command: ['tiangong', 'flow', 'get'],
-      cwd: '/tmp/workspace',
+      cwd: workspaceCwd,
       createdAt: '2026-03-28T08:40:00.000Z',
       layout: {
-        artifactsRoot: '/tmp/artifacts',
-        collectionDir: '/tmp/artifacts/flow',
-        runRoot: '/tmp/artifacts/flow/run-abc',
-        cacheDir: '/tmp/artifacts/flow/run-abc/cache',
-        inputsDir: '/tmp/artifacts/flow/run-abc/inputs',
-        outputsDir: '/tmp/artifacts/flow/run-abc/outputs',
-        reportsDir: '/tmp/artifacts/flow/run-abc/reports',
-        logsDir: '/tmp/artifacts/flow/run-abc/logs',
-        manifestsDir: '/tmp/artifacts/flow/run-abc/manifests',
-        latestRunIdPath: '/tmp/artifacts/flow/.latest_run_id',
+        artifactsRoot,
+        collectionDir: path.join(artifactsRoot, 'flow'),
+        runRoot: path.join(artifactsRoot, 'flow', 'run-abc'),
+        cacheDir: path.join(artifactsRoot, 'flow', 'run-abc', 'cache'),
+        inputsDir: path.join(artifactsRoot, 'flow', 'run-abc', 'inputs'),
+        outputsDir: path.join(artifactsRoot, 'flow', 'run-abc', 'outputs'),
+        reportsDir: path.join(artifactsRoot, 'flow', 'run-abc', 'reports'),
+        logsDir: path.join(artifactsRoot, 'flow', 'run-abc', 'logs'),
+        manifestsDir: path.join(artifactsRoot, 'flow', 'run-abc', 'manifests'),
+        latestRunIdPath: path.join(artifactsRoot, 'flow', '.latest_run_id'),
       },
     },
   );

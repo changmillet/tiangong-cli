@@ -66,7 +66,8 @@ function makeResponse(options: {
 }
 
 test('normalizePublishRequest resolves paths relative to the request file and applies defaults', () => {
-  const requestPath = '/tmp/tg-cli-publish/request.json';
+  const requestPath = path.join(path.sep, 'tmp', 'tg-cli-publish', 'request.json');
+  const requestDir = path.dirname(requestPath);
   const normalized = normalizePublishRequest(
     {
       inputs: {
@@ -80,8 +81,8 @@ test('normalizePublishRequest resolves paths relative to the request file and ap
     },
   );
 
-  assert.deepEqual(normalized.inputs.bundle_paths, ['/tmp/tg-cli-publish/bundle.json']);
-  assert.equal(normalized.out_dir, '/tmp/tg-cli-publish/out');
+  assert.deepEqual(normalized.inputs.bundle_paths, [path.resolve(requestDir, 'bundle.json')]);
+  assert.equal(normalized.out_dir, path.resolve(requestDir, 'out'));
   assert.equal(normalized.publish.commit, false);
   assert.equal(normalized.publish.publish_process_build_runs, true);
   assert.equal(normalized.publish.max_attempts, 5);

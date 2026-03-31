@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import {
-  chmodSync,
   closeSync,
   mkdirSync,
   mkdtempSync,
@@ -10,6 +9,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -20,6 +20,15 @@ import {
   readStateLockMetadata,
   withStateFileLock,
 } from '../src/lib/state-lock.js';
+
+const require = createRequire(import.meta.url);
+const mutableFs = require('node:fs') as typeof import('node:fs');
+
+function createErrnoError(code: string, message: string): NodeJS.ErrnoException {
+  const error = new Error(message) as NodeJS.ErrnoException;
+  error.code = code;
+  return error;
+}
 
 test('lockPathForState and readStateLockMetadata handle missing, empty, invalid, primitive, and valid lock files', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-metadata-'));
@@ -289,6 +298,7 @@ test('withStateFileLock rethrows stale lock cleanup failures', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-stale-error-'));
   const statePath = path.join(dir, 'state.json');
   const lockPath = lockPathForState(statePath);
+  const originalUnlinkSync = mutableFs.unlinkSync;
 
   writeFileSync(
     lockPath,
@@ -296,7 +306,14 @@ test('withStateFileLock rethrows stale lock cleanup failures', async () => {
     'utf8',
   );
 
-  chmodSync(dir, 0o555);
+  mutableFs.unlinkSync = ((filePath: Parameters<typeof mutableFs.unlinkSync>[0]) => {
+    if (String(filePath) === lockPath) {
+      throw createErrnoError('EACCES', 'permission denied while removing stale lock');
+    }
+
+    return originalUnlinkSync(filePath);
+  }) as typeof mutableFs.unlinkSync;
+  syncBuiltinESMExports();
 
   try {
     await assert.rejects(
@@ -316,7 +333,8 @@ test('withStateFileLock rethrows stale lock cleanup failures', async () => {
       },
     );
   } finally {
-    chmodSync(dir, 0o755);
+    mutableFs.unlinkSync = originalUnlinkSync;
+    syncBuiltinESMExports();
     rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -356,7 +374,21 @@ test('withStateFileLock logs lock cleanup errors after task completion', async (
 
 test('withStateFileLock rethrows unexpected acquisition errors', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-state-lock-open-error-'));
-  const statePath = path.join(dir, `${'x'.repeat(300)}.json`);
+  const statePath = path.join(dir, 'state.json');
+  const lockPath = lockPathForState(statePath);
+  const originalOpenSync = mutableFs.openSync;
+  mutableFs.openSync = ((
+    filePath: Parameters<typeof mutableFs.openSync>[0],
+    flags: Parameters<typeof mutableFs.openSync>[1],
+    mode?: Parameters<typeof mutableFs.openSync>[2],
+  ) => {
+    if (String(filePath) === lockPath) {
+      throw createErrnoError('EIO', 'synthetic open failure');
+    }
+
+    return originalOpenSync(filePath, flags, mode);
+  }) as typeof mutableFs.openSync;
+  syncBuiltinESMExports();
 
   try {
     await assert.rejects(
@@ -370,11 +402,13 @@ test('withStateFileLock rethrows unexpected acquisition errors', async () => {
           () => 'never',
         ),
       (error: unknown) => {
-        assert.equal((error as NodeJS.ErrnoException).code, 'ENAMETOOLONG');
+        assert.equal((error as NodeJS.ErrnoException).code, 'EIO');
         return true;
       },
     );
   } finally {
+    mutableFs.openSync = originalOpenSync;
+    syncBuiltinESMExports();
     rmSync(dir, { recursive: true, force: true });
   }
 });
