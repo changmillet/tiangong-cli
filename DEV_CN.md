@@ -37,6 +37,7 @@
 - `tiangong lifecyclemodel orchestrate`
 - `tiangong review process`
 - `tiangong review flow`
+- `tiangong review lifecyclemodel`
 - `tiangong flow get`
 - `tiangong flow list`
 - `tiangong flow remediate`
@@ -118,6 +119,7 @@ TIANGONG_LCA_LLM_MODEL=
 | `lifecyclemodel publish-resulting-process` | 无 |
 | `review process` | 纯规则 review 默认无；若显式启用 `--enable-llm`，则需要 `TIANGONG_LCA_LLM_BASE_URL`、`TIANGONG_LCA_LLM_API_KEY`、`TIANGONG_LCA_LLM_MODEL` |
 | `review flow` | 纯规则 review 默认无；若显式启用 `--enable-llm`，则需要 `TIANGONG_LCA_LLM_BASE_URL`、`TIANGONG_LCA_LLM_API_KEY`、`TIANGONG_LCA_LLM_MODEL` |
+| `review lifecyclemodel` | 无 |
 | `flow get` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY` |
 | `flow list` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY` |
 | `flow remediate` | 无 |
@@ -152,6 +154,7 @@ npm start -- lifecyclemodel build-resulting-process --input ./request.json --jso
 npm start -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
 npm start -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
 npm start -- review flow --rows-file ./flows.json --out-dir ./flow-review --json
+npm start -- review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review --json
 npm start -- flow get --id <flow-id> --version <version> --json
 npm start -- flow list --id <flow-id> --state-code 100 --limit 20 --json
 npm start -- flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation --json
@@ -324,6 +327,22 @@ npm start -- admin embedding-run --input ./jobs.json --dry-run
 - 输出 `flow_review_report.json`
 
 这个命令同样保持本地 artifact-first。若显式传入 `--enable-llm`，则通过 CLI 内部统一的 `TIANGONG_LCA_LLM_*` 运行时做可选语义审核；当前 CLI 切片明确不支持 `--with-reference-context`，也还没有接入本地 registry enrichment。
+
+`tiangong review lifecyclemodel` 现在也已经进入可执行状态，负责：
+
+- 从 `--run-dir` 重开一个已有 lifecyclemodel auto-build run
+- 扫描 `models/*/tidas_bundle/lifecyclemodels/*.json`
+- 复用 `summary.json`、`connections.json`、`process-catalog.json`
+- 若存在 `reports/lifecyclemodel-validate-build-report.json`，则聚合其中的 validate findings
+- 输出 `model_summaries.jsonl`
+- 输出 `findings.jsonl`
+- 输出 `lifecyclemodel_review_summary.json`
+- 输出 `lifecyclemodel_review_zh.md`
+- 输出 `lifecyclemodel_review_en.md`
+- 输出 `lifecyclemodel_review_timing.md`
+- 输出 `lifecyclemodel_review_report.json`
+
+这个命令当前保持本地 artifact-first，不引入 Python、LangGraph 或 skill 私有 review runtime。`tiangong validation run` 中 `engine=tools -> uv run tidas-validate` 的 fallback 仍然保留，作为后续单独跟踪项。
 
 `tiangong flow get` 现在已经承担 flow governance 的只读详情切片，负责：
 

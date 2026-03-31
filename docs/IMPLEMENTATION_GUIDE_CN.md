@@ -122,7 +122,7 @@ tiangong
 
 - `tiangong review process` 已可执行
 - `tiangong review flow` 已可执行
-- `tiangong review lifecyclemodel` 处于 planned 状态
+- `tiangong review lifecyclemodel` 已可执行
 
 `tiangong flow ...` 也已经开始承接 flow-governance 主链迁移，其中：
 
@@ -183,7 +183,7 @@ tiangong
 - 已实现的 `flow apply-process-flow-repairs` 把治理链中的独立 deterministic repair apply 切片收口到 CLI，固定与 planning 相同的输入契约，直接写出 `patched-processes.json` / `process-patches/**`，并可在 `--process-pool-file` 下同步本地 pool
 - 已实现的 `flow regen-product` 把治理后的 process-side 再生产物链收口到 CLI，在一个命令下固定 `scan -> repair plan -> optional apply -> optional validate` 契约，并把退出码 `1` 保留给 `--apply` 之后的本地校验失败
 - 已实现的 `flow validate-processes` 把治理后 patched process rows 的独立校验切片收口到 CLI，固定 original/patched/scope 三类输入契约，并直接写出 `validation-report.json` / `validation-failures.jsonl`
-- 当前仍未实现的重点命令主要是 `review lifecyclemodel`；其余未迁移子命令继续只提供 help 和固定命名
+- 当前仍然保留的迁移尾巴主要在 `validation run` 的 tools-engine fallback；其余 review / build / publish CLI 面已经进入可执行状态，未迁移子命令只剩 `auth` / `job` 这类 placeholder surface
 - 这样做的目的不是“假装已完成”，而是先固定命令树，再逐个把 workflow 迁入 TypeScript CLI
 
 ### 2.2 已经固定的工程约束
@@ -770,7 +770,7 @@ npm run prepush:gate
   - skill 侧不再保留 shell 兼容壳或 Python / MCP runtime
 - `lifecycleinventory-review`
   - `tiangong review process`
-  - 仍保留 `review lifecyclemodel` 作为未来原生 CLI 增量，不属于遗留 Python runtime
+  - `tiangong review lifecyclemodel`
 - `flow-governance-review`
   - `tiangong review flow`
   - `tiangong flow get`
@@ -827,7 +827,7 @@ npm run prepush:gate
 
 ### 后续只保留原生增量，不再叫“遗留迁移”
 
-- `review lifecyclemodel` 何时实现，取决于是否真的形成稳定业务动作
+- `validation run` 中 `engine=tools -> uv run tidas-validate` 何时移除，取决于统一 validation 收口是否完成
 - lifecyclemodel 的 discovery / AI 选择逻辑，只有在产品面确认需要时才继续抽象成新的 CLI 子命令
 - `auth` / `job` 之类 placeholder surface 只有在真实场景出现时才补齐，而不是为了对称性先做
 - 任何新增能力都必须先定义成 `tiangong <noun> <verb>`，再决定是否要进一步服务化

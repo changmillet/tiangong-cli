@@ -71,6 +71,11 @@ import {
   type RunFlowReviewOptions,
 } from './lib/review-flow.js';
 import {
+  runLifecyclemodelReview,
+  type LifecyclemodelReviewReport,
+  type RunLifecyclemodelReviewOptions,
+} from './lib/review-lifecyclemodel.js';
+import {
   runFlowRemediate,
   type FlowRemediationReport,
   type RunFlowRemediateOptions,
@@ -155,6 +160,9 @@ export type CliDeps = {
   ) => Promise<ProcessPublishBuildReport>;
   runProcessReviewImpl?: (options: RunProcessReviewOptions) => Promise<ProcessReviewReport>;
   runFlowReviewImpl?: (options: RunFlowReviewOptions) => Promise<FlowReviewReport>;
+  runLifecyclemodelReviewImpl?: (
+    options: RunLifecyclemodelReviewOptions,
+  ) => Promise<LifecyclemodelReviewReport>;
   runFlowRemediateImpl?: (options: RunFlowRemediateOptions) => Promise<FlowRemediationReport>;
   runFlowGetImpl?: (options: RunFlowGetOptions) => Promise<FlowGetReport>;
   runFlowListImpl?: (options: RunFlowListOptions) => Promise<FlowListReport>;
@@ -216,14 +224,13 @@ Implemented Commands:
   process    get | auto-build | resume-build | publish-build | batch-build
   flow       get | list | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | build-resulting-process | publish-resulting-process | orchestrate
-  review     process | flow
+  review     process | flow | lifecyclemodel
   publish    run
   validation run
   admin      embedding-run
 
 Planned Surface (not implemented yet):
   auth       whoami | doctor-auth
-  review     lifecyclemodel
   job        get | wait | logs
 
 Planned commands currently print an explicit "not implemented yet" message and exit with code 2.
@@ -254,6 +261,7 @@ Examples:
   tiangong flow validate-processes --original-processes-file ./before.jsonl --patched-processes-file ./after.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-validation
   tiangong review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review
   tiangong review flow --rows-file ./flows.json --out-dir ./review
+  tiangong review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review
   tiangong publish run --input ./publish-request.json --dry-run
   tiangong validation run --input-dir ./package --engine auto
   tiangong admin embedding-run --input ./jobs.json
@@ -636,9 +644,7 @@ function renderReviewHelp(): string {
 Implemented Subcommands:
   process      Review one local process build run and emit artifact-first findings
   flow         Review local flow governance snapshots and emit artifact-first findings
-
-Planned Subcommands:
-  lifecyclemodel Review lifecycle model build artifacts through the unified CLI
+  lifecyclemodel Review one local lifecyclemodel build run and emit artifact-first findings
 
 Examples:
   tiangong review --help
@@ -688,6 +694,26 @@ Options:
   --methodology-id <name>   Label written into methodology-backed rule findings (default: built_in)
   --json                    Print compact JSON
   -h, --help
+`.trim();
+}
+
+function renderReviewLifecyclemodelHelp(): string {
+  return `Usage:
+  tiangong review lifecyclemodel --run-dir <dir> --out-dir <dir> [options]
+
+Options:
+  --run-dir <dir>          Existing lifecyclemodel auto-build run directory
+  --out-dir <dir>          Review artifact output directory
+  --start-ts <iso>         Optional run start timestamp
+  --end-ts <iso>           Optional run end timestamp
+  --logic-version <name>   Review logic version label (default: lifecyclemodel-review-v1.0)
+  --json                   Print compact JSON
+  -h, --help
+
+This command:
+  - reads one existing lifecyclemodel build run under models/*/tidas_bundle/lifecyclemodels
+  - aggregates validate-build findings when reports/lifecyclemodel-validate-build-report.json is present
+  - emits artifact-first model summaries, findings, markdown review notes, and a structured report
 `.trim();
 }
 
@@ -911,26 +937,6 @@ Examples:
   tiangong process publish-build --run-id <id> --help
   tiangong process batch-build --input ./batch-request.json --help
 `.trim();
-}
-
-const reviewPlannedHelp = {
-  lifecyclemodel: `Usage:
-  tiangong review lifecyclemodel --input <file> [options]
-
-Planned contract:
-  - load one lifecycle model build run or normalized review request
-  - emit artifact-first lifecycle model review findings and handoff metadata
-  - keep semantic review behind the CLI LLM abstraction instead of skill-local logic
-
-Status:
-  Planned command. Execution is not implemented yet.
-`.trim(),
-} as const;
-
-type ReviewPlannedSubcommand = keyof typeof reviewPlannedHelp;
-
-function isReviewPlannedSubcommand(value: string | null): value is ReviewPlannedSubcommand {
-  return Boolean(value && value in reviewPlannedHelp);
 }
 
 function renderDoctorText(report: ReturnType<typeof buildDoctorReport>): string {
@@ -2192,6 +2198,49 @@ function parseReviewFlowFlags(args: string[]): {
   };
 }
 
+function parseReviewLifecyclemodelFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  runDir: string;
+  outDir: string;
+  startTs: string | undefined;
+  endTs: string | undefined;
+  logicVersion: string | undefined;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'run-dir': { type: 'string' },
+        'out-dir': { type: 'string' },
+        'start-ts': { type: 'string' },
+        'end-ts': { type: 'string' },
+        'logic-version': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    runDir: typeof values['run-dir'] === 'string' ? values['run-dir'] : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    startTs: typeof values['start-ts'] === 'string' ? values['start-ts'] : undefined,
+    endTs: typeof values['end-ts'] === 'string' ? values['end-ts'] : undefined,
+    logicVersion: typeof values['logic-version'] === 'string' ? values['logic-version'] : undefined,
+  };
+}
+
 function parseLifecyclemodelPublishFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -2598,6 +2647,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const processPublishBuildImpl = deps.runProcessPublishBuildImpl ?? runProcessPublishBuild;
     const processReviewImpl = deps.runProcessReviewImpl ?? runProcessReview;
     const flowReviewImpl = deps.runFlowReviewImpl ?? runFlowReview;
+    const lifecyclemodelReviewImpl = deps.runLifecyclemodelReviewImpl ?? runLifecyclemodelReview;
     const flowRemediateImpl = deps.runFlowRemediateImpl ?? runFlowRemediate;
     const flowGetImpl = deps.runFlowGetImpl ?? runFlowGet;
     const flowListImpl = deps.runFlowListImpl ?? runFlowList;
@@ -3351,15 +3401,25 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
-    if (command === 'review' && isReviewPlannedSubcommand(subcommand)) {
-      if (commandArgs.includes('--help') || commandArgs.includes('-h')) {
-        return {
-          exitCode: 0,
-          stdout: `${reviewPlannedHelp[subcommand]}\n`,
-          stderr: '',
-        };
+    if (command === 'review' && subcommand === 'lifecyclemodel') {
+      const reviewFlags = parseReviewLifecyclemodelFlags(commandArgs);
+      if (reviewFlags.help) {
+        return { exitCode: 0, stdout: `${renderReviewLifecyclemodelHelp()}\n`, stderr: '' };
       }
-      return plannedCommand(command, subcommand);
+
+      const report = await lifecyclemodelReviewImpl({
+        runDir: reviewFlags.runDir,
+        outDir: reviewFlags.outDir,
+        startTs: reviewFlags.startTs,
+        endTs: reviewFlags.endTs,
+        logicVersion: reviewFlags.logicVersion,
+      });
+
+      return {
+        exitCode: 0,
+        stdout: stringifyJson(report, reviewFlags.json),
+        stderr: '',
+      };
     }
 
     return plannedCommand(command, subcommand ?? undefined);

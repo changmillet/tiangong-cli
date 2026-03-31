@@ -77,7 +77,7 @@ MCP 替代策略也已经固定，不再反复讨论：
 | `process-automated-builder` | `node wrapper (.mjs) -> tiangong process auto-build / resume-build / publish-build / batch-build` | 已完成当前 CLI 收口 | skill 侧已无 Python / LangGraph / MCP fallback |
 | `lifecyclemodel-automated-builder` | `node wrapper (.mjs) -> tiangong lifecyclemodel auto-build / validate-build / publish-build` | 已完成当前 CLI 收口 | discovery / AI 选择若未来需要，按新的 CLI 特性处理，不再算遗留债务 |
 | `lifecyclemodel-resulting-process-builder` | `node wrapper (.mjs) -> tiangong lifecyclemodel build-resulting-process / publish-resulting-process` | 已完成 | resulting-process 模板 |
-| `lifecycleinventory-review` | `node wrapper (.mjs) -> tiangong review process` | 已完成当前 CLI 收口 | `review lifecyclemodel` 是未来原生增量，不是 Python 遗留 |
+| `lifecycleinventory-review` | `node wrapper (.mjs) -> tiangong review process / review lifecyclemodel` | 已完成 | review 入口已经完全走原生 CLI |
 | `flow-governance-review` | `node wrapper (.mjs) -> tiangong review flow / flow ...` | 已完成当前 CLI 收口 | reviewed publish、repair、regen、validate 均已进入 CLI |
 | `lifecyclemodel-recursive-orchestrator` | `node wrapper (.mjs) -> tiangong lifecyclemodel orchestrate` | 已完成 | plan / execute / publish-handoff 已原生化 |
 | `lca-publish-executor` | `node wrapper (.mjs) -> tiangong publish run` | 已完成 | 不再保留私有 publish Python contract |
@@ -245,7 +245,7 @@ MCP 替代策略也已经固定，不再反复讨论：
 
 下面这些可以做，但它们已经不是“清遗留”的待办，而是新的产品能力：
 
-- `tiangong review lifecyclemodel`
+- `validation run` 的 tools-engine fallback（当前仍会执行 `uv run tidas-validate`）
 - lifecyclemodel 的 discovery / AI 选择逻辑
 - `auth` / `job` 等只有在真实场景出现时才应该补齐的命令面
 - 更深的 KB / TianGong unstructured 能力，前提是先形成稳定的 CLI 业务动作

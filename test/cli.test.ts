@@ -14,6 +14,7 @@ import type {
 } from '../src/lib/flow-regen-product.js';
 import type { RunFlowRemediateOptions } from '../src/lib/flow-remediate.js';
 import type { RunFlowReviewOptions } from '../src/lib/review-flow.js';
+import type { RunLifecyclemodelReviewOptions } from '../src/lib/review-lifecyclemodel.js';
 
 const dotEnvStatus: DotEnvLoadResult = {
   loaded: false,
@@ -183,6 +184,20 @@ test('executeCli returns help for publish and validation subcommands', async () 
     ),
   );
   assert.match(reviewFlowHelp.stdout, /--similarity-threshold/u);
+
+  const reviewLifecyclemodelHelp = await executeCli(
+    ['review', 'lifecyclemodel', '--help'],
+    makeDeps(),
+  );
+  assert.equal(reviewLifecyclemodelHelp.exitCode, 0);
+  assert.match(
+    reviewLifecyclemodelHelp.stdout,
+    /tiangong review lifecyclemodel --run-dir <dir> --out-dir <dir>/u,
+  );
+  assert.match(
+    reviewLifecyclemodelHelp.stdout,
+    /aggregates validate-build findings when reports\/lifecyclemodel-validate-build-report\.json is present/u,
+  );
 
   const flowRemediateHelp = await executeCli(['flow', 'remediate', '--help'], makeDeps());
   assert.equal(flowRemediateHelp.exitCode, 0);
@@ -1975,6 +1990,14 @@ test('executeCli returns parsing errors for invalid lifecyclemodel, process, and
   assert.equal(orchestrateResult.stdout, '');
   assert.match(orchestrateResult.stderr, /INVALID_ARGS/u);
 
+  const reviewLifecyclemodelResult = await executeCli(
+    ['review', 'lifecyclemodel', '--bad-flag'],
+    makeDeps(),
+  );
+  assert.equal(reviewLifecyclemodelResult.exitCode, 2);
+  assert.equal(reviewLifecyclemodelResult.stdout, '');
+  assert.match(reviewLifecyclemodelResult.stderr, /INVALID_ARGS/u);
+
   const invalidOrchestrateActionResult = await executeCli(
     ['lifecyclemodel', 'orchestrate', 'bad-action'],
     makeDeps(),
@@ -2272,19 +2295,91 @@ test('executeCli validates missing required flow regen-product inputs once the c
   assert.match(result.stderr, /FLOW_REGEN_PROCESSES_FILE_REQUIRED/u);
 });
 
-test('executeCli returns planned command message and dedicated help for review lifecyclemodel', async () => {
-  const lifecyclemodelResult = await executeCli(['review', 'lifecyclemodel'], makeDeps());
-  assert.equal(lifecyclemodelResult.exitCode, 2);
-  assert.equal(lifecyclemodelResult.stdout, '');
-  assert.match(lifecyclemodelResult.stderr, /Command 'review lifecyclemodel'/u);
+test('executeCli dispatches review lifecyclemodel to the implemented CLI module', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-review-lifecyclemodel-dispatch-'));
 
-  const lifecyclemodelHelpResult = await executeCli(
-    ['review', 'lifecyclemodel', '--help'],
-    makeDeps(),
-  );
-  assert.equal(lifecyclemodelHelpResult.exitCode, 0);
-  assert.match(lifecyclemodelHelpResult.stdout, /Planned contract:/u);
-  assert.match(lifecyclemodelHelpResult.stdout, /lifecycle model build run/u);
+  try {
+    let observedOptions: RunLifecyclemodelReviewOptions | undefined;
+    const result = await executeCli(
+      [
+        'review',
+        'lifecyclemodel',
+        '--run-dir',
+        path.join(dir, 'run'),
+        '--out-dir',
+        path.join(dir, 'review'),
+        '--start-ts',
+        '2026-03-30T00:00:00.000Z',
+        '--end-ts',
+        '2026-03-30T00:05:00.000Z',
+        '--logic-version',
+        'review-v1',
+        '--json',
+      ],
+      {
+        ...makeDeps(),
+        runLifecyclemodelReviewImpl: async (options) => {
+          observedOptions = options;
+          return {
+            schema_version: 1,
+            generated_at_utc: '2026-03-30T00:06:00.000Z',
+            status: 'completed_local_lifecyclemodel_review',
+            run_id: 'lm-run-001',
+            run_root: path.join(dir, 'run'),
+            out_dir: path.join(dir, 'review'),
+            logic_version: 'review-v1',
+            model_count: 1,
+            finding_count: 0,
+            severity_counts: {
+              error: 0,
+              warning: 0,
+              info: 0,
+            },
+            validation: {
+              available: true,
+              ok: true,
+              report: path.join(dir, 'run', 'reports', 'lifecyclemodel-validate-build-report.json'),
+            },
+            files: {
+              run_manifest: path.join(dir, 'run', 'manifests', 'run-manifest.json'),
+              invocation_index: path.join(dir, 'run', 'manifests', 'invocation-index.json'),
+              validation_report: path.join(
+                dir,
+                'run',
+                'reports',
+                'lifecyclemodel-validate-build-report.json',
+              ),
+              model_summaries: path.join(dir, 'review', 'model_summaries.jsonl'),
+              findings: path.join(dir, 'review', 'findings.jsonl'),
+              summary: path.join(dir, 'review', 'lifecyclemodel_review_summary.json'),
+              review_zh: path.join(dir, 'review', 'lifecyclemodel_review_zh.md'),
+              review_en: path.join(dir, 'review', 'lifecyclemodel_review_en.md'),
+              timing: path.join(dir, 'review', 'lifecyclemodel_review_timing.md'),
+              report: path.join(dir, 'review', 'lifecyclemodel_review_report.json'),
+            },
+            model_summaries: [],
+            next_actions: ['inspect: findings'],
+          };
+        },
+      },
+    );
+
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(observedOptions, {
+      runDir: path.join(dir, 'run'),
+      outDir: path.join(dir, 'review'),
+      startTs: '2026-03-30T00:00:00.000Z',
+      endTs: '2026-03-30T00:05:00.000Z',
+      logicVersion: 'review-v1',
+    });
+
+    const payload = JSON.parse(result.stdout) as { status: string; logic_version: string };
+    assert.equal(payload.status, 'completed_local_lifecyclemodel_review');
+    assert.equal(payload.logic_version, 'review-v1');
+    assert.equal(result.stderr, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('executeCli dispatches review flow to the implemented CLI module', async () => {

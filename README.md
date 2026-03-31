@@ -39,6 +39,7 @@ This prevents reintroducing a generic MCP transport layer into the CLI runtime.
 - `tiangong lifecyclemodel orchestrate`
 - `tiangong review process`
 - `tiangong review flow`
+- `tiangong review lifecyclemodel`
 - `tiangong flow get`
 - `tiangong flow list`
 - `tiangong flow remediate`
@@ -56,11 +57,9 @@ This prevents reintroducing a generic MCP transport layer into the CLI runtime.
 
 ## Remaining planned command surface
 
-The remaining planned workflow command in the currently documented surface is:
+The remaining planned placeholders in the documented surface are now limited to `auth *` and `job *`.
 
-- `tiangong review lifecyclemodel`
-
-That command still prints an explicit `not implemented yet` message and exits with code `2` until the corresponding workflow is migrated into TypeScript.
+Within the currently implemented command family, the only intentionally deferred migration tail is still inside `tiangong validation run`: `engine=tools` continues to execute `uv run tidas-validate` until that validation fallback is redesigned in a later tracked change.
 
 The stable launcher is `bin/tiangong.js`. It loads the compiled runtime at `dist/src/main.js`, while `npm start -- ...` rebuilds and dogfoods the same launcher path.
 
@@ -133,6 +132,7 @@ Command-level env reality:
 | `lifecyclemodel publish-resulting-process` | none |
 | `review process` | none for rule-only review; optional `TIANGONG_LCA_LLM_BASE_URL`, `TIANGONG_LCA_LLM_API_KEY`, and `TIANGONG_LCA_LLM_MODEL` when `--enable-llm` is set |
 | `review flow` | none for rule-only review; optional `TIANGONG_LCA_LLM_BASE_URL`, `TIANGONG_LCA_LLM_API_KEY`, and `TIANGONG_LCA_LLM_MODEL` when `--enable-llm` is set |
+| `review lifecyclemodel` | none |
 | `flow get` | `TIANGONG_LCA_API_BASE_URL`, `TIANGONG_LCA_API_KEY` |
 | `flow list` | `TIANGONG_LCA_API_BASE_URL`, `TIANGONG_LCA_API_KEY` |
 | `flow remediate` | none |
@@ -169,6 +169,7 @@ npm start -- lifecyclemodel build-resulting-process --input ./request.json --jso
 npm start -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
 npm start -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
 npm start -- review flow --rows-file ./flows.json --out-dir ./flow-review --json
+npm start -- review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review --json
 npm start -- flow get --id <flow-id> --version <version> --json
 npm start -- flow list --id <flow-id> --state-code 100 --limit 20 --json
 npm start -- flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation --json
@@ -222,6 +223,8 @@ The current lifecyclemodel build family intentionally keeps three boundaries out
 `tiangong review process` is the first migrated review slice. It reopens one local `process_from_flow` run under `exports/processes/`, replays the existing artifact-first review contract, writes bilingual markdown findings plus structured JSON reports, and keeps optional semantic review behind the CLI-owned `TIANGONG_LCA_LLM_*` abstraction instead of direct `OPENAI_*` calls in a skill script.
 
 `tiangong review flow` is the flow-side local governance review slice. It accepts exactly one of `--rows-file`, `--flows-dir`, or `--run-root`, materializes explicit local flow snapshots when needed, writes `rule_findings.jsonl`, `llm_findings.jsonl`, `findings.jsonl`, `flow_summaries.jsonl`, `similarity_pairs.jsonl`, `flow_review_summary.json`, `flow_review_zh.md`, `flow_review_en.md`, `flow_review_timing.md`, and `flow_review_report.json`, and keeps optional semantic review behind the same CLI-owned `TIANGONG_LCA_LLM_*` abstraction. The current CLI slice is intentionally local-first and does not implement `--with-reference-context` or local registry enrichment yet.
+
+`tiangong review lifecyclemodel` is the lifecyclemodel-side local review slice. It reopens one existing lifecyclemodel build run by `--run-dir`, scans `models/*/tidas_bundle/lifecyclemodels/*.json`, reuses `summary.json`, `connections.json`, `process-catalog.json`, and the aggregate `reports/lifecyclemodel-validate-build-report.json` when present, writes `model_summaries.jsonl`, `findings.jsonl`, `lifecyclemodel_review_summary.json`, `lifecyclemodel_review_zh.md`, `lifecyclemodel_review_en.md`, `lifecyclemodel_review_timing.md`, and `lifecyclemodel_review_report.json`, and stays local-first without introducing Python, LangGraph, or skill-local review runtimes.
 
 `tiangong flow get` is the CLI-owned read-only flow detail surface. It derives a deterministic Supabase REST read path from `TIANGONG_LCA_API_BASE_URL`, resolves one visible flow row by `id` plus optional `version` / `user_id` / `state_code`, falls back to the latest visible version when an exact version lookup misses, and rejects ambiguous visible matches instead of guessing.
 
