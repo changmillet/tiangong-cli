@@ -1,0 +1,320 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { CliError } from '../src/lib/errors.js';
+import type { FetchLike } from '../src/lib/http.js';
+import {
+  deriveSupabaseRestBaseUrl,
+  fetchExactOrLatestProcessRow,
+  normalizeSupabaseProcessPayload,
+  requireSupabaseRestRuntime,
+} from '../src/lib/supabase-rest.js';
+
+function jsonFetch(
+  responses: unknown[],
+  observed: Array<{ url: string; method: string; headers: HeadersInit | undefined }>,
+): FetchLike {
+  let index = 0;
+  return (async (input, init) => {
+    observed.push({
+      url: String(input),
+      method: String(init?.method ?? ''),
+      headers: init?.headers,
+    });
+    const next = responses[Math.min(index, responses.length - 1)];
+    index += 1;
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: () => 'application/json',
+      },
+      text: async () => JSON.stringify(next),
+    };
+  }) as FetchLike;
+}
+
+test('requireSupabaseRestRuntime reads the shared CLI env contract', () => {
+  assert.deepEqual(
+    requireSupabaseRestRuntime({
+      TIANGONG_LCA_API_BASE_URL: ' https://example.supabase.co/functions/v1 ',
+      TIANGONG_LCA_API_KEY: ' secret-token ',
+    } as NodeJS.ProcessEnv),
+    {
+      apiBaseUrl: 'https://example.supabase.co/functions/v1',
+      apiKey: 'secret-token',
+    },
+  );
+});
+
+test('requireSupabaseRestRuntime rejects missing env keys', () => {
+  assert.throws(
+    () => requireSupabaseRestRuntime({} as NodeJS.ProcessEnv),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'SUPABASE_REST_ENV_REQUIRED');
+      assert.deepEqual(error.details, {
+        missing: ['TIANGONG_LCA_API_BASE_URL', 'TIANGONG_LCA_API_KEY'],
+      });
+      return true;
+    },
+  );
+});
+
+test('deriveSupabaseRestBaseUrl supports project, functions, and rest base URLs', () => {
+  assert.equal(
+    deriveSupabaseRestBaseUrl('https://example.supabase.co/functions/v1'),
+    'https://example.supabase.co/rest/v1',
+  );
+  assert.equal(
+    deriveSupabaseRestBaseUrl('https://example.supabase.co/rest/v1'),
+    'https://example.supabase.co/rest/v1',
+  );
+  assert.equal(
+    deriveSupabaseRestBaseUrl('https://example.supabase.co'),
+    'https://example.supabase.co/rest/v1',
+  );
+});
+
+test('deriveSupabaseRestBaseUrl rejects empty and unsupported base URLs', () => {
+  assert.throws(() => deriveSupabaseRestBaseUrl('   '), {
+    constructor: CliError,
+  });
+  assert.throws(() => deriveSupabaseRestBaseUrl('https://example.supabase.co/custom/path'), {
+    constructor: CliError,
+  });
+});
+
+test('normalizeSupabaseProcessPayload accepts object payloads and JSON strings', () => {
+  const objectPayload = { processDataSet: {} };
+  assert.equal(normalizeSupabaseProcessPayload(objectPayload, 'proc-1@00.00.001'), objectPayload);
+  assert.deepEqual(normalizeSupabaseProcessPayload('{"processDataSet":{}}', 'proc-1@00.00.001'), {
+    processDataSet: {},
+  });
+});
+
+test('normalizeSupabaseProcessPayload rejects invalid JSON and invalid shapes', () => {
+  assert.throws(
+    () => normalizeSupabaseProcessPayload('{invalid', 'proc-1@00.00.001'),
+    (error) => error instanceof CliError && error.code === 'SUPABASE_REST_PAYLOAD_INVALID_JSON',
+  );
+  assert.throws(
+    () => normalizeSupabaseProcessPayload('[]', 'proc-1@00.00.001'),
+    (error) => error instanceof CliError && error.code === 'SUPABASE_REST_PAYLOAD_INVALID',
+  );
+  assert.throws(
+    () => normalizeSupabaseProcessPayload(null, 'proc-1@00.00.001'),
+    (error) => error instanceof CliError && error.code === 'SUPABASE_REST_PAYLOAD_MISSING',
+  );
+});
+
+test('fetchExactOrLatestProcessRow returns the exact version row when present', async () => {
+  const observed: Array<{ url: string; method: string; headers: HeadersInit | undefined }> = [];
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co/functions/v1',
+      apiKey: 'secret-token',
+    },
+    id: 'proc-1',
+    version: '00.00.001',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch(
+      [
+        [
+          {
+            id: 'proc-1',
+            version: '00.00.001',
+            json: { processDataSet: {} },
+            modified_at: '2026-03-30T00:00:00.000Z',
+            state_code: 100,
+          },
+        ],
+      ],
+      observed,
+    ),
+  });
+
+  assert.deepEqual(lookup, {
+    row: {
+      id: 'proc-1',
+      version: '00.00.001',
+      json: { processDataSet: {} },
+      modified_at: '2026-03-30T00:00:00.000Z',
+      state_code: 100,
+    },
+    sourceUrl:
+      'https://example.supabase.co/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-1&version=eq.00.00.001',
+    resolution: 'remote_supabase_exact',
+  });
+  assert.equal(observed.length, 1);
+  assert.equal(observed[0]?.method, 'GET');
+  assert.match(observed[0]?.url ?? '', /\/rest\/v1\/processes/u);
+  assert.match(observed[0]?.url ?? '', /version=eq\.00\.00\.001/u);
+  assert.deepEqual(observed[0]?.headers, {
+    Accept: 'application/json',
+    Authorization: 'Bearer secret-token',
+    apikey: 'secret-token',
+  });
+});
+
+test('fetchExactOrLatestProcessRow returns the latest row when no version is requested', async () => {
+  const observed: Array<{ url: string; method: string; headers: HeadersInit | undefined }> = [];
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co',
+      apiKey: 'secret-token',
+    },
+    id: 'proc-1',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch(
+      [
+        [
+          {
+            id: 'proc-1',
+            version: '00.00.003',
+            json: { processDataSet: { latest: true } },
+            modified_at: null,
+            state_code: 50,
+          },
+        ],
+      ],
+      observed,
+    ),
+  });
+
+  assert.equal(lookup?.resolution, 'remote_supabase_latest');
+  assert.equal(lookup?.row.version, '00.00.003');
+  assert.equal(observed.length, 1);
+  assert.match(observed[0]?.url ?? '', /order=version.desc/u);
+  assert.match(observed[0]?.url ?? '', /limit=1/u);
+});
+
+test('fetchExactOrLatestProcessRow normalizes missing id and version fields to empty strings', async () => {
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co',
+      apiKey: 'secret-token',
+    },
+    id: 'proc-1',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch(
+      [
+        [
+          {
+            json: { processDataSet: { latest: true } },
+            modified_at: null,
+            state_code: null,
+          },
+        ],
+      ],
+      [],
+    ),
+  });
+
+  assert.deepEqual(lookup?.row, {
+    id: '',
+    version: '',
+    json: { processDataSet: { latest: true } },
+    modified_at: null,
+    state_code: null,
+  });
+});
+
+test('fetchExactOrLatestProcessRow falls back to the latest version row when exact lookup misses', async () => {
+  const observed: Array<{ url: string; method: string; headers: HeadersInit | undefined }> = [];
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co/rest/v1',
+      apiKey: 'secret-token',
+    },
+    id: 'proc-1',
+    version: '00.00.001',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch(
+      [
+        [],
+        [
+          {
+            id: 'proc-1',
+            version: '00.00.003',
+            json: { processDataSet: {} },
+            modified_at: null,
+            state_code: 50,
+          },
+        ],
+      ],
+      observed,
+    ),
+    fallbackToLatest: true,
+  });
+
+  assert.equal(lookup?.resolution, 'remote_supabase_latest_fallback');
+  assert.equal(lookup?.row.version, '00.00.003');
+  assert.equal(observed.length, 2);
+  assert.match(observed[0]?.url ?? '', /version=eq\.00\.00\.001/u);
+  assert.match(observed[1]?.url ?? '', /order=version.desc/u);
+  assert.match(observed[1]?.url ?? '', /limit=1/u);
+});
+
+test('fetchExactOrLatestProcessRow returns null when exact lookup misses without fallback', async () => {
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co',
+      apiKey: 'secret-token',
+    },
+    id: 'missing',
+    version: '00.00.001',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch([[]], []),
+    fallbackToLatest: false,
+  });
+
+  assert.equal(lookup, null);
+});
+
+test('fetchExactOrLatestProcessRow returns null when neither exact nor latest rows exist', async () => {
+  const lookup = await fetchExactOrLatestProcessRow({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co',
+      apiKey: 'secret-token',
+    },
+    id: 'missing',
+    version: '00.00.001',
+    timeoutMs: 10,
+    fetchImpl: jsonFetch([[], []], []),
+    fallbackToLatest: true,
+  });
+
+  assert.equal(lookup, null);
+});
+
+test('fetchExactOrLatestProcessRow rejects malformed Supabase REST payloads', async () => {
+  await assert.rejects(
+    () =>
+      fetchExactOrLatestProcessRow({
+        runtime: {
+          apiBaseUrl: 'https://example.supabase.co',
+          apiKey: 'secret-token',
+        },
+        id: 'proc-1',
+        version: '00.00.001',
+        timeoutMs: 10,
+        fetchImpl: jsonFetch([{ bad: 'shape' }], []),
+      }),
+    (error) => error instanceof CliError && error.code === 'SUPABASE_REST_RESPONSE_INVALID',
+  );
+
+  await assert.rejects(
+    () =>
+      fetchExactOrLatestProcessRow({
+        runtime: {
+          apiBaseUrl: 'https://example.supabase.co',
+          apiKey: 'secret-token',
+        },
+        id: 'proc-1',
+        version: '00.00.001',
+        timeoutMs: 10,
+        fetchImpl: jsonFetch([[42]], []),
+      }),
+    (error) => error instanceof CliError && error.code === 'SUPABASE_REST_RESPONSE_INVALID',
+  );
+});

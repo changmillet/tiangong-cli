@@ -4,13 +4,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { writeJsonArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
+import type { FetchLike } from './http.js';
 import { readJsonInput } from './io.js';
 import { buildRunId, resolveRunLayout } from './run.js';
+import {
+  fetchExactOrLatestProcessRow,
+  normalizeSupabaseProcessPayload,
+  requireSupabaseRestRuntime,
+} from './supabase-rest.js';
 
 type JsonObject = Record<string, unknown>;
 
 const DEFAULT_DATASET_VERSION = '00.00.001';
 const EPSILON = 1e-10;
+const REMOTE_PROCESS_LOOKUP_TIMEOUT_MS = 10_000;
 
 export type ProjectionMode = 'primary-only' | 'all-subproducts';
 export type PublishIntent = 'dry_run' | 'prepare_only' | 'publish';
@@ -74,6 +81,13 @@ export type RunLifecyclemodelResultingProcessOptions = {
   inputPath: string;
   outDir?: string | null;
   now?: Date;
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: FetchLike;
+};
+
+type RemoteProcessLookupContext = {
+  env: NodeJS.ProcessEnv;
+  fetchImpl: FetchLike;
 };
 
 type ProcessRecord = {
@@ -160,6 +174,87 @@ function sha256Text(text: string): string {
 
 function nowIso(now: Date = new Date()): string {
   return now.toISOString();
+}
+
+function requireRemoteProcessLookupRuntime(env: NodeJS.ProcessEnv) {
+  const missing: string[] = [];
+  if (typeof env.TIANGONG_LCA_API_BASE_URL !== 'string' || !env.TIANGONG_LCA_API_BASE_URL.trim()) {
+    missing.push('TIANGONG_LCA_API_BASE_URL');
+  }
+
+  if (typeof env.TIANGONG_LCA_API_KEY !== 'string' || !env.TIANGONG_LCA_API_KEY.trim()) {
+    missing.push('TIANGONG_LCA_API_KEY');
+  }
+
+  if (missing.length > 0) {
+    throw new CliError(
+      `Remote process lookup requires ${missing.join(', ')} when process_sources.allow_remote_lookup=true.`,
+      {
+        code: 'LIFECYCLEMODEL_REMOTE_LOOKUP_ENV_REQUIRED',
+        exitCode: 2,
+        details: { missing },
+      },
+    );
+  }
+
+  return requireSupabaseRestRuntime(env);
+}
+
+async function fetchRemoteProcessRecord(options: {
+  processId: string;
+  requestedVersion: string;
+  runtime: ReturnType<typeof requireSupabaseRestRuntime>;
+  fetchImpl: FetchLike;
+}): Promise<{
+  record: ProcessRecord;
+  resolution: 'remote_supabase_exact' | 'remote_supabase_latest_fallback';
+  sourcePath: string;
+  resolvedVersion: string;
+}> {
+  const lookupKey = `${options.processId}@${options.requestedVersion}`;
+  try {
+    const lookup = await fetchExactOrLatestProcessRow({
+      runtime: options.runtime,
+      id: options.processId,
+      version: options.requestedVersion,
+      timeoutMs: REMOTE_PROCESS_LOOKUP_TIMEOUT_MS,
+      fetchImpl: options.fetchImpl,
+      fallbackToLatest: true,
+    });
+
+    if (!lookup) {
+      throw new CliError(`Could not resolve remote process dataset for ${lookupKey}.`, {
+        code: 'LIFECYCLEMODEL_REMOTE_PROCESS_NOT_FOUND',
+        exitCode: 2,
+        details: { process_id: options.processId, version: options.requestedVersion },
+      });
+    }
+
+    const record = parseProcessRecord(normalizeSupabaseProcessPayload(lookup.row.json, lookupKey), {
+      sourceLabel: 'remote:supabase',
+      sourcePath: lookup.sourceUrl,
+    });
+
+    return {
+      record,
+      resolution:
+        lookup.resolution === 'remote_supabase_latest_fallback'
+          ? 'remote_supabase_latest_fallback'
+          : 'remote_supabase_exact',
+      sourcePath: lookup.sourceUrl,
+      resolvedVersion: lookup.row.version || record.version,
+    };
+  } catch (error) {
+    if (error instanceof CliError && error.code === 'SUPABASE_REST_RESPONSE_INVALID') {
+      throw new CliError(`Remote process lookup returned an invalid response for ${lookupKey}.`, {
+        code: 'LIFECYCLEMODEL_REMOTE_LOOKUP_RESPONSE_INVALID',
+        exitCode: 1,
+        details: error.details,
+      });
+    }
+
+    throw error;
+  }
 }
 
 function resolveInputPath(baseDir: string, value: string): string;
@@ -868,15 +963,16 @@ function locateLocalProcessFile(
   return null;
 }
 
-function resolveProcessRecords(
+async function resolveProcessRecords(
   request: LifecyclemodelResultingProcessRequest,
   options: {
     sourceModelJson: JsonObject;
+    remoteLookup?: RemoteProcessLookupContext;
   },
-): {
+): Promise<{
   records: Record<string, ProcessRecord>;
   resolutionSummary: JsonObject;
-} {
+}> {
   const requiredPairs = processReferencePairs(options.sourceModelJson);
   const processFiles = request.process_sources.process_json_files;
   const processDirs = processSourceDirs(request);
@@ -911,19 +1007,37 @@ function resolveProcessRecords(
     unresolved.push({ process_id, version });
   });
 
-  if (unresolved.length > 0) {
-    if (request.process_sources.allow_remote_lookup) {
-      throw new CliError(
-        'Remote process lookup is not implemented in the CLI yet. Provide local process_sources.run_dirs, process_json_dirs, or process_json_files.',
-        {
-          code: 'LIFECYCLEMODEL_REMOTE_LOOKUP_NOT_IMPLEMENTED',
-          exitCode: 2,
-          details: unresolved,
-        },
-      );
-    }
+  if (unresolved.length > 0 && request.process_sources.allow_remote_lookup) {
+    const env = options.remoteLookup?.env ?? process.env;
+    const fetchImpl = options.remoteLookup?.fetchImpl ?? (fetch as FetchLike);
+    const runtime = requireRemoteProcessLookupRuntime(env);
 
-    const missing = unresolved.map((item) => `${item.process_id}@${item.version}`).join(', ');
+    for (const item of unresolved) {
+      const remoteRecord = await fetchRemoteProcessRecord({
+        processId: item.process_id,
+        requestedVersion: item.version,
+        runtime,
+        fetchImpl,
+      });
+      records[`${item.process_id}@${item.version}`] = remoteRecord.record;
+      resolutionItems.push({
+        process_id: item.process_id,
+        requested_version: item.version,
+        resolved_version: remoteRecord.resolvedVersion,
+        resolution: remoteRecord.resolution,
+        source_path: remoteRecord.sourcePath,
+      });
+    }
+  }
+
+  const remainingUnresolved = requiredPairs.filter(
+    ({ process_id, version }) => !records[`${process_id}@${version}`],
+  );
+
+  if (remainingUnresolved.length > 0) {
+    const missing = remainingUnresolved
+      .map((item) => `${item.process_id}@${item.version}`)
+      .join(', ');
     throw new CliError(
       `Could not resolve referenced process datasets for lifecycle model: ${missing}.`,
       {
@@ -940,7 +1054,9 @@ function resolveProcessRecords(
       resolved_process_count: Object.keys(records).length,
       local_process_dir_count: processDirs.length,
       explicit_process_file_count: processFiles.length,
-      remote_resolution_count: 0,
+      remote_resolution_count: resolutionItems.filter((item) =>
+        String(item.resolution).startsWith('remote_'),
+      ).length,
       items: resolutionItems,
     },
   };
@@ -1277,11 +1393,12 @@ function buildResultingProcessPayload(options: {
   return finalProcess;
 }
 
-function buildProjectionBundle(options: {
+async function buildProjectionBundle(options: {
   request: LifecyclemodelResultingProcessRequest;
   sourceModelJson: JsonObject;
   modelPath: string | null;
-}): {
+  remoteLookup?: RemoteProcessLookupContext;
+}): Promise<{
   bundle: JsonObject;
   report: JsonObject;
   sourceModelSummary: {
@@ -1294,7 +1411,7 @@ function buildProjectionBundle(options: {
     reference_process_instance_id: string | null;
     resolved_process_summary: JsonObject;
   };
-} {
+}> {
   const root = lifecyclemodelRoot(options.sourceModelJson);
   const modelInfo = isRecord(root.lifeCycleModelInformation) ? root.lifeCycleModelInformation : {};
   const modelDataInfo = isRecord(modelInfo.dataSetInformation) ? modelInfo.dataSetInformation : {};
@@ -1302,8 +1419,9 @@ function buildProjectionBundle(options: {
   const sourceModelNameInfo = normalizedNameInfo(modelDataInfo.name, modelIdentity.name);
   const processInstances = extractProcessInstances(options.sourceModelJson);
   const edges = extractEdges(options.sourceModelJson);
-  const processResolution = resolveProcessRecords(options.request, {
+  const processResolution = await resolveProcessRecords(options.request, {
     sourceModelJson: options.sourceModelJson,
+    remoteLookup: options.remoteLookup,
   });
   const referenceProcess = referenceToResultingProcess(options.sourceModelJson);
   const referenceProcessInstance = referenceProcessInstanceId(options.sourceModelJson);
@@ -1462,10 +1580,14 @@ export async function runLifecyclemodelBuildResultingProcess(
   const outDir = options.outDir
     ? path.resolve(options.outDir)
     : defaultOutDir(requestPath, modelIdentity.id, options.now);
-  const projection = buildProjectionBundle({
+  const projection = await buildProjectionBundle({
     request: normalizedRequest,
     sourceModelJson: sourceModel.sourceModelJson,
     modelPath: sourceModel.modelPath,
+    remoteLookup: {
+      env: options.env ?? process.env,
+      fetchImpl: options.fetchImpl ?? (fetch as FetchLike),
+    },
   });
 
   const files = {

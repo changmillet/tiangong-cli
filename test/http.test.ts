@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { postJson } from '../src/lib/http.js';
+import { getJson, postJson } from '../src/lib/http.js';
 
 test('postJson returns parsed JSON payloads', async () => {
   const payload = await postJson({
@@ -99,4 +99,30 @@ test('postJson throws on invalid json responses', async () => {
       }),
     /not valid JSON/u,
   );
+});
+
+test('getJson sends GET requests and returns parsed JSON payloads', async () => {
+  let observedMethod = '';
+  let observedBody: BodyInit | null | undefined;
+  const payload = await getJson({
+    url: 'https://example.com/data',
+    headers: { Authorization: 'Bearer x' },
+    timeoutMs: 10,
+    fetchImpl: async (_input, init) => {
+      observedMethod = init?.method ?? '';
+      observedBody = init?.body;
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get: () => 'application/json',
+        },
+        text: async () => '{"hello":"world"}',
+      };
+    },
+  });
+
+  assert.equal(observedMethod, 'GET');
+  assert.equal(observedBody, undefined);
+  assert.deepEqual(payload, { hello: 'world' });
 });

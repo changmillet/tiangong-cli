@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { loadDistModule } from './helpers/load-dist-module.js';
 import { executeCli } from '../src/cli.js';
 import { CliError } from '../src/lib/errors.js';
+import type { FetchLike } from '../src/lib/http.js';
 import {
   __testInternals,
   normalizeLifecyclemodelResultingProcessRequest,
@@ -42,6 +43,23 @@ function writeText(filePath: string, text: string): void {
 
 function readJson<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, 'utf8')) as T;
+}
+
+function createJsonFetch(responses: unknown[], observedUrls: string[] = []): FetchLike {
+  let index = 0;
+  return (async (input) => {
+    observedUrls.push(String(input));
+    const next = responses[Math.min(index, responses.length - 1)];
+    index += 1;
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        get: () => 'application/json',
+      },
+      text: async () => JSON.stringify(next),
+    };
+  }) as FetchLike;
 }
 
 function assertCliErrorSync(
@@ -1003,7 +1021,7 @@ test('runLifecyclemodelBuildResultingProcess rejects unresolved process lookups 
     });
     await assertCliErrorAsync(
       () => runLifecyclemodelBuildResultingProcess({ inputPath: requestPath }),
-      'LIFECYCLEMODEL_REMOTE_LOOKUP_NOT_IMPLEMENTED',
+      'LIFECYCLEMODEL_REMOTE_LOOKUP_ENV_REQUIRED',
     );
 
     writeJson(requestPath, {
@@ -1145,6 +1163,355 @@ test('runLifecyclemodelBuildResultingProcess rejects invalid process payload sem
     await assertCliErrorAsync(
       () => runLifecyclemodelBuildResultingProcess({ inputPath: requestPath }),
       'LIFECYCLEMODEL_PROCESS_INSTANCES_REQUIRED',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runLifecyclemodelBuildResultingProcess resolves missing processes through deterministic Supabase lookup', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lm-build-remote-'));
+  const requestPath = path.join(dir, 'request.json');
+  const modelPath = path.join(dir, 'model.json');
+  const observedUrls: string[] = [];
+
+  writeJson(modelPath, {
+    technology: {
+      processes: {
+        processInstance: createProcessInstance({
+          instanceId: 'remote-inst',
+          processId: 'proc-remote',
+          factor: 1,
+        }),
+      },
+    },
+  });
+  writeJson(requestPath, {
+    source_model: {
+      json_ordered_path: './model.json',
+    },
+    process_sources: {
+      allow_remote_lookup: true,
+    },
+  });
+
+  try {
+    const report = await runLifecyclemodelBuildResultingProcess({
+      inputPath: requestPath,
+      env: {
+        TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/functions/v1',
+        TIANGONG_LCA_API_KEY: 'supabase-api-key',
+      } as NodeJS.ProcessEnv,
+      fetchImpl: createJsonFetch(
+        [
+          [
+            {
+              id: 'proc-remote',
+              json: createProcessPayload({
+                id: 'proc-remote',
+                version: VERSION,
+                referenceInternalId: '1',
+                exchanges: createExchange({
+                  internalId: '1',
+                  flowId: 'flow-remote',
+                  direction: 'Output',
+                  meanAmount: 1,
+                }),
+              }),
+              version: VERSION,
+            },
+          ],
+        ],
+        observedUrls,
+      ),
+    });
+
+    assert.equal(report.status, 'prepared_local_bundle');
+    assert.equal(observedUrls.length, 1);
+    assert.match(observedUrls[0] as string, /\/rest\/v1\/processes/u);
+    assert.match(observedUrls[0] as string, /id=eq\.proc-remote/u);
+    assert.match(observedUrls[0] as string, /version=eq\.00\.00\.001/u);
+
+    const sourceSummary = readJson<JsonRecord>(report.files.source_model_summary);
+    const resolvedSummary = sourceSummary.resolved_process_summary as JsonRecord;
+    assert.equal(resolvedSummary.remote_resolution_count, 1);
+    assert.deepEqual((resolvedSummary.items as JsonRecord[])[0], {
+      process_id: 'proc-remote',
+      requested_version: VERSION,
+      resolved_version: VERSION,
+      resolution: 'remote_supabase_exact',
+      source_path:
+        'https://supabase.example/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-remote&version=eq.00.00.001',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runLifecyclemodelBuildResultingProcess falls back to latest remote process version when exact version is missing', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lm-build-remote-fallback-'));
+  const requestPath = path.join(dir, 'request.json');
+  const modelPath = path.join(dir, 'model.json');
+  const observedUrls: string[] = [];
+
+  writeJson(modelPath, {
+    technology: {
+      processes: {
+        processInstance: createProcessInstance({
+          instanceId: 'remote-inst',
+          processId: 'proc-remote',
+          factor: 1,
+        }),
+      },
+    },
+  });
+  writeJson(requestPath, {
+    source_model: {
+      json_ordered_path: './model.json',
+    },
+    process_sources: {
+      allow_remote_lookup: true,
+    },
+  });
+
+  try {
+    const report = await runLifecyclemodelBuildResultingProcess({
+      inputPath: requestPath,
+      env: {
+        TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/rest/v1',
+        TIANGONG_LCA_API_KEY: 'supabase-api-key',
+      } as NodeJS.ProcessEnv,
+      fetchImpl: createJsonFetch(
+        [
+          [],
+          [
+            {
+              id: 'proc-remote',
+              json: createProcessPayload({
+                id: 'proc-remote',
+                version: '00.00.002',
+                referenceInternalId: '1',
+                exchanges: createExchange({
+                  internalId: '1',
+                  flowId: 'flow-remote',
+                  direction: 'Output',
+                  meanAmount: 1,
+                }),
+              }),
+              version: '00.00.002',
+            },
+          ],
+        ],
+        observedUrls,
+      ),
+    });
+
+    assert.equal(report.status, 'prepared_local_bundle');
+    assert.equal(observedUrls.length, 2);
+    assert.match(observedUrls[0] as string, /version=eq\.00\.00\.001/u);
+    assert.doesNotMatch(observedUrls[1] as string, /version=eq\./u);
+
+    const sourceSummary = readJson<JsonRecord>(report.files.source_model_summary);
+    const resolvedSummary = sourceSummary.resolved_process_summary as JsonRecord;
+    assert.deepEqual((resolvedSummary.items as JsonRecord[])[0], {
+      process_id: 'proc-remote',
+      requested_version: VERSION,
+      resolved_version: '00.00.002',
+      resolution: 'remote_supabase_latest_fallback',
+      source_path:
+        'https://supabase.example/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-remote&order=version.desc&limit=1',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runLifecyclemodelBuildResultingProcess can use process.env and global fetch for remote lookup fallbacks', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lm-build-remote-defaults-'));
+  const requestPath = path.join(dir, 'request.json');
+  const modelPath = path.join(dir, 'model.json');
+  const originalFetch = globalThis.fetch;
+  const originalBaseUrl = process.env.TIANGONG_LCA_API_BASE_URL;
+  const originalApiKey = process.env.TIANGONG_LCA_API_KEY;
+
+  writeJson(
+    modelPath,
+    createLifecycleModel({
+      id: 'lm-remote-defaults',
+      version: VERSION,
+      namePayload: 'Remote defaults model',
+      referenceProcessInstance: 'remote-inst',
+      instances: createProcessInstance({
+        instanceId: 'remote-inst',
+        processId: 'proc-remote',
+      }),
+    }),
+  );
+  writeJson(requestPath, {
+    source_model: {
+      json_ordered_path: './model.json',
+    },
+    process_sources: {
+      allow_remote_lookup: true,
+    },
+  });
+
+  process.env.TIANGONG_LCA_API_BASE_URL = 'https://supabase.example/functions/v1';
+  process.env.TIANGONG_LCA_API_KEY = 'supabase-api-key';
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    headers: {
+      get: () => 'application/json',
+    },
+    text: async () =>
+      JSON.stringify([
+        {
+          id: 'proc-remote',
+          version: '',
+          json: createProcessPayload({
+            id: 'proc-remote',
+            version: VERSION,
+            referenceInternalId: '1',
+            exchanges: createExchange({
+              internalId: '1',
+              flowId: 'flow-remote',
+              direction: 'Output',
+              meanAmount: 1,
+            }),
+          }),
+          modified_at: null,
+          state_code: null,
+        },
+      ]),
+  })) as unknown as typeof fetch;
+
+  try {
+    const report = await runLifecyclemodelBuildResultingProcess({
+      inputPath: requestPath,
+    });
+
+    const sourceSummary = readJson<JsonRecord>(report.files.source_model_summary);
+    const resolvedSummary = sourceSummary.resolved_process_summary as JsonRecord;
+    assert.deepEqual((resolvedSummary.items as JsonRecord[])[0], {
+      process_id: 'proc-remote',
+      requested_version: VERSION,
+      resolved_version: VERSION,
+      resolution: 'remote_supabase_exact',
+      source_path:
+        'https://supabase.example/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-remote&version=eq.00.00.001',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalBaseUrl === undefined) {
+      delete process.env.TIANGONG_LCA_API_BASE_URL;
+    } else {
+      process.env.TIANGONG_LCA_API_BASE_URL = originalBaseUrl;
+    }
+    if (originalApiKey === undefined) {
+      delete process.env.TIANGONG_LCA_API_KEY;
+    } else {
+      process.env.TIANGONG_LCA_API_KEY = originalApiKey;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runLifecyclemodelBuildResultingProcess rejects invalid remote lookup runtime and missing remote datasets', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lm-build-remote-missing-'));
+  const requestPath = path.join(dir, 'request.json');
+  const modelPath = path.join(dir, 'model.json');
+
+  writeJson(
+    modelPath,
+    createLifecycleModel({
+      id: 'lm-remote-errors',
+      version: VERSION,
+      namePayload: 'Remote model',
+      referenceProcessInstance: 'remote-inst',
+      instances: createProcessInstance({
+        instanceId: 'remote-inst',
+        processId: 'proc-remote',
+      }),
+    }),
+  );
+  writeJson(requestPath, {
+    source_model: {
+      json_ordered_path: './model.json',
+    },
+    process_sources: {
+      allow_remote_lookup: true,
+    },
+  });
+
+  try {
+    await assertCliErrorAsync(
+      () =>
+        runLifecyclemodelBuildResultingProcess({
+          inputPath: requestPath,
+          env: {
+            TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/custom/path',
+            TIANGONG_LCA_API_KEY: 'supabase-api-key',
+          } as NodeJS.ProcessEnv,
+          fetchImpl: createJsonFetch([[]]),
+        }),
+      'SUPABASE_REST_BASE_URL_INVALID',
+    );
+
+    await assertCliErrorAsync(
+      () =>
+        runLifecyclemodelBuildResultingProcess({
+          inputPath: requestPath,
+          env: {
+            TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/functions/v1',
+            TIANGONG_LCA_API_KEY: 'supabase-api-key',
+          } as NodeJS.ProcessEnv,
+          fetchImpl: createJsonFetch([[], []]),
+        }),
+      'LIFECYCLEMODEL_REMOTE_PROCESS_NOT_FOUND',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runLifecyclemodelBuildResultingProcess rejects malformed remote process lookup payloads', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lm-build-remote-errors-'));
+  const requestPath = path.join(dir, 'request.json');
+  const modelPath = path.join(dir, 'model.json');
+
+  writeJson(modelPath, {
+    technology: {
+      processes: {
+        processInstance: createProcessInstance({
+          instanceId: 'remote-inst',
+          processId: 'proc-remote',
+          factor: 1,
+        }),
+      },
+    },
+  });
+  writeJson(requestPath, {
+    source_model: {
+      json_ordered_path: './model.json',
+    },
+    process_sources: {
+      allow_remote_lookup: true,
+    },
+  });
+
+  try {
+    await assertCliErrorAsync(
+      () =>
+        runLifecyclemodelBuildResultingProcess({
+          inputPath: requestPath,
+          env: {
+            TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/functions/v1',
+            TIANGONG_LCA_API_KEY: 'supabase-api-key',
+          } as NodeJS.ProcessEnv,
+          fetchImpl: createJsonFetch([{ bad: 'shape' }]),
+        }),
+      'LIFECYCLEMODEL_REMOTE_LOOKUP_RESPONSE_INVALID',
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -2032,7 +2399,7 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
   );
 
   try {
-    const projection = internals.buildProjectionBundle({
+    const projection = await internals.buildProjectionBundle({
       request: {
         source_model: {
           id: null,
@@ -2084,5 +2451,115 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
     );
   } finally {
     rmSync(projectionDir, { recursive: true, force: true });
+  }
+});
+
+test('buildProjectionBundle can fall back to process.env and global fetch for remote lookup internals', async () => {
+  const internals = await loadDistLifecyclemodelTestInternals();
+  const observedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  const originalBaseUrl = process.env.TIANGONG_LCA_API_BASE_URL;
+  const originalApiKey = process.env.TIANGONG_LCA_API_KEY;
+
+  process.env.TIANGONG_LCA_API_BASE_URL = 'https://supabase.example/functions/v1';
+  process.env.TIANGONG_LCA_API_KEY = 'supabase-api-key';
+  globalThis.fetch = createJsonFetch(
+    [
+      [
+        {
+          id: 'proc-remote-internal',
+          version: VERSION,
+          json: createProcessPayload({
+            id: 'proc-remote-internal',
+            version: VERSION,
+            referenceInternalId: '1',
+            exchanges: createExchange({
+              internalId: '1',
+              flowId: 'flow-remote-internal',
+              direction: 'Output',
+              meanAmount: 1,
+            }),
+          }),
+          modified_at: null,
+          state_code: null,
+        },
+      ],
+    ],
+    observedUrls,
+  ) as unknown as typeof fetch;
+
+  try {
+    const projection = await internals.buildProjectionBundle({
+      request: {
+        source_model: {
+          id: null,
+          version: null,
+          name: null,
+          json_ordered_path: null,
+          json_ordered: null,
+        },
+        projection: {
+          mode: 'all-subproducts',
+          process_id: null,
+          process_version: null,
+          metadata_overrides: {},
+          attach_graph_snapshot: false,
+          attach_graph_snapshot_uri: null,
+        },
+        process_sources: {
+          process_catalog_path: null,
+          run_dirs: [],
+          process_json_dirs: [],
+          process_json_files: [],
+          allow_remote_lookup: true,
+        },
+        publish: {
+          intent: 'dry_run',
+          prepare_process_payloads: true,
+          prepare_relation_payloads: true,
+        },
+      } satisfies LifecyclemodelResultingProcessRequest,
+      sourceModelJson: {
+        technology: {
+          processes: {
+            processInstance: createProcessInstance({
+              instanceId: 'projection-inst-remote',
+              processId: 'proc-remote-internal',
+              factor: 1,
+            }),
+          },
+        },
+      },
+      modelPath: null,
+    });
+
+    assert.equal(observedUrls.length, 1);
+    assert.equal(
+      observedUrls[0],
+      'https://supabase.example/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-remote-internal&version=eq.00.00.001',
+    );
+    assert.deepEqual(
+      (projection.sourceModelSummary.resolved_process_summary.items as JsonRecord[])[0],
+      {
+        process_id: 'proc-remote-internal',
+        requested_version: VERSION,
+        resolved_version: VERSION,
+        resolution: 'remote_supabase_exact',
+        source_path:
+          'https://supabase.example/rest/v1/processes?select=id%2Cversion%2Cjson%2Cmodified_at%2Cstate_code&id=eq.proc-remote-internal&version=eq.00.00.001',
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalBaseUrl === undefined) {
+      delete process.env.TIANGONG_LCA_API_BASE_URL;
+    } else {
+      process.env.TIANGONG_LCA_API_BASE_URL = originalBaseUrl;
+    }
+    if (originalApiKey === undefined) {
+      delete process.env.TIANGONG_LCA_API_KEY;
+    } else {
+      process.env.TIANGONG_LCA_API_KEY = originalApiKey;
+    }
   }
 });
