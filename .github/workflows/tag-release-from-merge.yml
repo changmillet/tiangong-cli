@@ -1,0 +1,71 @@
+name: Tag Release From Merge
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tag-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.TIANGONG_CLI_RELEASE_AUTOMATION_TOKEN }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Validate automation token
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "error: missing TIANGONG_CLI_RELEASE_AUTOMATION_TOKEN secret" >&2
+            exit 1
+          fi
+
+      - name: Detect release version changes
+        id: release
+        env:
+          BASE_REF: ${{ github.event.before }}
+          HEAD_REF: ${{ github.sha }}
+        run: |
+          node ./scripts/ci/detect-release-changes.cjs \
+            --base-ref "$BASE_REF" \
+            --head-ref "$HEAD_REF"
+
+      - name: Stop when no package version changed
+        if: steps.release.outputs.any_changed != 'true'
+        run: echo "No package version changes detected on main."
+
+      - name: Check npm registry version availability
+        if: steps.release.outputs.cli_changed == 'true'
+        env:
+          CLI_VERSION: ${{ steps.release.outputs.cli_version }}
+        run: |
+          node ./scripts/ci/release-version.cjs assert-unpublished \
+            --version "$CLI_VERSION"
+
+      - name: Create release tag
+        if: steps.release.outputs.cli_changed == 'true'
+        env:
+          TAG_NAME: ${{ steps.release.outputs.cli_tag }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "error: tag ${TAG_NAME} already exists" >&2
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --method POST \
+            -f ref="refs/tags/${TAG_NAME}" \
+            -f sha="${TARGET_SHA}"

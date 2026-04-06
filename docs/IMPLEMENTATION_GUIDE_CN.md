@@ -769,6 +769,16 @@ npm run prepush:gate
 
 这比“把所有文件都硬塞进 coverage，结果统计失真”更可靠。
 
+### 6.3 发布自动化
+
+CLI 现在额外有一条独立于质量门的 npm 发布链路：
+
+- release-prep PR 修改 `package.json` 版本号
+- 合并到 `main` 后，`tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
+- `publish.yml` 从该 tag 触发 npm Trusted Publishing
+
+一次性的仓库 secret 和 npm Trusted Publisher 配置见 [release-setup.md](./release-setup.md)。
+
 ## 7. 与 `tiangong-lca-skills` 的关系
 
 ### 7.1 定位分工

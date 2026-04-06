@@ -1,11 +1,27 @@
 {
   "name": "@tiangong-lca/cli",
   "version": "0.0.1",
-  "private": true,
   "description": "Unified TianGong LCA CLI with direct REST adapters and low-entropy command surface.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tiangong-lca/tiangong-cli.git"
+  },
+  "homepage": "https://github.com/tiangong-lca/tiangong-cli#readme",
+  "bugs": {
+    "url": "https://github.com/tiangong-lca/tiangong-cli/issues"
+  },
   "type": "module",
   "bin": {
     "tiangong": "./bin/tiangong.js"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "start": "npm run build && node ./bin/tiangong.js",
@@ -26,6 +42,8 @@
     "test:coverage": "npm run build && node ./scripts/run-test-coverage.cjs",
     "test:coverage:assert-full": "node ./dist/scripts/assert-full-coverage.js",
     "prepush:gate": "npm run lint && npm run test:coverage && npm run test:coverage:assert-full",
+    "release:check-tag": "node ./scripts/ci/check-release-tag.cjs cli",
+    "release:assert-unpublished": "node ./scripts/ci/release-version.cjs assert-unpublished",
     "clean": "node --eval \"import('node:fs').then(({ rmSync }) => rmSync('dist', { recursive: true, force: true }))\""
   },
   "lint-staged": {

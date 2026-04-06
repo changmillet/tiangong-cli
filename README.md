@@ -74,6 +74,19 @@ The repository enforces:
 
 `npm run lint` is the required local gate. It runs `eslint`, deprecated API diagnostics, `prettier --check`, a coverage-ignore guard, and `tsc`. Coverage is enforced at 100% for `src/**/*.ts`. Launcher smoke tests remain in the normal test suite, and coverage-ignore pragmas are forbidden as a substitute for test coverage.
 
+## Releases
+
+The public npm package name for this repository is `@tiangong-lca/cli`.
+
+Normal releases are tag-driven and published by GitHub Actions:
+
+- open a release-prep PR from `main`
+- bump only the CLI package version in `package.json`
+- after merge, `.github/workflows/tag-release-from-merge.yml` creates `cli-vX.Y.Z`
+- `.github/workflows/publish.yml` publishes from that immutable tag through npm Trusted Publishing
+
+One-time repository and npm Trusted Publisher setup lives in [docs/release-setup.md](./docs/release-setup.md).
+
 ## Quick start
 
 Install Node.js `24.x` with any platform-native path you already use. The CLI only requires a working Node 24 runtime; it does not depend on `bash`, `nvm`, or other Unix-only setup tools. Examples that work well:
@@ -85,6 +98,12 @@ Install Node.js `24.x` with any platform-native path you already use. The CLI on
 ```bash
 npm ci
 npm run build
+```
+
+Once the package is published, install it with:
+
+```bash
+npm install --global @tiangong-lca/cli
 ```
 
 Initialize `.env` by duplicating `.env.example` to `.env` with your editor or file manager. Any equivalent copy action is fine on macOS, Linux, or Windows.

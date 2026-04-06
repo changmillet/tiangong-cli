@@ -66,6 +66,25 @@ npm ci
 npm run build
 ```
 
+## 发布流程
+
+这个仓库对外公开发布的 npm 包名是 `@tiangong-lca/cli`。
+
+日常 release 采用 tag 驱动的 GitHub Actions 流程：
+
+- 从 `main` 开一个 release-prep PR
+- 只修改 CLI 包自己的 `package.json` 版本号
+- PR 合并后，`.github/workflows/tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
+- `.github/workflows/publish.yml` 再从这个不可变 tag 通过 npm Trusted Publishing 发布
+
+一次性的仓库 secret、workflow 文件名和 npm Trusted Publisher 配置见 [docs/release-setup.md](./docs/release-setup.md)。
+
+发布到 npm 之后，可直接安装：
+
+```bash
+npm install --global @tiangong-lca/cli
+```
+
 ## 配置文件
 
 本项目会自动加载仓库根目录下的 `.env` 文件。
