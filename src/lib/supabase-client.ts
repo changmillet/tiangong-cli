@@ -117,6 +117,9 @@ export function deriveSupabaseRestBaseUrl(apiBaseUrl: string): string {
   return `${deriveSupabaseProjectBaseUrl(apiBaseUrl)}/rest/v1`;
 }
 
+export const deriveSupabaseFunctionsBaseUrl = (apiBaseUrl: string): string =>
+  `${deriveSupabaseProjectBaseUrl(apiBaseUrl)}/functions/v1`;
+
 function mergeSignals(signal: AbortSignal | null | undefined, timeoutMs: number): AbortSignal {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -374,8 +377,10 @@ export function createSupabaseDataClient(
   fetchImpl: FetchLike,
   timeoutMs: number,
 ) {
+  const projectBaseUrl = deriveSupabaseProjectBaseUrl(runtime.apiBaseUrl);
+
   return {
-    client: createClient(deriveSupabaseProjectBaseUrl(runtime.apiBaseUrl), runtime.publishableKey, {
+    client: createClient(projectBaseUrl, runtime.publishableKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
@@ -385,7 +390,8 @@ export function createSupabaseDataClient(
         fetch: createSupabaseFetch(fetchImpl, timeoutMs, runtime),
       },
     }),
-    restBaseUrl: deriveSupabaseRestBaseUrl(runtime.apiBaseUrl),
+    restBaseUrl: deriveSupabaseRestBaseUrl(projectBaseUrl),
+    functionsBaseUrl: deriveSupabaseFunctionsBaseUrl(projectBaseUrl),
   };
 }
 

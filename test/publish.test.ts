@@ -436,8 +436,8 @@ test('runPublish honors commit override, defers missing executors, and rejects i
   }
 });
 
-test('runPublish uses default Supabase REST dataset executors when runtime env and fetch are provided', async () => {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-default-rest-'));
+test('runPublish uses default Supabase dataset command executors when runtime env and fetch are provided', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-default-dataset-command-'));
   const requestPath = path.join(dir, 'request.json');
   const observed: Array<{ method: string; url: string; body?: string }> = [];
 
@@ -502,8 +502,24 @@ test('runPublish uses default Supabase REST dataset executors when runtime env a
     });
     assert.deepEqual(
       observed.map((entry) => entry.method),
-      ['GET', 'POST', 'GET', 'PATCH'],
+      ['GET', 'POST', 'GET', 'POST'],
     );
+    assert.match(observed[0].url, /\/rest\/v1\/processes\?select=/u);
+    assert.match(observed[1].url, /\/functions\/v1\/app_dataset_create$/u);
+    assert.match(observed[2].url, /\/rest\/v1\/sources\?select=/u);
+    assert.match(observed[3].url, /\/functions\/v1\/app_dataset_save_draft$/u);
+
+    assert.deepEqual(JSON.parse(observed[1].body ?? '{}'), {
+      table: 'processes',
+      id: 'proc-default-rest',
+      jsonOrdered: makeCanonicalProcess('proc-default-rest'),
+    });
+    assert.deepEqual(JSON.parse(observed[3].body ?? '{}'), {
+      table: 'sources',
+      id: 'src-default-rest',
+      version: '01.01.000',
+      jsonOrdered: makeSource('src-default-rest'),
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

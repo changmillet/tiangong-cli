@@ -6,6 +6,7 @@ import {
   buildSupabaseAuthHeaders,
   createSupabaseDataClient,
   createSupabaseFetch,
+  deriveSupabaseFunctionsBaseUrl,
   deriveSupabaseProjectBaseUrl,
   deriveSupabaseRestBaseUrl,
   requireSupabaseRestRuntime,
@@ -78,6 +79,10 @@ test('requireSupabaseRestRuntime, URL derivation, and auth headers follow the sh
   assert.equal(
     deriveSupabaseRestBaseUrl('https://example.supabase.co/functions/v1'),
     'https://example.supabase.co/rest/v1',
+  );
+  assert.equal(
+    deriveSupabaseFunctionsBaseUrl('https://example.supabase.co/rest/v1'),
+    'https://example.supabase.co/functions/v1',
   );
   assert.throws(
     () => deriveSupabaseProjectBaseUrl('https://example.supabase.co/unsupported/path'),
@@ -539,8 +544,8 @@ test('runSupabaseMutation covers success, CliError passthrough, and wrapped fail
   );
 });
 
-test('createSupabaseDataClient returns a configured rest base URL', () => {
-  const { client, restBaseUrl } = createSupabaseDataClient(
+test('createSupabaseDataClient returns configured rest and functions base URLs', () => {
+  const { client, restBaseUrl, functionsBaseUrl } = createSupabaseDataClient(
     {
       apiBaseUrl: 'https://example.supabase.co/functions/v1',
       publishableKey: 'sb-publishable-key',
@@ -559,4 +564,5 @@ test('createSupabaseDataClient returns a configured rest base URL', () => {
 
   assert.ok(client);
   assert.equal(restBaseUrl, 'https://example.supabase.co/rest/v1');
+  assert.equal(functionsBaseUrl, 'https://example.supabase.co/functions/v1');
 });

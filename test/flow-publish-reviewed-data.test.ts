@@ -676,7 +676,7 @@ test('flow publish reviewed data process helpers unwrap root payloads and map up
       publish_policy: 'upsert_current_version',
       version_strategy: 'keep_current',
       status: 'failed',
-      error: 'HTTP 409 returned from https://example.supabase.co/rest/v1/processes',
+      error: '{"message":"duplicate"}',
     },
   ]);
 
@@ -930,14 +930,14 @@ test('runFlowReviewedPublishData commits prepared process rows through Supabase 
 
         return {
           ok: true,
-          status: 201,
+          status: 200,
           headers: {
             get() {
               return 'application/json';
             },
           },
           async text() {
-            return '[{"id":"process-commit"}]';
+            return '{"ok":true,"command":"dataset_create","data":{"id":"process-commit"}}';
           },
         };
       }),
@@ -952,7 +952,7 @@ test('runFlowReviewedPublishData commits prepared process rows through Supabase 
       observed.map((entry) => entry.method),
       ['GET', 'POST'],
     );
-    assert.match(observed[1]?.body ?? '', /"json_ordered"/u);
+    assert.match(observed[1]?.body ?? '', /"jsonOrdered"/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

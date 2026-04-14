@@ -3,7 +3,7 @@ import { readRuntimeEnv } from './env.js';
 import type { FetchLike } from './http.js';
 import { postJson } from './http.js';
 import { readJsonInput, stringifyJson } from './io.js';
-import { requireSupabaseRestRuntime } from './supabase-client.js';
+import { deriveSupabaseFunctionsBaseUrl, requireSupabaseRestRuntime } from './supabase-client.js';
 import { resolveSupabaseUserSession } from './supabase-session.js';
 
 type RemoteCommandSpec = {
@@ -46,7 +46,7 @@ export type RemoteCommandOptions = {
 };
 
 function buildUrl(baseUrl: string, endpoint: string): string {
-  return `${baseUrl.replace(/\/+$/u, '')}/${endpoint}`;
+  return `${deriveSupabaseFunctionsBaseUrl(baseUrl)}/${endpoint}`;
 }
 
 function buildHeaders(
