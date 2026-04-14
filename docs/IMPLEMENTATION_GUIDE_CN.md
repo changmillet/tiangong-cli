@@ -84,8 +84,8 @@ tiangong
 | `tiangong flow get` | 统一 CLI 持有的只读 flow 详情读取面；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 按 `id/version/user/state` 读取 |
 | `tiangong flow list` | 统一 CLI 持有的只读 flow 枚举面；通过原生 `@supabase/supabase-js` 保持稳定过滤/排序/分页语义 |
 | `tiangong flow remediate` | 本地 flow governance round1 deterministic remediation、artifact-first 输出 |
-| `tiangong flow publish-version` | 统一 CLI 持有的 remediated-flow publish/update 入口；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 写出稳定 success/failure artifacts |
-| `tiangong flow publish-reviewed-data` | 统一 CLI 持有的 reviewed publish preparation 入口；支持 flow unchanged skip、flow/process append-only bump / current-version upsert、process flow-ref rewrite、本地 `publish-report.json` 与兼容的 flow success/failure artifacts |
+| `tiangong flow publish-version` | 统一 CLI 持有的 remediated-flow publish/update 入口；通过 REST 精确可见性预检 + Edge Function dataset command (`app_dataset_create` / `app_dataset_save_draft`) 写出稳定 success/failure artifacts |
+| `tiangong flow publish-reviewed-data` | 统一 CLI 持有的 reviewed publish preparation 入口；支持 flow unchanged skip、flow/process append-only bump / current-version upsert、process flow-ref rewrite、本地 `publish-report.json` 与兼容的 flow success/failure artifacts，并在 commit 时复用共享 dataset command writer |
 | `tiangong flow build-alias-map` | 独立 deterministic alias map 入口；从 old/new flow snapshots 与可选 seed alias map 生成 alias plan、manual queue 与稳定 alias map |
 | `tiangong flow scan-process-flow-refs` | 独立 process ref 扫描入口；对 local process rows 做 scope/catalog/alias 分类并写出 scan artifacts |
 | `tiangong flow plan-process-flow-repairs` | 独立 deterministic repair planning 入口；从 process/scope/alias/scan 契约生成 repair plan |
@@ -105,7 +105,7 @@ tiangong
 | `tiangong lifecyclemodel orchestrate` | 递归装配的 plan / execute / publish-handoff 命令；写出 graph/lineage/publish bundle 工件，并只调用原生 CLI builder slices |
 | `tiangong review process` | 本地 process review、artifact-first 报告输出、可选 CLI LLM 语义审核 |
 | `tiangong review flow` | 本地 flow governance review、rows-file 物化、artifact-first 报告输出、可选 CLI LLM 语义审核 |
-| `tiangong publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出 |
+| `tiangong publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出；当提供 Supabase runtime 时默认通过共享 dataset command executor 提交 `lifecyclemodels` / `processes` / `sources` |
 | `tiangong validation run` | 本地 `@tiangong-lca/tidas-sdk` 直接依赖校验收口 |
 | `tiangong admin embedding-run` | `embedding_ft` |
 
@@ -175,8 +175,8 @@ tiangong
 - 已实现的 `flow get` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持 `id` + 可选 `version/user_id/state_code` 读取；若精确版本 miss，则回退到最新可见版本；若出现多个同版本可见候选，则直接报 ambiguous
 - 已实现的 `flow list` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持稳定 `id/state_code/type_of_dataset` 过滤、显式 `order=id.asc,version.asc` 默认值，以及 `--all --page-size` 的 offset 分页
 - 已实现的 `flow remediate` 保留旧 invalid-flow 输入与 round1 artifact 契约，但运行时已经收口到 CLI，不再需要 skill 私有 Python remediation 入口
-- 已实现的 `flow publish-version` 直接从 `TIANGONG_LCA_API_BASE_URL` 推导 `/rest/v1/flows` 写入目标，并通过原生 `@supabase/supabase-js` 支持 dry-run/commit；同时保留 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report` 这些历史文件名
-- 已实现的 `flow publish-reviewed-data` 负责 reviewed publish preparation 阶段：支持 `--original-flow-rows-file` unchanged skip、flow/process `skip | append_only_bump | upsert_current_version`、`prepared-flow-rows.json` / `prepared-process-rows.json` / `flow-version-map.json` / `skipped-unchanged-flow-rows.json` / `process-flow-ref-rewrite-evidence.jsonl` / `publish-report.json` 输出，并在 `--commit` 时通过同一条 `@supabase/supabase-js` writer layer 同时执行 prepared flow rows 与 prepared process rows 的远端写入
+- 已实现的 `flow publish-version` 先做 `/rest/v1/flows` 精确版本可见性预检，再通过 `app_dataset_create` / `app_dataset_save_draft` 提交远端写入；`TIANGONG_LCA_API_BASE_URL` 可传 project root、`/functions/v1` 或 `/rest/v1`，同时继续保留 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report` 这些历史文件名
+- 已实现的 `flow publish-reviewed-data` 负责 reviewed publish preparation 阶段：支持 `--original-flow-rows-file` unchanged skip、flow/process `skip | append_only_bump | upsert_current_version`、`prepared-flow-rows.json` / `prepared-process-rows.json` / `flow-version-map.json` / `skipped-unchanged-flow-rows.json` / `process-flow-ref-rewrite-evidence.jsonl` / `publish-report.json` 输出，并在 `--commit` 时通过同一条共享 dataset command writer layer 同时执行 prepared flow rows 与 prepared process rows 的远端写入
 - 已实现的 `flow build-alias-map` 把治理链中的 deterministic alias-map 构建切片收口到 CLI，固定 old/new flow snapshots 与可选 `seed-alias-map` 输入契约，并直接写出 `alias-plan.json` / `flow-alias-map.json` / `manual-review-queue.jsonl` / `alias-summary.json`
 - 已实现的 `flow scan-process-flow-refs` 把治理链中的独立 process ref scan 切片收口到 CLI，固定 process/scope/catalog/alias 输入契约，并直接写出 `scan-summary.json` / `scan-findings.json` / `scan-findings.jsonl`
 - 已实现的 `flow plan-process-flow-repairs` 把治理链中的独立 deterministic repair planning 切片收口到 CLI，固定 process/scope/alias/scan 输入契约，并直接写出 `repair-plan.json` / `manual-review-queue.jsonl` / `repair-summary.json`
@@ -574,8 +574,9 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 它负责：
 
 - 读取 ready-for-publish flow JSON / JSONL 输入
-- 从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase `/rest/v1/flows` 路径
-- 在 dry-run 或 commit 模式下执行 `would_insert`、`would_update_existing`、`insert`、`update_existing`
+- 从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase REST 预检路径与 Edge Function dataset command 路径；支持 project root、`/functions/v1`、`/rest/v1`
+- dry-run 通过精确版本可见性预检执行 `would_insert`、`would_update_existing` 或失败判定
+- commit 通过同一条预检链调用 `app_dataset_create` / `app_dataset_save_draft`，并在需要时落到 `insert`、`update_existing`、`update_after_insert_error`
 - 输出 `flows_tidas_sdk_plus_classification_mcp_success_list.json`
 - 输出 `flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl`
 - 输出 `flows_tidas_sdk_plus_classification_mcp_sync_report.json`
@@ -698,13 +699,15 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 - 统一 `dry-run` / `commit` override
 - 识别 canonical process payload 与 projection payload
 - 产出结构化 `publish-report.json`
-- 把真正的 commit 执行动作留给显式 executor
+- 在提供 Supabase runtime 时，默认通过共享 dataset command executor 提交 `lifecyclemodels` / `processes` / `sources`
+- 允许调用方继续为其他类别或自定义链路注入显式 executor
 
 这样做的好处是：
 
 - CLI 先稳定输入/输出合同
 - 不把旧 MCP transport 重新带回命令树
-- 后续真有直连 REST publish executor 时，只需要接到同一模块，不需要再改调用方契约
+- REST 预检、Edge Function 提交、artifact 报告都复用同一条 writer 链
+- 即使后续扩充更多 dataset 类别，也不需要再改调用方契约
 
 `validation run` 则固定“统一校验报告层”：
 

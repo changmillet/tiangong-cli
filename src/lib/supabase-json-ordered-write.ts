@@ -1,10 +1,11 @@
+import { createDatasetCommandClient, type DatasetCommandClient } from './dataset-command.js';
+import { readRuntimeEnv } from './env.js';
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
 import {
   createSupabaseDataClient,
   requireSupabaseRestRuntime,
   runSupabaseArrayQuery,
-  runSupabaseMutation,
 } from './supabase-client.js';
 import { createSupabaseDataRuntime } from './supabase-session.js';
 
@@ -112,45 +113,35 @@ async function exactVisibleRows(options: {
 }
 
 async function insertJsonOrderedRow(options: {
-  client: SupabaseDataClient;
-  restBaseUrl: string;
+  commandClient: DatasetCommandClient;
   table: SupabaseJsonOrderedTable;
   id: string;
   payload: JsonObject;
   extraData?: JsonObject;
 }): Promise<void> {
-  const url = `${options.restBaseUrl.replace(/\/+$/u, '')}/${options.table}`;
-  await runSupabaseMutation(
-    options.client.from(options.table).insert({
-      id: options.id,
-      json_ordered: options.payload,
-      ...(options.extraData ?? {}),
-    }),
-    url,
-  );
+  await options.commandClient.create({
+    table: options.table,
+    id: options.id,
+    jsonOrdered: options.payload,
+    ...commandOptionsFromExtraData(options.extraData),
+  });
 }
 
 async function updateJsonOrderedRow(options: {
-  client: SupabaseDataClient;
-  restBaseUrl: string;
+  commandClient: DatasetCommandClient;
   table: SupabaseJsonOrderedTable;
   id: string;
   version: string;
   payload: JsonObject;
   extraData?: JsonObject;
 }): Promise<void> {
-  const url = buildUpdateUrl(options.restBaseUrl, options.table, options.id, options.version);
-  await runSupabaseMutation(
-    options.client
-      .from(options.table)
-      .update({
-        json_ordered: options.payload,
-        ...(options.extraData ?? {}),
-      })
-      .eq('id', options.id)
-      .eq('version', options.version),
-    url,
-  );
+  await options.commandClient.saveDraft({
+    table: options.table,
+    id: options.id,
+    version: options.version,
+    jsonOrdered: options.payload,
+    ...commandOptionsFromExtraData(options.extraData),
+  });
 }
 
 function requireNonEmptyToken(value: string, label: string, code: string): string {
@@ -162,6 +153,34 @@ function requireNonEmptyToken(value: string, label: string, code: string): strin
     });
   }
   return normalized;
+}
+
+function commandOptionsFromExtraData(extraData?: JsonObject): {
+  modelId?: string | null;
+  ruleVerification?: boolean | null;
+} {
+  if (!extraData) {
+    return {};
+  }
+
+  const result: {
+    modelId?: string | null;
+    ruleVerification?: boolean | null;
+  } = {};
+
+  if ('modelId' in extraData || 'model_id' in extraData) {
+    const modelIdValue = extraData.modelId ?? extraData.model_id;
+    result.modelId = modelIdValue === null ? null : trimToken(modelIdValue) || null;
+  }
+
+  if ('ruleVerification' in extraData || 'rule_verification' in extraData) {
+    const ruleVerificationValue = extraData.ruleVerification ?? extraData.rule_verification;
+    if (typeof ruleVerificationValue === 'boolean' || ruleVerificationValue === null) {
+      result.ruleVerification = ruleVerificationValue;
+    }
+  }
+
+  return result;
 }
 
 export function hasSupabaseRestRuntime(env: NodeJS.ProcessEnv | undefined): boolean {
@@ -200,6 +219,12 @@ export async function syncSupabaseJsonOrderedRecord(options: {
     timeoutMs,
   });
   const { client, restBaseUrl } = createSupabaseDataClient(runtime, options.fetchImpl, timeoutMs);
+  const commandClient = createDatasetCommandClient({
+    runtime,
+    fetchImpl: options.fetchImpl,
+    timeoutMs,
+    region: readRuntimeEnv(options.env).region,
+  });
 
   const visibleBefore = await exactVisibleRows({
     client,
@@ -218,8 +243,7 @@ export async function syncSupabaseJsonOrderedRecord(options: {
 
   if (visibleBefore.length > 0) {
     await updateJsonOrderedRow({
-      client,
-      restBaseUrl,
+      commandClient,
       table: options.table,
       id,
       version,
@@ -234,8 +258,7 @@ export async function syncSupabaseJsonOrderedRecord(options: {
 
   try {
     await insertJsonOrderedRow({
-      client,
-      restBaseUrl,
+      commandClient,
       table: options.table,
       id,
       payload: options.payload,
@@ -266,8 +289,7 @@ export async function syncSupabaseJsonOrderedRecord(options: {
     }
 
     await updateJsonOrderedRow({
-      client,
-      restBaseUrl,
+      commandClient,
       table: options.table,
       id,
       version,
@@ -286,6 +308,7 @@ export const __testInternals = {
   buildUpdateUrl,
   parseVisibleRows,
   exactVisibleRows,
+  commandOptionsFromExtraData,
   insertJsonOrderedRow,
   updateJsonOrderedRow,
   requireNonEmptyToken,

@@ -256,20 +256,34 @@ test('runFlowPublishVersion commit executes update, insert, fallback update, and
           {
             body: [{ id: 'flow-1', version: '01.00.001', user_id: 'user-1', state_code: 100 }],
           },
-          { contentType: 'text/plain', rawText: 'patched' },
+          {
+            body: { ok: true, command: 'dataset_save_draft', data: { id: 'flow-1' } },
+          },
           { body: [] },
-          { contentType: '', rawText: '' },
+          {
+            body: { ok: true, command: 'dataset_create', data: { id: 'flow-2' } },
+          },
           { body: [] },
-          { ok: false, status: 409, contentType: 'text/plain', rawText: 'duplicate' },
+          {
+            ok: false,
+            status: 409,
+            body: { ok: false, code: 'DUPLICATE_VERSION', message: 'duplicate' },
+          },
           {
             body: [{ id: 'flow-3', version: '01.00.001', user_id: 'user-3', state_code: 100 }],
           },
-          { body: [] },
+          {
+            body: { ok: true, command: 'dataset_save_draft', data: { id: 'flow-3' } },
+          },
           {
             body: [{ id: 'flow-4', version: '01.00.001', user_id: 'other-user', state_code: 40 }],
           },
           { body: [] },
-          { ok: false, status: 500, contentType: 'application/json', body: { message: 'boom' } },
+          {
+            ok: false,
+            status: 500,
+            body: { ok: false, code: 'INTERNAL_ERROR', message: 'boom' },
+          },
           { body: [] },
         ],
         observed,
@@ -313,11 +327,11 @@ test('runFlowPublishVersion commit executes update, insert, fallback update, and
 
     assert.deepEqual(
       observed.map((entry) => entry.method),
-      ['GET', 'PATCH', 'GET', 'POST', 'GET', 'POST', 'GET', 'PATCH', 'GET', 'GET', 'POST', 'GET'],
+      ['GET', 'POST', 'GET', 'POST', 'GET', 'POST', 'GET', 'POST', 'GET', 'GET', 'POST', 'GET'],
     );
-    assert.match(observed[1]?.url ?? '', /version=eq\.01\.00\.001/u);
-    assert.match(observed[3]?.url ?? '', /\/rest\/v1\/flows$/u);
-    assert.match(observed[1]?.body ?? '', /json_ordered/u);
+    assert.match(observed[1]?.url ?? '', /\/functions\/v1\/app_dataset_save_draft$/u);
+    assert.match(observed[3]?.url ?? '', /\/functions\/v1\/app_dataset_create$/u);
+    assert.match(observed[1]?.body ?? '', /"jsonOrdered"/u);
     assert.match(observed[3]?.body ?? '', /"id":"flow-2"/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -560,11 +574,19 @@ test('runFlowPublishVersion surfaces update-after-insert-error failures when fal
       fetchImpl: makeFetchQueue(
         [
           { body: [] },
-          { ok: false, status: 409, contentType: 'text/plain', rawText: 'duplicate' },
+          {
+            ok: false,
+            status: 409,
+            body: { ok: false, code: 'DUPLICATE_VERSION', message: 'duplicate' },
+          },
           {
             body: [{ id: 'flow-1', version: '01.00.001', user_id: 'user-1', state_code: 100 }],
           },
-          { ok: false, status: 500, contentType: 'text/plain', rawText: 'patch failed' },
+          {
+            ok: false,
+            status: 500,
+            body: { ok: false, code: 'SAVE_DRAFT_FAILED', message: 'patch failed' },
+          },
         ],
         observed,
       ),
@@ -579,7 +601,7 @@ test('runFlowPublishVersion surfaces update-after-insert-error failures when fal
     });
     assert.deepEqual(
       observed.map((entry) => entry.method),
-      ['GET', 'POST', 'GET', 'PATCH'],
+      ['GET', 'POST', 'GET', 'POST'],
     );
 
     const failures = readFileSync(report.files.remote_failed, 'utf8')

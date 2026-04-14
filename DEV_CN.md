@@ -421,8 +421,8 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 `tiangong flow publish-version` 现在已经承担 flow governance 的第一个 CLI 远端写入切片，负责：
 
 - 读取单个 ready-for-publish flow JSON / JSONL 输入
-- 从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase `/rest/v1/flows` 路径
-- 在 dry-run 或 commit 模式下决定 `insert` / `update_existing` / failure
+- 从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase REST 预检路径与 Edge Function dataset command 路径；支持 project root、`/functions/v1`、`/rest/v1` 三种 base URL 形态
+- dry-run 通过精确版本可见性预检决定 `would_insert` / `would_update_existing` / failure；commit 则在同一条预检链上调用 `app_dataset_create` / `app_dataset_save_draft`
 - 输出历史兼容的 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report`
 
 这个命令当前只负责 remediated flow version 的 publish/update 契约，不负责 round2 失败再修复；后续产品侧再生已经由 `tiangong flow regen-product` 单独承接。
@@ -440,7 +440,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 - 输出 `publish-report.json`
 - 保留历史兼容的 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report`
 
-这个命令现在已经覆盖 flow/process 的本地 reviewed publish 准备阶段；当显式传入 `--commit` 时，prepared flow rows 和 prepared process rows 都会通过 CLI 自己基于 `@supabase/supabase-js` 的 writer layer 执行远端提交，不再依赖任何 legacy skill 路径。
+这个命令现在已经覆盖 flow/process 的本地 reviewed publish 准备阶段；当显式传入 `--commit` 时，prepared flow rows 和 prepared process rows 都会通过 CLI 自己共享的 “REST 预检 + dataset command” writer layer 执行远端提交，不再依赖任何 legacy skill 路径。
 
 `tiangong flow build-alias-map` 现在已经承担 flow governance 的 deterministic alias map 切片，负责：
 
@@ -527,7 +527,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 - 输出 `relation-manifest.json`
 - 输出 `publish-report.json`
 
-当前实现刻意没有把旧 MCP 数据库写入逻辑重新塞回 CLI；commit 模式通过可插拔执行器承接，CLI 先把稳定的输入/输出契约和报告形状固定下来。
+当前实现不会把旧 MCP 数据库写入逻辑重新塞回 CLI；但当提供 Supabase runtime 时，`lifecyclemodels` / `processes` / `sources` 会默认走共享的 dataset command executor：先做 REST 精确可见性预检，再调用 `app_dataset_create` / `app_dataset_save_draft`。如果调用方显式注入 executors，则仍以显式执行器为准。
 
 `tiangong validation run` 负责把本地 TIDAS 包校验统一收口到 CLI：
 

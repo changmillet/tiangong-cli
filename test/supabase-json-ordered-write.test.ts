@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CliError } from '../src/lib/errors.js';
 import type { FetchLike } from '../src/lib/http.js';
-import { createSupabaseDataClient } from '../src/lib/supabase-client.js';
 import {
   __testInternals,
   hasSupabaseRestRuntime,
@@ -78,8 +77,8 @@ test('supabase json_ordered write inserts when no exact row exists', async () =>
 
     return makeResponse({
       ok: true,
-      status: 201,
-      body: '[{"id":"proc-1"}]',
+      status: 200,
+      body: '{"ok":true,"command":"dataset_create","data":{"id":"proc-1"}}',
     });
   });
 
@@ -108,7 +107,8 @@ test('supabase json_ordered write inserts when no exact row exists', async () =>
     observed[0]?.url ?? '',
     /\/rest\/v1\/processes\?select=id%2Cversion%2Cstate_code&id=eq\.proc-1&version=eq\.01\.00\.001/u,
   );
-  assert.match(observed[1]?.body ?? '', /"json_ordered"/u);
+  assert.match(observed[1]?.url ?? '', /\/functions\/v1\/app_dataset_create$/u);
+  assert.match(observed[1]?.body ?? '', /"jsonOrdered"/u);
 });
 
 test('supabase json_ordered write updates when exact row already exists', async () => {
@@ -130,7 +130,7 @@ test('supabase json_ordered write updates when exact row already exists', async 
     return makeResponse({
       ok: true,
       status: 200,
-      body: '[{"id":"src-1"}]',
+      body: '{"ok":true,"command":"dataset_save_draft","data":{"id":"src-1"}}',
     });
   });
 
@@ -150,9 +150,9 @@ test('supabase json_ordered write updates when exact row already exists', async 
   assert.equal(result.operation, 'update_existing');
   assert.deepEqual(
     observed.map((item) => item.method),
-    ['GET', 'PATCH'],
+    ['GET', 'POST'],
   );
-  assert.match(observed[1]?.url ?? '', /\/sources\?id=eq\.src-1&version=eq\.01\.00\.001/u);
+  assert.match(observed[1]?.url ?? '', /\/functions\/v1\/app_dataset_save_draft$/u);
 });
 
 test('supabase json_ordered write falls back to update after insert conflict', async () => {
@@ -190,7 +190,7 @@ test('supabase json_ordered write falls back to update after insert conflict', a
     return makeResponse({
       ok: true,
       status: 200,
-      body: '[{"id":"lm-1"}]',
+      body: '{"ok":true,"command":"dataset_save_draft","data":{"id":"lm-1"}}',
     });
   });
 
@@ -210,7 +210,7 @@ test('supabase json_ordered write falls back to update after insert conflict', a
   assert.equal(result.operation, 'update_after_insert_error');
   assert.deepEqual(
     observed.map((item) => item.method),
-    ['GET', 'POST', 'GET', 'PATCH'],
+    ['GET', 'POST', 'GET', 'POST'],
   );
 });
 
@@ -266,53 +266,58 @@ test('append-only insert skips existing rows and validates helper branches', asy
 });
 
 test('supabase json_ordered helpers handle empty/text success payloads and invalid visible-row shapes', async () => {
-  const insertClient = createSupabaseDataClient(
-    {
-      apiBaseUrl: 'https://example.supabase.co',
-      publishableKey: 'sb-publishable-key',
-      getAccessToken: async () => 'access-token',
-      refreshAccessToken: async () => 'refreshed-access-token',
-    },
-    async () =>
-      makeResponse({
-        ok: true,
-        status: 201,
-        contentType: 'text/plain',
-        body: 'created',
-      }),
-    10,
-  );
   await __testInternals.insertJsonOrderedRow({
-    client: insertClient.client,
-    restBaseUrl: 'https://example.supabase.co/rest/v1',
+    commandClient: {
+      create: async () => 'created',
+      saveDraft: async () => null,
+    },
     table: 'processes',
     id: 'proc-text',
     payload: { processDataSet: {} },
   });
 
-  const updateClient = createSupabaseDataClient(
-    {
-      apiBaseUrl: 'https://example.supabase.co',
-      publishableKey: 'sb-publishable-key',
-      getAccessToken: async () => 'access-token',
-      refreshAccessToken: async () => 'refreshed-access-token',
-    },
-    async () =>
-      makeResponse({
-        ok: true,
-        status: 200,
-        body: '',
-      }),
-    10,
-  );
   await __testInternals.updateJsonOrderedRow({
-    client: updateClient.client,
-    restBaseUrl: 'https://example.supabase.co/rest/v1',
+    commandClient: {
+      create: async () => null,
+      saveDraft: async () => null,
+    },
     table: 'processes',
     id: 'proc-empty',
     version: '01.00.001',
     payload: { processDataSet: {} },
   });
+
+  assert.deepEqual(__testInternals.commandOptionsFromExtraData({ model_id: 'model-1' }), {
+    modelId: 'model-1',
+  });
+  assert.deepEqual(
+    __testInternals.commandOptionsFromExtraData({
+      modelId: 'model-2',
+      rule_verification: false,
+    }),
+    {
+      modelId: 'model-2',
+      ruleVerification: false,
+    },
+  );
+  assert.deepEqual(
+    __testInternals.commandOptionsFromExtraData({
+      model_id: null,
+      rule_verification: null,
+    }),
+    {
+      modelId: null,
+      ruleVerification: null,
+    },
+  );
+  assert.deepEqual(
+    __testInternals.commandOptionsFromExtraData({
+      model_id: '   ',
+    }),
+    {
+      modelId: null,
+    },
+  );
 
   assert.throws(
     () => __testInternals.parseVisibleRows('not-an-array', 'https://example.com/select'),

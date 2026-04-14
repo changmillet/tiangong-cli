@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
+import { createDatasetCommandClient, type DatasetCommandClient } from './dataset-command.js';
+import { readRuntimeEnv } from './env.js';
 import { CliError } from './errors.js';
 import {
   coerceText,
@@ -14,7 +16,6 @@ import {
   createSupabaseDataClient,
   requireSupabaseRestRuntime,
   runSupabaseArrayQuery,
-  runSupabaseMutation,
 } from './supabase-client.js';
 import { createSupabaseDataRuntime } from './supabase-session.js';
 
@@ -446,45 +447,36 @@ function build_error_reasons(stage: string, error: unknown): FlowPublishFailureR
 }
 
 async function insert_flow_version(options: {
-  client: SupabaseDataClient;
-  restBaseUrl: string;
+  commandClient: DatasetCommandClient;
   rowId: string;
   payload: JsonRecord;
 }): Promise<void> {
-  const url = `${options.restBaseUrl.replace(/\/+$/u, '')}/flows`;
-  await runSupabaseMutation(
-    options.client.from('flows').insert({
-      id: options.rowId,
-      json_ordered: options.payload,
-    }),
-    url,
-  );
+  await options.commandClient.create({
+    table: 'flows',
+    id: options.rowId,
+    jsonOrdered: options.payload,
+  });
 }
 
 async function update_flow_version(options: {
-  client: SupabaseDataClient;
-  restBaseUrl: string;
+  commandClient: DatasetCommandClient;
   rowId: string;
   version: string;
   payload: JsonRecord;
 }): Promise<void> {
-  const url = build_update_url(options.restBaseUrl, options.rowId, options.version);
-  await runSupabaseMutation(
-    options.client
-      .from('flows')
-      .update({
-        json_ordered: options.payload,
-      })
-      .eq('id', options.rowId)
-      .eq('version', options.version),
-    url,
-  );
+  await options.commandClient.saveDraft({
+    table: 'flows',
+    id: options.rowId,
+    version: options.version,
+    jsonOrdered: options.payload,
+  });
 }
 
 async function sync_one_row(options: {
   row: JsonRecord;
   mode: FlowPublishMode;
   client: SupabaseDataClient;
+  commandClient: DatasetCommandClient;
   restBaseUrl: string;
   targetUserIdOverride: string | null;
 }): Promise<FlowPublishOutcome> {
@@ -541,8 +533,7 @@ async function sync_one_row(options: {
 
     if (ownBefore) {
       await update_flow_version({
-        client: options.client,
-        restBaseUrl: options.restBaseUrl,
+        commandClient: options.commandClient,
         rowId,
         version,
         payload,
@@ -569,8 +560,7 @@ async function sync_one_row(options: {
 
     try {
       await insert_flow_version({
-        client: options.client,
-        restBaseUrl: options.restBaseUrl,
+        commandClient: options.commandClient,
         rowId,
         payload,
       });
@@ -593,8 +583,7 @@ async function sync_one_row(options: {
       if (ownAfter) {
         try {
           await update_flow_version({
-            client: options.client,
-            restBaseUrl: options.restBaseUrl,
+            commandClient: options.commandClient,
             rowId,
             version,
             payload,
@@ -697,6 +686,12 @@ export async function runFlowPublishVersion(
     now,
   });
   const { client, restBaseUrl } = createSupabaseDataClient(runtime, fetchImpl, timeoutMs);
+  const commandClient = createDatasetCommandClient({
+    runtime,
+    fetchImpl,
+    timeoutMs,
+    region: readRuntimeEnv(options.env ?? process.env).region,
+  });
   const targetUserIdOverride = normalize_token(options.targetUserId ?? null);
   const files = build_output_files(outDir);
 
@@ -716,6 +711,7 @@ export async function runFlowPublishVersion(
       row,
       mode,
       client,
+      commandClient,
       restBaseUrl,
       targetUserIdOverride,
     }),
