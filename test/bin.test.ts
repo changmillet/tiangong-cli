@@ -7,6 +7,24 @@ import { spawnSync } from 'node:child_process';
 
 const maybeTest = process.env.TIANGONG_LCA_COVERAGE === '1' ? test.skip : test;
 
+function runNpm(args: string[], cwd: string) {
+  return spawnSync('npm', args, {
+    cwd,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+}
+
+function assertSuccessfulExit(
+  result: ReturnType<typeof spawnSync>,
+  failureOutput: string | undefined,
+) {
+  const errorMessage =
+    result.error instanceof Error ? (result.error.stack ?? result.error.message) : undefined;
+  assert.equal(result.error, undefined, failureOutput ?? String(result.error));
+  assert.equal(result.status, 0, failureOutput ?? errorMessage ?? '');
+}
+
 maybeTest('runFromBin executes when imported without direct auto-run', async () => {
   const { runFromBin } = await import('../bin/tiangong.js');
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
@@ -43,13 +61,9 @@ maybeTest('packed tarball exposes non-empty help through installed bin and npm e
   const repoRoot = process.cwd();
   const tempInstallDir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-pack-install-'));
   const tempExecDir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-pack-exec-'));
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const packResult = spawnSync(npmCommand, ['pack', '--silent'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
+  const packResult = runNpm(['pack', '--silent'], repoRoot);
 
-  assert.equal(packResult.status, 0, packResult.stderr);
+  assertSuccessfulExit(packResult, packResult.stderr);
 
   const tarballName = packResult.stdout.trim().split('\n').at(-1);
   assert.ok(tarballName);
@@ -62,35 +76,25 @@ maybeTest('packed tarball exposes non-empty help through installed bin and npm e
   );
 
   try {
-    const initResult = spawnSync(npmCommand, ['init', '-y'], {
-      cwd: tempInstallDir,
-      encoding: 'utf8',
-    });
-    assert.equal(initResult.status, 0, initResult.stderr);
+    const initResult = runNpm(['init', '-y'], tempInstallDir);
+    assertSuccessfulExit(initResult, initResult.stderr);
 
-    const installResult = spawnSync(npmCommand, ['install', '--silent', tarballPath], {
-      cwd: tempInstallDir,
-      encoding: 'utf8',
-    });
-    assert.equal(installResult.status, 0, installResult.stderr);
+    const installResult = runNpm(['install', '--silent', tarballPath], tempInstallDir);
+    assertSuccessfulExit(installResult, installResult.stderr);
 
     const binHelpResult = spawnSync(installedBinPath, ['--help'], {
       cwd: tempInstallDir,
       encoding: 'utf8',
       shell: process.platform === 'win32',
     });
-    assert.equal(binHelpResult.status, 0, binHelpResult.stderr);
+    assertSuccessfulExit(binHelpResult, binHelpResult.stderr);
     assert.match(binHelpResult.stdout, /Unified TianGong command entrypoint/u);
 
-    const execHelpResult = spawnSync(
-      npmCommand,
+    const execHelpResult = runNpm(
       ['exec', '--yes', `--package=${tarballPath}`, '--', 'tiangong', '--help'],
-      {
-        cwd: tempExecDir,
-        encoding: 'utf8',
-      },
+      tempExecDir,
     );
-    assert.equal(execHelpResult.status, 0, execHelpResult.stderr);
+    assertSuccessfulExit(execHelpResult, execHelpResult.stderr);
     assert.match(execHelpResult.stdout, /Unified TianGong command entrypoint/u);
   } finally {
     rmSync(tarballPath, { force: true });
