@@ -123,13 +123,16 @@ test('runLifecyclemodelPublishBuild writes lifecyclemodel publish handoff artifa
     const publishBundle = readJson<JsonRecord>(report.files.publish_bundle);
     assert.equal((publishBundle.lifecyclemodels as JsonRecord[]).length, 2);
     assert.equal((publishBundle.relations as JsonRecord[]).length, 0);
+    assert.equal(publishBundle.lifecyclemodel_transport, 'save_lifecycle_model_bundle');
     assert.equal((publishBundle.source_run as JsonRecord).run_manifest instanceof Object, true);
 
     const publishRequest = readJson<JsonRecord>(report.files.publish_request);
     assert.deepEqual((publishRequest.inputs as JsonRecord).bundle_paths, ['./publish-bundle.json']);
     const publishIntent = readJson<JsonRecord>(report.files.publish_intent);
     assert.equal(publishIntent.command, 'publish run');
+    assert.equal(publishIntent.lifecyclemodel_transport, 'save_lifecycle_model_bundle');
     assert.match(report.next_actions[2], /tiangong publish run/u);
+    assert.match(report.next_actions[2], /save_lifecycle_model_bundle/u);
 
     const invocationIndex = readJson<{ invocations: Array<Record<string, unknown>> }>(
       report.files.invocation_index,

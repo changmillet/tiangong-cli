@@ -314,6 +314,7 @@ function buildPublishIntent(
   return {
     ok: true,
     command: 'publish run',
+    lifecyclemodel_transport: 'save_lifecycle_model_bundle',
     input_path: layout.publishRequestPath,
     run_id: layout.runId,
     run_root: layout.runRoot,
@@ -355,7 +356,7 @@ function buildNextActions(layout: LifecyclemodelPublishBuildLayout): string[] {
   return [
     `inspect: ${layout.publishBundlePath}`,
     `inspect: ${layout.publishRequestPath}`,
-    `run: tiangong publish run --input ${layout.publishRequestPath}`,
+    `run: tiangong publish run --input ${layout.publishRequestPath}  # lifecyclemodels commit through save_lifecycle_model_bundle`,
   ];
 }
 
@@ -379,6 +380,7 @@ export async function runLifecyclemodelPublishBuild(
     run_id: layout.runId,
     run_root: layout.runRoot,
     status: 'prepared_local_lifecyclemodel_publish_bundle' as const,
+    lifecyclemodel_transport: 'save_lifecycle_model_bundle' as const,
     source_run: {
       run_manifest: copyJson(runManifest),
     },

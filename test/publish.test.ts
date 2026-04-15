@@ -49,6 +49,38 @@ function makeSource(id: string): Record<string, unknown> {
   };
 }
 
+function makeLifecyclemodel(id: string): Record<string, unknown> {
+  return {
+    lifeCycleModelDataSet: {
+      lifeCycleModelInformation: {
+        dataSetInformation: {
+          'common:UUID': id,
+          referenceToResultingProcess: {
+            '@refObjectId': 'proc-result',
+            '@version': '01.01.000',
+          },
+        },
+        technology: {
+          processes: {
+            processInstance: {
+              '@dataSetInternalID': '1',
+              referenceToProcess: {
+                '@refObjectId': 'proc-result',
+                '@version': '01.01.000',
+              },
+            },
+          },
+        },
+      },
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:dataSetVersion': '01.01.000',
+        },
+      },
+    },
+  };
+}
+
 function makeResponse(options: {
   ok: boolean;
   status: number;
@@ -547,6 +579,219 @@ test('runPublish uses state-aware process draft writes and generic source update
       observed.map((entry) => entry.method),
       ['GET', 'POST', 'GET', 'POST'],
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runPublish uses save_lifecycle_model_bundle for lifecyclemodels by default', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-lifecyclemodel-default-'));
+  const requestPath = path.join(dir, 'request.json');
+  const observed: Array<{ method: string; url: string; body?: string }> = [];
+
+  writeJson(requestPath, {
+    inputs: {
+      lifecyclemodels: [
+        {
+          json_ordered: makeLifecyclemodel('lm-default-rest'),
+          json_tg: {
+            xflow: {
+              nodes: [{ id: 'explicit-node' }],
+              edges: [],
+            },
+          },
+          rule_verification: false,
+        },
+      ],
+    },
+    publish: {
+      commit: true,
+    },
+  });
+
+  try {
+    const report = await runPublish({
+      inputPath: requestPath,
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+        TIANGONG_LCA_API_KEY: 'key',
+      }),
+      fetchImpl: withSupabaseAuth(async (url, init) => {
+        observed.push({
+          method: String(init?.method ?? 'GET'),
+          url: String(url),
+          body: typeof init?.body === 'string' ? init.body : undefined,
+        });
+
+        if (String(url).includes('/lifecyclemodels?select=')) {
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '[]',
+          });
+        }
+
+        if (String(url).includes('/functions/v1/save_lifecycle_model_bundle')) {
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '{"ok":true,"modelId":"lm-default-rest","version":"01.01.000"}',
+          });
+        }
+
+        return makeResponse({
+          ok: true,
+          status: 200,
+          body: '[{"id":"unexpected"}]',
+        });
+      }),
+      now: new Date('2026-03-28T00:00:00Z'),
+    });
+
+    assert.equal(report.lifecyclemodels[0].status, 'executed');
+    assert.deepEqual(report.lifecyclemodels[0].execution, {
+      status: 'success',
+      operation: 'create',
+      mode: 'create',
+      transport: 'save_lifecycle_model_bundle',
+      response: {
+        ok: true,
+        modelId: 'lm-default-rest',
+        version: '01.01.000',
+      },
+    });
+    assert.deepEqual(
+      observed.map((entry) => entry.method),
+      ['GET', 'POST'],
+    );
+    assert.match(observed[1]?.url ?? '', /\/functions\/v1\/save_lifecycle_model_bundle$/u);
+    assert.match(observed[1]?.body ?? '', /"explicit-node"/u);
+    assert.match(observed[1]?.body ?? '', /"ruleVerification":false/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runPublish preserves lifecyclemodel metadata aliases from wrapper entries', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-lifecyclemodel-metadata-'));
+  const requestPath = path.join(dir, 'request.json');
+  let observedArgs: { metadata?: unknown } | null = null;
+
+  writeJson(requestPath, {
+    inputs: {
+      lifecyclemodels: [
+        {
+          jsonOrdered: makeLifecyclemodel('lm-metadata'),
+          jsonTg: {
+            xflow: {
+              nodes: [{ id: 'camel-node' }],
+              edges: [],
+            },
+          },
+          process_mutations: [
+            {
+              op: 'create',
+              id: '11111111-1111-1111-1111-111111111111',
+              modelId: 'lm-metadata',
+              jsonOrdered: {
+                processDataSet: {},
+              },
+            },
+          ],
+          ruleVerification: true,
+        },
+      ],
+    },
+    publish: {
+      commit: true,
+    },
+  });
+
+  try {
+    const report = await runPublish({
+      inputPath: requestPath,
+      executors: {
+        lifecyclemodels: async (args) => {
+          observedArgs = args as Record<string, unknown>;
+          return {
+            inserted: true,
+          };
+        },
+      },
+      now: new Date('2026-03-28T00:00:00Z'),
+    });
+
+    assert.equal(report.lifecyclemodels[0].status, 'executed');
+    const observedMetadata =
+      ((observedArgs as { metadata?: unknown } | null)?.metadata as
+        | Record<string, unknown>
+        | undefined) ?? {};
+    assert.deepEqual(observedMetadata, {
+      json_tg: {
+        xflow: {
+          nodes: [{ id: 'camel-node' }],
+          edges: [],
+        },
+      },
+      processMutations: [
+        {
+          op: 'create',
+          id: '11111111-1111-1111-1111-111111111111',
+          modelId: 'lm-metadata',
+          jsonOrdered: {
+            processDataSet: {},
+          },
+        },
+      ],
+      ruleVerification: true,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runPublish passes null lifecyclemodel metadata to the default executor when no wrapper metadata exists', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-lifecyclemodel-null-metadata-'));
+  const requestPath = path.join(dir, 'request.json');
+  let observedBody = '';
+
+  writeJson(requestPath, {
+    inputs: {
+      lifecyclemodels: [makeLifecyclemodel('lm-null-metadata')],
+    },
+    publish: {
+      commit: true,
+    },
+  });
+
+  try {
+    const report = await runPublish({
+      inputPath: requestPath,
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+        TIANGONG_LCA_API_KEY: 'key',
+      }),
+      fetchImpl: withSupabaseAuth(async (url, init) => {
+        if (String(url).includes('/lifecyclemodels?select=')) {
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '[]',
+          });
+        }
+
+        observedBody = typeof init?.body === 'string' ? init.body : '';
+        return makeResponse({
+          ok: true,
+          status: 200,
+          body: '{"ok":true,"modelId":"lm-null-metadata","version":"01.01.000"}',
+        });
+      }),
+      now: new Date('2026-03-28T00:00:00Z'),
+    });
+
+    assert.equal(report.lifecyclemodels[0].status, 'executed');
+    assert.doesNotMatch(observedBody, /"ruleVerification"/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

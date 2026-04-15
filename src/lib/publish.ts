@@ -3,6 +3,10 @@ import { CliError } from './errors.js';
 import { writeJsonArtifact } from './artifacts.js';
 import type { FetchLike } from './http.js';
 import { readJsonInput } from './io.js';
+import {
+  syncLifecyclemodelBundleRecord,
+  type LifecyclemodelPublishMetadata,
+} from './lifecyclemodel-bundle-save.js';
 import { syncStateAwareProcessRecord } from './process-save-draft.js';
 import { buildRunId, resolveRunLayout } from './run.js';
 import {
@@ -188,6 +192,7 @@ export type DatasetPublishExecutorArgs = {
   id: string;
   version: string;
   payload: JsonObject;
+  metadata?: LifecyclemodelPublishMetadata | null;
   source: 'bundle' | 'input';
   bundle_path: string | null;
   publish: PublishRequest['publish'];
@@ -307,6 +312,11 @@ type PublishRequestOptions = {
   publish: PublishRequest['publish'];
 };
 
+type LoadedLifecyclemodelPublishEntry = {
+  payload: JsonObject;
+  metadata: LifecyclemodelPublishMetadata | null;
+};
+
 function extract_lifecyclemodel_identity(payload: JsonObject): [string, string] {
   const root = isRecord(payload.lifeCycleModelDataSet) ? payload.lifeCycleModelDataSet : payload;
   const lifeCycleModelInformation = isRecord(root.lifeCycleModelInformation)
@@ -393,13 +403,21 @@ function extract_source_identity(payload: JsonObject): [string, string] {
 }
 
 function load_dataset_entry(entry: PublishDatasetEntry, baseDir: string): JsonObject {
-  if (isRecord(entry)) {
+  const source = load_dataset_entry_source(entry, baseDir);
+  if (isRecord(source)) {
     for (const key of ['json_ordered', 'jsonOrdered', 'payload'] as const) {
-      const candidate = entry[key];
+      const candidate = source[key];
       if (isRecord(candidate)) {
         return candidate;
       }
     }
+  }
+
+  return source;
+}
+
+function load_dataset_entry_source(entry: PublishDatasetEntry, baseDir: string): JsonObject {
+  if (isRecord(entry)) {
     const fileValue = first_non_empty(entry.file, entry.path);
     if (fileValue) {
       return load_json_object(resolve_path(baseDir, fileValue));
@@ -416,6 +434,43 @@ function load_dataset_entry(entry: PublishDatasetEntry, baseDir: string): JsonOb
     exitCode: 2,
     details: entry,
   });
+}
+
+function load_lifecyclemodel_publish_entry(
+  entry: PublishDatasetEntry,
+  baseDir: string,
+): LoadedLifecyclemodelPublishEntry {
+  const source = load_dataset_entry_source(entry, baseDir);
+  const payload = load_dataset_entry(entry, baseDir);
+  const metadata: LifecyclemodelPublishMetadata = {};
+  const jsonTg = isRecord(source.json_tg)
+    ? source.json_tg
+    : isRecord(source.jsonTg)
+      ? source.jsonTg
+      : null;
+  if (jsonTg) {
+    metadata.json_tg = jsonTg;
+  }
+
+  const processMutations = source.processMutations ?? source.process_mutations;
+  if (Array.isArray(processMutations)) {
+    metadata.processMutations = processMutations as JsonObject[];
+  }
+
+  const ruleVerification =
+    typeof source.ruleVerification === 'boolean'
+      ? source.ruleVerification
+      : typeof source.rule_verification === 'boolean'
+        ? source.rule_verification
+        : undefined;
+  if (typeof ruleVerification === 'boolean') {
+    metadata.ruleVerification = ruleVerification;
+  }
+
+  return {
+    payload,
+    metadata: Object.keys(metadata).length > 0 ? metadata : null,
+  };
 }
 
 function push_collected_entries<T>(
@@ -576,6 +631,7 @@ async function maybe_execute_dataset(
   payload: JsonObject,
   options: PublishRequestOptions & {
     table: 'lifecyclemodels' | 'processes' | 'sources';
+    metadata?: LifecyclemodelPublishMetadata | null;
   },
 ): Promise<PublishDatasetReport> {
   if (!options.commit) {
@@ -593,6 +649,7 @@ async function maybe_execute_dataset(
       id: report.id,
       version: report.version,
       payload,
+      metadata: options.metadata,
       source: report.source,
       bundle_path: report.bundle_path,
       publish: options.publish,
@@ -612,7 +669,8 @@ async function publish_lifecyclemodels(
 ): Promise<PublishDatasetReport[]> {
   const reports: PublishDatasetReport[] = [];
   for (const item of entries) {
-    const payload = load_dataset_entry(item.entry, item.origin.base_dir);
+    const loaded = load_lifecyclemodel_publish_entry(item.entry, item.origin.base_dir);
+    const payload = loaded.payload;
     const [datasetId, version] = extract_lifecyclemodel_identity(payload);
     const report: PreparedPublishDatasetReport = {
       table: 'lifecyclemodels',
@@ -627,6 +685,7 @@ async function publish_lifecyclemodels(
         ...options,
         table: 'lifecyclemodels',
         executor: options.executor,
+        metadata: loaded.metadata,
       }),
     );
   }
@@ -800,6 +859,18 @@ function build_default_dataset_executor(options: {
           source: args.source,
           bundle_path: args.bundle_path,
         },
+      });
+    }
+
+    if (options.table === 'lifecyclemodels') {
+      return syncLifecyclemodelBundleRecord({
+        id: args.id,
+        version: args.version,
+        payload: args.payload,
+        metadata: args.metadata ?? null,
+        env: options.env,
+        fetchImpl: options.fetchImpl,
+        timeoutMs: options.timeoutMs,
       });
     }
 

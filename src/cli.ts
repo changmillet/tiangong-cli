@@ -962,6 +962,7 @@ This command:
   - collects native lifecyclemodel json_ordered payloads from one local build run
   - writes publish-bundle.json, publish-request.json, and publish-intent.json
   - keeps actual dry-run / commit execution in tiangong publish run
+  - routes lifecyclemodel commit through save_lifecycle_model_bundle internally
 `.trim();
 }
 
