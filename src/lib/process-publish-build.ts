@@ -148,16 +148,14 @@ function resolveLayout(options: RunProcessPublishBuildOptions): ProcessPublishBu
   const runId = nonEmptyString(options.runId);
   const runDir = nonEmptyString(options.runDir);
 
-  if (!runId && !runDir) {
-    throw new CliError('Missing required --run-id or --run-dir for process publish-build.', {
+  if (!runDir) {
+    throw new CliError('Missing required --run-dir for process publish-build.', {
       code: 'PROCESS_PUBLISH_RUN_REQUIRED',
       exitCode: 2,
     });
   }
 
-  const runRoot = runDir
-    ? path.resolve(runDir)
-    : path.resolve('artifacts', 'process_from_flow', runId as string);
+  const runRoot = path.resolve(runDir);
   const derivedRunId = path.basename(runRoot);
 
   if (runDir && runId && derivedRunId !== runId) {

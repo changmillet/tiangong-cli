@@ -43,6 +43,8 @@ async function createPreparedRun(dir: string): Promise<{
   const flowPath = writeFlowFixture(dir);
   const requestPath = path.join(dir, 'request.json');
   writeJson(requestPath, {
+    run_id: 'prepared-run',
+    workspace_run_root: './prepared-run',
     flow_file: `./${path.basename(flowPath)}`,
   });
 
@@ -58,7 +60,7 @@ async function createPreparedRun(dir: string): Promise<{
   };
 }
 
-test('runProcessResumeBuild clears stop_after and writes resume artifacts from run-id', async () => {
+test('runProcessResumeBuild clears stop_after and writes resume artifacts from run-dir', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-resume-build-runid-'));
   const originalCwd = process.cwd();
 
@@ -77,6 +79,7 @@ test('runProcessResumeBuild clears stop_after and writes resume artifacts from r
     process.chdir(dir);
     const resumeReport = await runProcessResumeBuild({
       runId: autoReport.run_id,
+      runDir: autoReport.run_root,
       now: new Date('2026-03-29T03:00:00Z'),
       cwd: '/tmp/process-resume-build-resume',
     });
@@ -123,6 +126,8 @@ test('runProcessResumeBuild clears stop_after and writes resume artifacts from r
       'resume-build',
       '--run-id',
       autoReport.run_id,
+      '--run-dir',
+      autoReport.run_root,
     ]);
     assert.equal(invocationIndex.invocations[1]?.cwd, '/tmp/process-resume-build-resume');
 
@@ -232,7 +237,11 @@ test('runProcessResumeBuild rebuilds invocation history when invocation index om
 });
 
 test('runProcessResumeBuild rejects invalid inputs and corrupted process run artifacts', async () => {
-  await assert.rejects(() => runProcessResumeBuild({}), /Missing required --run-id or --run-dir/u);
+  await assert.rejects(() => runProcessResumeBuild({}), /Missing required --run-dir/u);
+  await assert.rejects(
+    () => runProcessResumeBuild({ runId: 'run-only' }),
+    /Missing required --run-dir/u,
+  );
 
   const mismatchDir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-resume-build-mismatch-'));
   try {

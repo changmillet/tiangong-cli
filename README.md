@@ -185,19 +185,19 @@ npm exec tiangong -- doctor
 npm exec tiangong -- doctor --json
 npm exec tiangong -- search flow --input ./request.json --dry-run
 npm exec tiangong -- process get --id <process-id> --version <version> --json
-npm exec tiangong -- process auto-build --input ./examples/process-auto-build.request.json --json
-npm exec tiangong -- process resume-build --run-id <run-id> --json
-npm exec tiangong -- process publish-build --run-id <run-id> --json
-npm exec tiangong -- process batch-build --input ./examples/process-batch-build.request.json --json
-npm exec tiangong -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --json
-npm exec tiangong -- lifecyclemodel validate-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-npm exec tiangong -- lifecyclemodel publish-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-npm exec tiangong -- lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir ./artifacts/lifecyclemodel_recursive/<run_id> --json
+npm exec tiangong -- process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
+npm exec tiangong -- process resume-build --run-dir /abs/path/to/process-run --json
+npm exec tiangong -- process publish-build --run-dir /abs/path/to/process-run --json
+npm exec tiangong -- process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
+npm exec tiangong -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 npm exec tiangong -- lifecyclemodel build-resulting-process --input ./request.json --json
 npm exec tiangong -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
-npm exec tiangong -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
+npm exec tiangong -- review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review --json
 npm exec tiangong -- review flow --rows-file ./flows.json --out-dir ./flow-review --json
-npm exec tiangong -- review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review --json
+npm exec tiangong -- review lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-review --json
 npm exec tiangong -- flow get --id <flow-id> --version <version> --json
 npm exec tiangong -- flow list --id <flow-id> --state-code 100 --limit 20 --json
 npm exec tiangong -- flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation --json
@@ -218,19 +218,19 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 
 `tiangong process get` is the CLI-owned read-only process detail surface. It derives a deterministic Supabase read target from `TIANGONG_LCA_API_BASE_URL`, executes through the native `@supabase/supabase-js` client, resolves one process row by `id/version` with a latest-version fallback, and returns one structured JSON payload without reintroducing MCP, Python, or a generic transport layer.
 
-`tiangong process auto-build` is the first migrated `process_from_flow` slice. It reads one request JSON from `--input`, loads the referenced ILCD flow dataset from `flow_file`, preserves the old run id contract (`pfw_<flow_code>_<flow_uuid8>_<operation>_<UTC_TIMESTAMP>`), and writes a local run scaffold under `artifacts/process_from_flow/<run_id>/` or `--out-dir`.
+`tiangong process auto-build` is the first migrated `process_from_flow` slice. It reads one request JSON from `--input`, loads the referenced ILCD flow dataset from `flow_file`, preserves the old run id contract (`pfw_<flow_code>_<flow_uuid8>_<operation>_<UTC_TIMESTAMP>`), and requires one explicit caller-managed run root from `--out-dir` or `request.workspace_run_root`. The CLI does not invent a repo-local `./artifacts/...` fallback.
 
-The command keeps the legacy per-run layout that later stages still expect, including `input/`, `exports/processes/`, `exports/sources/`, `cache/process_from_flow_state.json`, and `cache/agent_handoff_summary.json`. It also adds CLI-owned manifests such as the normalized request snapshot, flow summary, assembly plan, lineage manifest, invocation index, run manifest, and a compact report artifact.
+The command keeps the legacy per-run layout that later stages still expect inside that provided run root, including `input/`, `exports/processes/`, `exports/sources/`, `cache/process_from_flow_state.json`, and `cache/agent_handoff_summary.json`. It also adds CLI-owned manifests such as the normalized request snapshot, flow summary, assembly plan, lineage manifest, invocation index, run manifest, and a compact report artifact.
 
-`tiangong process resume-build` is the second migrated `process_from_flow` slice. It reopens one existing local run by `--run-id` or `--run-dir`, validates the required run artifacts, takes the local state lock, clears any persisted `stop_after` checkpoint, records `resume-metadata.json` and `resume-history.jsonl`, updates `invocation-index.json`, rewrites `agent_handoff_summary.json`, and emits `process-resume-build-report.json`.
+`tiangong process resume-build` is the second migrated `process_from_flow` slice. It reopens one existing local run by `--run-dir`, optionally checks `--run-id` against the run-dir basename, validates the required run artifacts, takes the local state lock, clears any persisted `stop_after` checkpoint, records `resume-metadata.json` and `resume-history.jsonl`, updates `invocation-index.json`, rewrites `agent_handoff_summary.json`, and emits `process-resume-build-report.json`.
 
-`tiangong process publish-build` is the third migrated `process_from_flow` slice. It reopens one existing local run by `--run-id` or `--run-dir`, validates `process_from_flow_state.json`, `agent_handoff_summary.json`, `run-manifest.json`, and `invocation-index.json`, collects canonical process/source datasets from `exports/` or state fallbacks, writes `stage_outputs/10_publish/publish-bundle.json`, `publish-request.json`, `publish-intent.json`, rewrites `agent_handoff_summary.json`, updates the run state and invocation index, and emits `process-publish-build-report.json`.
+`tiangong process publish-build` is the third migrated `process_from_flow` slice. It reopens one existing local run by `--run-dir`, optionally checks `--run-id` against the run-dir basename, validates `process_from_flow_state.json`, `agent_handoff_summary.json`, `run-manifest.json`, and `invocation-index.json`, collects canonical process/source datasets from `exports/` or state fallbacks, writes `stage_outputs/10_publish/publish-bundle.json`, `publish-request.json`, `publish-intent.json`, rewrites `agent_handoff_summary.json`, updates the run state and invocation index, and emits `process-publish-build-report.json`.
 
-`tiangong process batch-build` is the fourth migrated `process_from_flow` slice. It reads one batch manifest, prepares a self-contained batch root, fans out multiple local `process auto-build` runs through the CLI-owned contract, writes a structured per-item aggregate report, and preserves deterministic item-level artifact paths for downstream `resume-build` or `publish-build` steps.
+`tiangong process batch-build` is the fourth migrated `process_from_flow` slice. It reads one batch manifest, requires one explicit caller-managed batch root from `--out-dir` or `request.out_dir`, prepares a self-contained batch root, fans out multiple local `process auto-build` runs through the CLI-owned contract, writes a structured per-item aggregate report, and preserves deterministic item-level artifact paths for downstream `resume-build` or `publish-build` steps.
 
 `resume-build`, `publish-build`, and `batch-build` all still stop at local handoff boundaries. They do not execute remote publish CRUD or commit mode themselves; that boundary remains in `tiangong publish run`.
 
-`tiangong lifecyclemodel auto-build` is the first migrated `lifecyclemodel_automated_builder` slice. It reads one local-run manifest from `--input`, resolves one or more `process-automated-builder` run directories, infers the process graph from shared flow UUIDs, chooses one reference process, computes `@multiplicationFactor`, writes native `json_ordered` lifecyclemodel datasets plus `run-plan.json`, `resolved-manifest.json`, `selection/selection-brief.md`, `discovery/reference-model-summary.json`, `models/**/summary.json`, `connections.json`, and `process-catalog.json`, and keeps the run local-only and read-only.
+`tiangong lifecyclemodel auto-build` is the first migrated `lifecyclemodel_automated_builder` slice. It reads one local-run manifest from `--input`, requires one explicit caller-managed run root from `--out-dir` or `request.out_dir`, resolves one or more `process-automated-builder` run directories, infers the process graph from shared flow UUIDs, chooses one reference process, computes `@multiplicationFactor`, writes native `json_ordered` lifecyclemodel datasets plus `run-plan.json`, `resolved-manifest.json`, `selection/selection-brief.md`, `discovery/reference-model-summary.json`, `models/**/summary.json`, `connections.json`, and `process-catalog.json`, and keeps the run local-only and read-only.
 
 The canonical `tiangong-lca-skills/lifecyclemodel-automated-builder` entrypoint now uses a native Node `.mjs` wrapper that delegates directly to `tiangong lifecyclemodel auto-build`. The canonical build path no longer routes through Bash, Python, or MCP.
 
@@ -305,14 +305,14 @@ node ./bin/tiangong.js flow scan-process-flow-refs --processes-file ./processes.
 node ./bin/tiangong.js flow plan-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --scan-findings ./flow-scan/scan-findings.json --out-dir ./flow-repair-plan --json
 node ./bin/tiangong.js flow apply-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --scan-findings ./flow-scan/scan-findings.json --out-dir ./flow-repair-apply --json
 node ./bin/tiangong.js flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regen --apply --json
-node ./bin/tiangong.js process auto-build --input ./examples/process-auto-build.request.json --json
-node ./bin/tiangong.js process resume-build --run-id <run-id> --json
-node ./bin/tiangong.js process publish-build --run-id <run-id> --json
-node ./bin/tiangong.js process batch-build --input ./examples/process-batch-build.request.json --json
-node ./bin/tiangong.js lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --json
-node ./bin/tiangong.js lifecyclemodel validate-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-node ./bin/tiangong.js lifecyclemodel publish-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-node ./bin/tiangong.js lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir ./artifacts/lifecyclemodel_recursive/<run_id> --json
+node ./bin/tiangong.js process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
+node ./bin/tiangong.js process resume-build --run-dir /abs/path/to/process-run --json
+node ./bin/tiangong.js process publish-build --run-dir /abs/path/to/process-run --json
+node ./bin/tiangong.js process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
+node ./bin/tiangong.js lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
+node ./bin/tiangong.js lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run --json
+node ./bin/tiangong.js lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
+node ./bin/tiangong.js lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 node ./bin/tiangong.js flow publish-version --input-file ./ready-flows.jsonl --out-dir ./flow-publish --dry-run --json
 node ./bin/tiangong.js publish run --input ./examples/publish-run.request.json --dry-run --json
 node ./bin/tiangong.js validation run --input-dir ./package --engine auto --json

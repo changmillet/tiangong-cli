@@ -131,16 +131,14 @@ function resolveLayout(options: RunProcessResumeBuildOptions): ProcessResumeBuil
   const runId = nonEmptyString(options.runId);
   const runDir = nonEmptyString(options.runDir);
 
-  if (!runId && !runDir) {
-    throw new CliError('Missing required --run-id or --run-dir for process resume-build.', {
+  if (!runDir) {
+    throw new CliError('Missing required --run-dir for process resume-build.', {
       code: 'PROCESS_RESUME_RUN_REQUIRED',
       exitCode: 2,
     });
   }
 
-  const runRoot = runDir
-    ? path.resolve(runDir)
-    : path.resolve('artifacts', 'process_from_flow', runId as string);
+  const runRoot = path.resolve(runDir);
   const derivedRunId = path.basename(runRoot);
 
   if (runDir && runId && derivedRunId !== runId) {
@@ -400,7 +398,7 @@ function buildNextActions(
     summary.next_stage
       ? `future: migrate CLI stage executor for ${summary.next_stage}`
       : `future: inspect completed run state for ${layout.runId}`,
-    `future: tiangong process publish-build --run-id ${layout.runId}`,
+    `future: tiangong process publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 

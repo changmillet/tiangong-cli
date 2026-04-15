@@ -78,6 +78,8 @@ async function createPreparedRun(dir: string): Promise<{
   const flowPath = writeFlowFixture(dir);
   const requestPath = path.join(dir, 'request.json');
   writeJson(requestPath, {
+    run_id: 'prepared-run',
+    workspace_run_root: './prepared-run',
     flow_file: `./${path.basename(flowPath)}`,
   });
 
@@ -93,7 +95,7 @@ async function createPreparedRun(dir: string): Promise<{
   };
 }
 
-test('runProcessPublishBuild writes local publish handoff artifacts from run-id using export datasets', async () => {
+test('runProcessPublishBuild writes local publish handoff artifacts from run-dir using export datasets', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-publish-build-runid-'));
   const originalCwd = process.cwd();
 
@@ -132,6 +134,7 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-id 
     process.chdir(dir);
     const publishReport = await runProcessPublishBuild({
       runId: autoReport.run_id,
+      runDir: autoReport.run_root,
       now: new Date('2026-03-29T03:00:00Z'),
       cwd: '/tmp/process-publish-build-runid',
     });
@@ -219,6 +222,8 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-id 
       'publish-build',
       '--run-id',
       autoReport.run_id,
+      '--run-dir',
+      autoReport.run_root,
     ]);
     assert.equal(invocationIndex.invocations[1]?.cwd, '/tmp/process-publish-build-runid');
 
@@ -347,7 +352,11 @@ test('runProcessPublishBuild recreates a missing invocation index for older runs
 });
 
 test('runProcessPublishBuild rejects invalid inputs and corrupted publish-build artifacts', async () => {
-  await assert.rejects(() => runProcessPublishBuild({}), /Missing required --run-id or --run-dir/u);
+  await assert.rejects(() => runProcessPublishBuild({}), /Missing required --run-dir/u);
+  await assert.rejects(
+    () => runProcessPublishBuild({ runId: 'run-only' }),
+    /Missing required --run-dir/u,
+  );
 
   const mismatchDir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-publish-build-mismatch-'));
   try {
