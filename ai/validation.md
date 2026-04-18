@@ -59,7 +59,7 @@ npm run prepush:gate
 | artifact, IO, or state-lock behavior | `npm run lint`; `npm test`; `npm run build` | run one representative command path that writes the changed artifact layout, if safe | Path and file layout regressions matter for downstream automation. |
 | `test/**` or coverage gate scripts | `npm run lint`; `npm test`; `npm run test:coverage`; `npm run test:coverage:assert-full` | run `npm run prepush:gate` when the change affects the protected-branch gate directly | Coverage for `src/**/*.ts` is expected to remain at `100%`. |
 | `package.json`, `.nvmrc`, or `scripts/ci/**` | `npm run lint`; `npm test`; `npm run build` | run `npm run prepush:gate` when the change affects release or protected-branch checks | Release-tag checks and dependency baselines change the repo contract. |
-| AI docs only | run the root warning-only `ai-doc-lint` against touched files | do one scenario-based routing check from root into this repo | Refresh review metadata even when prose-only docs change. |
+| AI docs only | run repo-local `ai-doc-lint` against touched files or the equivalent local PR check | do one scenario-based routing check from root into this repo | Refresh review metadata even when prose-only docs change. |
 
 ## Coverage Notes
 

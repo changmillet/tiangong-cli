@@ -117,7 +117,15 @@
           "kind": "release-gate"
         },
         {
-          "path": ".github/workflows/**",
+          "path": ".github/workflows/quality-gate.yml",
+          "kind": "ci"
+        },
+        {
+          "path": ".github/workflows/publish.yml",
+          "kind": "ci"
+        },
+        {
+          "path": ".github/workflows/tag-release-from-merge.yml",
           "kind": "ci"
         }
       ],
@@ -140,6 +148,44 @@
         }
       ],
       "reason": "Runtime, coverage, and release-gate changes alter how future CLI work is validated and shipped."
+    },
+    {
+      "id": "cli-ai-doc-maintenance-contract",
+      "scope": "repo",
+      "repo": "cli",
+      "triggers": [
+        {
+          "path": ".github/workflows/ai-doc-lint.yml",
+          "kind": "automation"
+        },
+        {
+          "path": ".github/scripts/ai-doc-lint.mjs",
+          "kind": "automation"
+        },
+        {
+          "path": ".github/scripts/ai-doc-lint.test.mjs",
+          "kind": "automation"
+        }
+      ],
+      "requiredDocs": [
+        {
+          "path": "AGENTS.md",
+          "mode": "review_or_update"
+        },
+        {
+          "path": "ai/repo.yaml",
+          "mode": "review_or_update"
+        },
+        {
+          "path": "ai/doc-impact.yaml",
+          "mode": "review_or_update"
+        },
+        {
+          "path": "ai/validation.md",
+          "mode": "review_or_update"
+        }
+      ],
+      "reason": "Repo-local AI doc maintenance automation changes alter the maintenance gate and should refresh the AI contract docs."
     }
   ]
 }

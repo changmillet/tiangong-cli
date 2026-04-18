@@ -83,6 +83,7 @@ Route those tasks to:
 
 ## Runtime Facts
 
+- Repo-local AI-doc maintenance is enforced by `.github/workflows/ai-doc-lint.yml` using the vendored `.github/scripts/ai-doc-lint.*` files.
 - Package manager: `npm`
 - Node baseline: `>=24 <25`
 - Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only

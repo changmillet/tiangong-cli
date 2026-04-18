@@ -62,6 +62,7 @@ When working inside `tiangong-lca-cli`, load docs in this order:
 | Change coverage, release tag checks, or protected-branch gates | `scripts/assert-full-coverage.ts`, `scripts/ci/**`, `package.json`, `test/**` | `ai/validation.md` | `npm run prepush:gate` remains the full protected-branch contract. |
 | Add a capability that only exists today in skills wrappers | `tiangong-lca-cli`, then `tiangong-lca-skills` | root `ai/task-router.md` | Add the native CLI command first, then update the skill wrapper repo. |
 | Change MCP transport or inspector behavior | `tiangong-lca-mcp`, not this repo | root `ai/task-router.md` | CLI and MCP are separate surfaces. |
+| Change repo-local AI-doc maintenance only | `AGENTS.md`, `ai/**`, `.github/workflows/ai-doc-lint.yml`, `.github/scripts/ai-doc-lint.*` | `ai/validation.md` when present, otherwise `ai/repo.yaml` | Keep the repo-local maintenance gate aligned with root `ai/ci-lint-spec.md` and `ai/review-matrix.md`. |
 | Decide whether work is delivery-complete after merge | root workspace docs, not repo code paths | root `AGENTS.md`, `_docs/workspace-branch-policy-contract.md` | Root integration remains a separate phase. |
 
 ## Wrong Turns To Avoid
