@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   tag-release:
+    if: github.repository == 'tiangong-lca/tiangong-cli'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.TIANGONG_CLI_RELEASE_AUTOMATION_TOKEN }}
