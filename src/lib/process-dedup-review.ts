@@ -169,6 +169,10 @@ function trimText(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function nowIso(now: Date = new Date()): string {
   return now.toISOString();
 }
@@ -708,9 +712,9 @@ async function fetchCurrentUserRows(options: {
     rows.push(...pageRows);
 
     if (total === null) {
-      const contentRange = page.headers.get('content-range') ?? '';
-      const match = contentRange.match(/\/(\d+)$/u);
-      total = match ? Number.parseInt(match[1] ?? '', 10) : rows.length;
+      const contentRange = page.headers.get('content-range');
+      const match = contentRange ? contentRange.match(/\/(\d+)$/u) : null;
+      total = match ? Number.parseInt(match[1], 10) : rows.length;
     }
 
     if (pageRows.length === 0) {
@@ -1020,18 +1024,17 @@ function analyzeGroups(
 
     const keep = sortedProcesses[0] as DedupAnalyzedProcess;
     const deleteCandidates = sortedProcesses.slice(1);
-    const scoreGap =
-      deleteCandidates.length > 0 ? keep.name_score - deleteCandidates[0].name_score : 0;
+    const scoreGap = keep.name_score - deleteCandidates[0]!.name_score;
     const confidence: 'high' | 'medium' | 'low' = scoreGap >= 15 ? 'high' : 'medium';
 
-    const keepProcessRefs = referenceHits.processes[keep.process_id] ?? [];
-    const keepLifecyclemodelRefs = referenceHits.lifecyclemodels[keep.process_id] ?? [];
+    const keepProcessRefs = referenceHits.processes[keep.process_id]!;
+    const keepLifecyclemodelRefs = referenceHits.lifecyclemodels[keep.process_id]!;
     const deleteRefs = Object.fromEntries(
       deleteCandidates.map((candidate) => [
         candidate.process_id,
         {
-          process_refs: (referenceHits.processes[candidate.process_id] ?? []).length,
-          lifecyclemodel_refs: (referenceHits.lifecyclemodels[candidate.process_id] ?? []).length,
+          process_refs: referenceHits.processes[candidate.process_id]!.length,
+          lifecyclemodel_refs: referenceHits.lifecyclemodels[candidate.process_id]!.length,
         },
       ]),
     );
@@ -1174,13 +1177,13 @@ export async function runProcessDedupReview(
           remoteStatus.reference_scan = 'current_user_completed';
         } catch (error) {
           remoteStatus.reference_scan = 'failed';
-          remoteStatus.error = error instanceof Error ? error.message : String(error);
+          remoteStatus.error = errorMessage(error);
         }
       } else {
         remoteStatus.reference_scan = 'skipped_missing_user_id';
       }
     } catch (error) {
-      remoteStatus.error = error instanceof Error ? error.message : String(error);
+      remoteStatus.error = errorMessage(error);
     }
   }
 
@@ -1230,9 +1233,19 @@ export const __testInternals = {
   analyzeGroups,
   collectReferenceHits,
   detectGroupPattern,
+  errorMessage,
+  fetchCurrentUserId,
+  fetchCurrentUserReferenceHits,
+  fetchCurrentUserRows,
+  fetchJsonWithRetry,
+  fetchRemoteMetadata,
+  getLangList,
+  getLangText,
   normalizeAmount,
   normalizeExchangeRows,
   normalizeInputDocument,
   normalizedSignature,
+  parseJsonResponse,
+  resolveRemoteAuthContext,
   scoreProcessName,
 };

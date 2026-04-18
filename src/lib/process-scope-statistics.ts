@@ -364,7 +364,6 @@ async function fetchProcessRows(options: {
   for (const stateCode of options.stateCodes) {
     let stateTotal: number | null = null;
     let cursorId = '';
-    let fetchedForState = 0;
 
     while (true) {
       const url = new URL(`${projectBaseUrl}/rest/v1/processes`);
@@ -401,12 +400,10 @@ async function fetchProcessRows(options: {
         .map((row) => normalizeSnapshotRow(row))
         .filter((row): row is SnapshotRow => row !== null);
       rows.push(...normalizedRows);
-      fetchedForState += normalizedRows.length;
 
       if (stateTotal === null) {
-        const contentRange = page.headers.get('content-range') ?? '';
-        const match = contentRange.match(/\/(\d+)$/u);
-        stateTotal = match ? Number.parseInt(match[1] ?? '', 10) : null;
+        const match = page.headers.get('content-range')?.match(/\/(\d+)$/u) ?? null;
+        stateTotal = match ? Number.parseInt(match[1]!, 10) : null;
         if (stateTotal !== null) {
           total += stateTotal;
         }
@@ -416,16 +413,8 @@ async function fetchProcessRows(options: {
         break;
       }
 
-      cursorId = normalizedRows[normalizedRows.length - 1]?.id ?? '';
-      if (!cursorId) {
-        throw new CliError(
-          `Process scope statistics pagination could not continue after fetching ${fetchedForState} row(s) for state_code=${stateCode}.`,
-          {
-            code: 'PROCESS_SCOPE_CURSOR_ID_MISSING',
-            exitCode: 1,
-          },
-        );
-      }
+      const lastRow = normalizedRows[normalizedRows.length - 1]!;
+      cursorId = lastRow.id;
     }
   }
 
@@ -564,7 +553,8 @@ function firstClause(text: string): string {
   if (!normalized) {
     return '';
   }
-  return normalized.split(/[.;；。]/u)[0]?.trim() ?? '';
+  const [first] = normalized.split(/[.;；。]/u);
+  return first.trim();
 }
 
 function renderProcessName(name: JsonRecord): string {
@@ -837,26 +827,26 @@ function calculateStatistics(
   const domainPrimarySummary = toSortedArray(domainPrimaryCounts).map((item) => ({
     domain: item.key,
     count: item.count,
-    sample_path: typeof item.sample_path === 'string' ? item.sample_path : undefined,
+    sample_path: item.sample_path as string | undefined,
   }));
   const domainLeafSummary = toSortedArray(domainLeafCounts).map((item) => ({
     domain: item.key,
     count: item.count,
-    sample_path: typeof item.sample_path === 'string' ? item.sample_path : undefined,
+    sample_path: item.sample_path as string | undefined,
   }));
   const craftSummary = toSortedArray(craftCounts).map((item) => ({
     craft_signature: item.key,
-    label: String(item.label ?? ''),
+    label: item.label as string,
     count: item.count,
-    source_kind: String(item.source_kind ?? ''),
+    source_kind: item.source_kind as string,
   }));
   const productSummary = toSortedArray(productCounts).map((item) => ({
     product_key: item.key,
-    label: String(item.label ?? ''),
+    label: item.label as string,
     count: item.count,
-    stable_flow_id: String(item.stable_flow_id ?? ''),
-    stable_flow_version: String(item.stable_flow_version ?? ''),
-    source_kind: String(item.source_kind ?? ''),
+    stable_flow_id: item.stable_flow_id as string,
+    stable_flow_version: item.stable_flow_version as string,
+    source_kind: item.source_kind as string,
   }));
   const typeOfDataSetSummary = toSortedArray(typeOfDataSetCounts).map((item) => ({
     type_of_dataset: item.key,
@@ -1204,6 +1194,7 @@ export const __testInternals = {
   extractCraftCandidate,
   extractReferenceProduct,
   fetchJsonWithRetry,
+  fetchProcessRows,
   getAnyLangText,
   getLangList,
   getLangText,
@@ -1211,6 +1202,9 @@ export const __testInternals = {
   normalizeSignature,
   normalizeSnapshotRow,
   normalizeStateCodes,
+  parseJsonResponse,
   readSnapshotManifest,
+  resolveCurrentUserId,
   renderMarkdownReport,
+  toPositiveInteger,
 };

@@ -242,7 +242,7 @@ function parseContentRangeTotal(value: string | null): number | null {
   if (!match || match[1] === '*') {
     return null;
   }
-  return Number.parseInt(match[1] ?? '', 10);
+  return Number.parseInt(match[1]!, 10);
 }
 
 function normalizeVersion(version: string): string {
@@ -936,7 +936,7 @@ async function fetchLatestRefs(options: {
           });
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = String(error);
         for (const id of chunk) {
           options.cache.set(`${table}:${id}`, {
             row: null,
@@ -1378,14 +1378,24 @@ export async function runProcessRefreshReferences(
 }
 
 export const __testInternals = {
+  appendReportHeader,
   collectRefs,
   compareVersions,
+  fetchLatestRefs,
+  fetchJsonWithRetry,
+  genFlowName,
+  genFlowNameJson,
+  genProcessName,
+  genProcessNameJson,
   getLangList,
   getLangText,
   getShortDescription,
   normalizeDatasetPayload,
+  normalizeManifestRow,
+  parseJsonResponse,
   parseContentRangeTotal,
   readCompleted,
+  readManifest,
   recordKey,
   updateProcessJson,
 };
