@@ -1,73 +1,109 @@
-# AGENTS – TianGong CLI
+---
+title: cli AI Working Guide
+docType: contract
+scope: repo
+status: active
+authoritative: true
+owner: cli
+language: en
+whenToUse:
+  - when a task may change the public `tiangong` command surface, CLI runtime behavior, session handling, or release gating
+  - when routing work from the workspace root into tiangong-lca-cli
+  - when deciding whether a change belongs here, in tiangong-lca-skills, in tiangong-lca-mcp, or in a remote runtime repo
+whenToUpdate:
+  - when command ownership or repo boundaries change
+  - when validation, packaging, or coverage rules change
+  - when the repo-local AI bootstrap docs under ai/ change
+checkPaths:
+  - AGENTS.md
+  - README.md
+  - DEV_CN.md
+  - docs/IMPLEMENTATION_GUIDE_CN.md
+  - ai/**/*.md
+  - ai/**/*.yaml
+  - package.json
+  - .nvmrc
+  - bin/**
+  - src/**
+  - test/**
+  - scripts/**
+  - .github/workflows/**
+lastReviewedAt: 2026-04-18
+lastReviewedCommit: 8a2184bd17dd796a7f13704a085ffe538605f0fe
+related:
+  - ai/repo.yaml
+  - ai/task-router.md
+  - ai/validation.md
+  - ai/architecture.md
+  - README.md
+  - docs/IMPLEMENTATION_GUIDE_CN.md
+---
 
-Use this file as the local entry point for coding agents working in `tiangong-lca-cli`.
+## Repo Contract
 
-## Why This File Exists
+`tiangong-lca-cli` owns the checked-in public `tiangong` CLI contract: command nouns and verbs, launcher behavior, local artifact workflow, remote session/auth handling, and the repo-level release gate. Start here when the task may change what the CLI does or how it is validated.
 
-- keep repo-specific rules close to the CLI implementation
-- reduce agent drift across docs, testing, and delivery
-- preserve the current low-entropy command-surface direction
+## AI Load Order
 
-## Runtime Baseline
+Load docs in this order:
 
-- Node.js `>= 24 < 25` via `.nvmrc`
-- TypeScript source, Node-native runtime first
-- direct REST / Edge Function access only; no MCP inside the CLI
-- do not add orchestration frameworks such as LangGraph unless a human explicitly approves it
-- do not add npm dependencies unless a human explicitly approves it
+1. `AGENTS.md`
+2. `ai/repo.yaml`
+3. `ai/task-router.md`
+4. `ai/validation.md`
+5. `ai/architecture.md`
+6. `README.md` only for user-facing invocation examples
+7. `docs/IMPLEMENTATION_GUIDE_CN.md` only when you need deeper historical maintainer notes
 
-## Core Commands
+Do not start with scattered subcommands or tests before you know which command family owns the task.
 
-```bash
-npm install
-npm start -- --help
-npm run dev -- --help
-npm run lint
-npm run prettier
-npm test
-npm run test:coverage
-npm run test:coverage:assert-full
-npm run prepush:gate
-npm run build
-```
+## Repo Ownership
 
-Notes:
+This repo owns:
 
-- `npm run lint` is the required local gate: `eslint + deprecated diagnostics + coverage-ignore guard + prettier --check + tsc`.
-- `npm run prettier` is the write-mode formatter.
-- `npm run test:coverage` enforces `100%` coverage for `src/**/*.ts`.
-- `npm run test:coverage:assert-full` verifies the latest coverage artifact without rerunning coverage.
-- `npm run prepush:gate` is the full local push gate: `lint + full coverage + strict 100% assertion`.
+- `bin/tiangong.js` as the stable launcher entrypoint
+- `src/cli.ts` and `src/main.ts` for command dispatch, process entry, help, and exit behavior
+- `src/lib/**` for reusable CLI command logic, session handling, artifacts, and remote adapters
+- `test/**` and `scripts/assert-full-coverage.ts` for the hard validation gate
+- package metadata, build output contract, and tag/release checks in `package.json` and `scripts/ci/**`
 
-## Repo Landmarks
+This repo does not own:
 
-- `bin/tiangong.js`: thin launcher for the stable `tiangong` entrypoint
-- `src/cli.ts`: command dispatch, argument parsing, help text, exit semantics
-- `src/main.ts`: process entry, `.env` loading, stdout / stderr handling
-- `src/lib/**`: reusable CLI helpers
-- `test/**`: unit coverage plus launcher smoke tests
-- `scripts/assert-full-coverage.ts`: hard coverage gate
+- skill packaging and skill wrapper metadata
+- MCP transport or inspector surfaces
+- remote product or Edge Function business logic
+- workspace integration state after merge
 
-## Delivery Contract
+Route those tasks to:
 
-- Investigate first with `rg` and nearby files before editing.
-- Keep the CLI low-entropy:
-  - stable command nouns
-  - file-first input
-  - structured JSON output
-  - no generic “do anything” command layer
-- Every modification must be followed by at least `npm run lint`.
-- If behavior changed, run the relevant tests in the same working session.
-- Before push, the repo must pass `npm run prepush:gate`.
-- Keep `src/**/*.ts` at `100%` statements / branches / functions / lines.
-- Do not use `c8 ignore`, `istanbul ignore`, or similar coverage pragmas to bypass missing tests; cover edge cases in the test suite instead.
-- Keep launcher smoke tests in the normal `npm test` suite; do not weaken them to make coverage easier.
-- Keep diffs scoped; do not mix unrelated refactors into command-surface changes.
+- `tiangong-lca-skills` for skill wrappers and `SKILL.md` packages
+- `tiangong-lca-mcp` for MCP transports and tool registration
+- the owning runtime repo for API, schema, or product behavior
+- `lca-workspace` for root integration after merge
 
-## Documentation Maintenance
+## Runtime Facts
 
-- If commands, workflows, or quality gates change, update the docs in the same change.
-- At minimum, keep these files aligned when relevant:
-  - `README.md`
-  - `DEV_CN.md`
-  - `docs/IMPLEMENTATION_GUIDE_CN.md`
+- Repo-local AI-doc maintenance is enforced by `.github/workflows/ai-doc-lint.yml` using the vendored `.github/scripts/ai-doc-lint.*` files.
+- Package manager: `npm`
+- Node baseline: `>=24 <25`
+- Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only
+- The canonical minimum validation command is `npm run lint`
+- The authoritative full gate is `npm run prepush:gate`
+- Coverage for `src/**/*.ts` is expected to stay at `100%` statements, branches, functions, and lines
+
+## Hard Boundaries
+
+- Do not add orchestration frameworks or new npm dependencies without explicit approval
+- Do not move business logic into skill wrappers when the native `tiangong` CLI should own it
+- Do not weaken the coverage gate with ignore pragmas; cover the branch or remove dead code
+- Do not treat a merged repo PR here as workspace-delivery complete if the root repo still needs a submodule bump
+
+## Workspace Integration
+
+A merged PR in `tiangong-lca-cli` is repo-complete, not delivery-complete.
+
+If the change must ship through the workspace:
+
+1. merge the child PR into `tiangong-lca-cli`
+2. update the `lca-workspace` submodule pointer deliberately
+3. complete any later workspace-level validation that depends on the updated CLI snapshot

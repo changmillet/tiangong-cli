@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "lastReviewedAt": "2026-04-18",
+  "lastReviewedCommit": "8a2184bd17dd796a7f13704a085ffe538605f0fe",
+  "repo": {
+    "id": "cli",
+    "path": "tiangong-lca-cli",
+    "canonicalRepo": "tiangong-lca/tiangong-cli",
+    "purpose": "Unified TianGong LCA CLI with a low-entropy public command surface and direct remote adapters.",
+    "entryDoc": "AGENTS.md",
+    "taskRouterDoc": "ai/task-router.md",
+    "validationDoc": "ai/validation.md",
+    "architectureDoc": "ai/architecture.md",
+    "readmeDoc": "README.md",
+    "defaultBranch": "main",
+    "dailyTrunk": "main",
+    "routinePrBase": "main",
+    "branchModel": "M1",
+    "workspaceIntegrationRequired": true,
+    "rootIntegrationRule": "lca-workspace/main may bump merged main-branch CLI snapshots when the workspace intends to ship the updated command surface.",
+    "trackedBy": {
+      "workspaceParentIssue": "https://github.com/tiangong-lca/workspace/issues/73",
+      "repoIssue": "https://github.com/tiangong-lca/tiangong-cli/issues/85"
+    },
+    "runtime": {
+      "packageManager": "npm",
+      "nodeVersion": ">=24 <25",
+      "moduleSystem": "ESM",
+      "publicExecutable": "tiangong",
+      "launcher": "bin/tiangong.js",
+      "entrypoints": [
+        "src/main.ts",
+        "src/cli.ts"
+      ],
+      "baselineValidationCommands": [
+        "npm run lint",
+        "npm test",
+        "npm run build"
+      ],
+      "fullGateCommand": "npm run prepush:gate"
+    },
+    "sourceOfTruth": {
+      "stableManualEditPaths": [
+        {
+          "path": "bin/tiangong.js",
+          "role": "stable launcher entrypoint"
+        },
+        {
+          "path": "src/cli.ts",
+          "role": "command dispatch, argument parsing, help, and exit semantics"
+        },
+        {
+          "path": "src/main.ts",
+          "role": "process entry, dotenv loading, stdout and stderr handling"
+        },
+        {
+          "path": "src/lib/**",
+          "role": "command-family implementations, auth/session helpers, remote adapters, and artifact logic"
+        },
+        {
+          "path": "test/**",
+          "role": "coverage-enforced unit and launcher tests"
+        },
+        {
+          "path": "scripts/assert-full-coverage.ts",
+          "role": "strict coverage gate enforcement"
+        },
+        {
+          "path": "scripts/ci/**",
+          "role": "release tag and publication sanity checks"
+        },
+        {
+          "path": "README.md",
+          "role": "user-facing invocation contract and examples"
+        },
+        {
+          "path": "DEV_CN.md",
+          "role": "Chinese maintainer notes"
+        },
+        {
+          "path": "docs/IMPLEMENTATION_GUIDE_CN.md",
+          "role": "deeper historical implementation notes"
+        }
+      ],
+      "nonOwnerBoundaries": [
+        {
+          "repo": "skills",
+          "doesNotOwn": [
+            "skill package metadata",
+            "skill wrapper installation layout"
+          ]
+        },
+        {
+          "repo": "mcp",
+          "doesNotOwn": [
+            "MCP transports",
+            "inspector or HTTP MCP serving surfaces"
+          ]
+        },
+        {
+          "repo": "lca-workspace",
+          "doesNotOwn": [
+            "root integration state",
+            "submodule pointer updates"
+          ]
+        }
+      ]
+    },
+    "taskHotspots": [
+      {
+        "topic": "launcher, help, and command-surface routing",
+        "paths": [
+          "bin/tiangong.js",
+          "src/main.ts",
+          "src/cli.ts"
+        ]
+      },
+      {
+        "topic": "remote session, auth, and REST or Edge adapters",
+        "paths": [
+          "src/lib/env.ts",
+          "src/lib/dotenv.ts",
+          "src/lib/user-api-key.ts",
+          "src/lib/supabase-session.ts",
+          "src/lib/supabase-client.ts",
+          "src/lib/supabase-rest.ts",
+          "src/lib/remote.ts",
+          "src/lib/http.ts"
+        ]
+      },
+      {
+        "topic": "workflow command families and artifact materialization",
+        "paths": [
+          "src/lib/flow-*.ts",
+          "src/lib/review-*.ts",
+          "src/lib/process-*.ts",
+          "src/lib/lifecyclemodel-*.ts",
+          "src/lib/publish.ts",
+          "src/lib/run.ts",
+          "src/lib/artifacts.ts"
+        ]
+      },
+      {
+        "topic": "coverage and release gating",
+        "paths": [
+          "test/**",
+          "scripts/assert-full-coverage.ts",
+          "scripts/ci/**",
+          "package.json"
+        ]
+      }
+    ],
+    "validation": {
+      "baselineLocalCommands": [
+        "npm run lint",
+        "npm test",
+        "npm run build"
+      ],
+      "fullGateCommand": "npm run prepush:gate",
+      "notes": [
+        "npm run test:coverage and npm run test:coverage:assert-full are the coverage-specific proofs when code or test behavior changes.",
+        "Use npm run test:ci -- <jest-args> for focused suites with extra Jest flags.",
+        "AI-doc changes should still run the repo-local ai-doc-lint workflow or the equivalent local node command."
+      ]
+    }
+  }
+}

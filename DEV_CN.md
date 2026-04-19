@@ -189,20 +189,20 @@ npm exec tiangong -- doctor --json
 npm exec tiangong -- search flow --input ./request.json --dry-run
 npm exec tiangong -- process get --id <process-id> --version <version> --json
 npm exec tiangong -- process list --state-code 100 --limit 20 --json
-npm exec tiangong -- process auto-build --input ./examples/process-auto-build.request.json --json
-npm exec tiangong -- process resume-build --run-id <run-id> --json
-npm exec tiangong -- process publish-build --run-id <run-id> --json
-npm exec tiangong -- process batch-build --input ./examples/process-batch-build.request.json --json
-npm exec tiangong -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --json
-npm exec tiangong -- lifecyclemodel validate-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-npm exec tiangong -- lifecyclemodel publish-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --json
-npm exec tiangong -- lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir ./artifacts/lifecyclemodel_recursive/<run_id> --json
+npm exec tiangong -- process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
+npm exec tiangong -- process resume-build --run-dir /abs/path/to/process-run --json
+npm exec tiangong -- process publish-build --run-dir /abs/path/to/process-run --json
+npm exec tiangong -- process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
+npm exec tiangong -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong -- lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 npm exec tiangong -- lifecyclemodel build-resulting-process --input ./request.json --json
 npm exec tiangong -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
 npm exec tiangong -- review process --rows-file ./process-list-report.json --out-dir ./review --json
-npm exec tiangong -- review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review --json
+npm exec tiangong -- review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review --json
 npm exec tiangong -- review flow --rows-file ./flows.json --out-dir ./flow-review --json
-npm exec tiangong -- review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review --json
+npm exec tiangong -- review lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-review --json
 npm exec tiangong -- flow get --id <flow-id> --version <version> --json
 npm exec tiangong -- flow list --id <flow-id> --state-code 100 --limit 20 --json
 npm exec tiangong -- flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation --json
@@ -255,7 +255,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 - 读取单个 process-from-flow request
 - 解析 `flow_file` 指向的 ILCD flow JSON
 - 生成兼容旧工作流的 `run_id`
-- 创建本地 `artifacts/process_from_flow/<run_id>/` 运行骨架
+- 通过 `--out-dir` 或 request `workspace_run_root` 指定显式 run root，并在其中创建运行骨架
 - 预写 `cache/process_from_flow_state.json`
 - 预写 `cache/agent_handoff_summary.json`
 - 产出 request / flow / assembly / lineage / invocation / run manifest / report
@@ -264,7 +264,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 
 `tiangong process resume-build` 现在也已经进入可执行状态，负责：
 
-- 从 `--run-id` 或 `--run-dir` 重开一个现有 process build run
+- 从 `--run-dir` 重开一个现有 process build run；可选 `--run-id` 只做 basename 一致性校验
 - 校验 `process_from_flow_state.json`、`agent_handoff_summary.json`、`run-manifest.json` 等关键产物
 - 复用本地 state lock，避免并发写入同一个 run
 - 清理持久化的 `stop_after` checkpoint，并把状态推进到 `resume_prepared`
@@ -276,7 +276,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 
 `tiangong process publish-build` 现在也已经进入可执行状态，负责：
 
-- 从 `--run-id` 或 `--run-dir` 读取一个现有 process build run
+- 从 `--run-dir` 读取一个现有 process build run；可选 `--run-id` 只做 basename 一致性校验
 - 校验 `process_from_flow_state.json`、`agent_handoff_summary.json`、`run-manifest.json`、`invocation-index.json`
 - 优先从 `exports/processes`、`exports/sources` 收集 canonical 数据，缺失时回退到 state 中的 `process_datasets`、`source_datasets`
 - 生成 `stage_outputs/10_publish/publish-bundle.json`
@@ -290,7 +290,7 @@ npm exec tiangong -- admin embedding-run --input ./jobs.json --dry-run
 `tiangong process batch-build` 现在也已经进入可执行状态，负责：
 
 - 读取单个 batch manifest
-- 创建自包含的 batch root 和聚合 report 路径
+- 通过 `--out-dir` 或 request `out_dir` 指定显式 batch root，并创建聚合 report 路径
 - 顺序复用 CLI 的 `process auto-build` 契约执行多个 item
 - 为每个 item 生成稳定的本地 run 目录
 - 在 batch report 中记录 per-item prepared / failed / skipped 结果

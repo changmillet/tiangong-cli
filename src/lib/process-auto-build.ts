@@ -470,7 +470,6 @@ function buildProcessAutoBuildRunId(
 
 function resolveRunRoot(
   requestDir: string,
-  runId: string,
   outDirOverride: string | null | undefined,
   requestRunRoot: unknown,
 ): string {
@@ -484,7 +483,13 @@ function resolveRunRoot(
     return path.resolve(requestDir, requestValue);
   }
 
-  return path.join(requestDir, 'artifacts', 'process_from_flow', runId);
+  throw new CliError(
+    'Missing required process auto-build run root. Provide --out-dir or request.workspace_run_root.',
+    {
+      code: 'PROCESS_AUTO_BUILD_RUN_ROOT_REQUIRED',
+      exitCode: 2,
+    },
+  );
 }
 
 function normalizeSourceInputType(value: unknown): ProcessAutoBuildSourceInputType {
@@ -786,16 +791,13 @@ function buildInitialState(
   };
 }
 
-function buildNextActions(
-  layout: ProcessAutoBuildLayout,
-  normalized: NormalizedProcessAutoBuildRequest,
-): string[] {
+function buildNextActions(layout: ProcessAutoBuildLayout): string[] {
   return [
     `inspect: ${layout.normalizedRequestPath}`,
     `inspect: ${layout.statePath}`,
     `inspect: ${layout.assemblyPlanPath}`,
-    `future: tiangong process resume-build --run-id ${normalized.run_id}`,
-    `future: tiangong process publish-build --run-id ${normalized.run_id}`,
+    `future: tiangong process resume-build --run-dir ${layout.runRoot}`,
+    `future: tiangong process publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 
@@ -832,7 +834,7 @@ function buildAgentHandoffSummary(
       assembly_plan: layout.assemblyPlanPath,
       flow_copy: flowArtifactPath,
     },
-    next_actions: buildNextActions(layout, normalized),
+    next_actions: buildNextActions(layout),
     extra: {
       status: 'prepared_local_process_auto_build_run',
       request_id: normalized.request_id,
@@ -880,7 +882,7 @@ function buildReport(
       handoff_summary: layout.handoffSummaryPath,
       report: layout.reportPath,
     },
-    next_actions: buildNextActions(layout, normalized),
+    next_actions: buildNextActions(layout),
   };
 }
 
@@ -905,7 +907,7 @@ export function normalizeProcessAutoBuildRequest(
     nonEmptyString(options.runIdOverride) ??
     nonEmptyString(request.run_id) ??
     buildProcessAutoBuildRunId(flowFile, operation, flowSummary, options.now);
-  const runRoot = resolveRunRoot(requestDir, runId, options.outDir, request.workspace_run_root);
+  const runRoot = resolveRunRoot(requestDir, options.outDir, request.workspace_run_root);
   const layout = buildLayout(runRoot, runId);
 
   return {

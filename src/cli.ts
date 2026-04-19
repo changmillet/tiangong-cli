@@ -951,7 +951,7 @@ function renderLifecyclemodelAutoBuildHelp(): string {
 
 Options:
   --input <file>     JSON request file
-  --out-dir <dir>    Override the default lifecyclemodel build run root
+  --out-dir <dir>    Explicit run root; otherwise request.out_dir is required
   --json             Print compact JSON
   -h, --help
 
@@ -961,6 +961,7 @@ Minimal request contract:
   }
 
 This first CLI slice is local-only and read-only:
+  - applies no implicit repo-local ./artifacts fallback; callers must provide a run root
   - loads local process build run directories
   - infers the process graph from shared flow UUIDs
   - emits native lifecyclemodel json_ordered artifacts
@@ -1008,9 +1009,11 @@ function renderProcessAutoBuildHelp(): string {
 
 Options:
   --input <file>     JSON request file
-  --out-dir <dir>    Override the default run root directory
+  --out-dir <dir>    Explicit run root; otherwise request.workspace_run_root is required
   --json             Print compact JSON
   -h, --help
+
+This command applies no implicit repo-local ./artifacts fallback.
 `.trim();
 }
 
@@ -1138,11 +1141,11 @@ Outputs written under --out-dir:
 
 function renderProcessResumeBuildHelp(): string {
   return `Usage:
-  tiangong process resume-build [--run-id <id>] [--run-dir <dir>] [options]
+  tiangong process resume-build --run-dir <dir> [options]
 
 Options:
-  --run-id <id>      Existing process build run id
   --run-dir <dir>    Existing process build run directory
+  --run-id <id>      Optional run id consistency check
   --json             Print compact JSON
   -h, --help
 `.trim();
@@ -1150,11 +1153,11 @@ Options:
 
 function renderProcessPublishBuildHelp(): string {
   return `Usage:
-  tiangong process publish-build [--run-id <id>] [--run-dir <dir>] [options]
+  tiangong process publish-build --run-dir <dir> [options]
 
 Options:
-  --run-id <id>      Existing process build run id
   --run-dir <dir>    Existing process build run directory
+  --run-id <id>      Optional run id consistency check
   --json             Print compact JSON
   -h, --help
 `.trim();
@@ -1248,9 +1251,11 @@ function renderProcessBatchBuildHelp(): string {
 
 Options:
   --input <file>     JSON batch manifest file
-  --out-dir <dir>    Override the batch artifact output directory
+  --out-dir <dir>    Explicit batch root; otherwise request.out_dir is required
   --json             Print compact JSON
   -h, --help
+
+This command applies no implicit repo-local ./artifacts fallback.
 `.trim();
 }
 
@@ -1278,8 +1283,8 @@ Examples:
   tiangong process scope-statistics --out-dir ./process-scope --state-code 0 --state-code 100 --help
   tiangong process dedup-review --input ./duplicate-groups.json --out-dir ./process-dedup --help
   tiangong process auto-build --help
-  tiangong process resume-build --run-id <id> --help
-  tiangong process publish-build --run-id <id> --help
+  tiangong process resume-build --run-dir /abs/path/to/process-run --help
+  tiangong process publish-build --run-dir /abs/path/to/process-run --help
   tiangong process save-draft --input ./patched-processes.jsonl --help
   tiangong process batch-build --input ./batch-request.json --help
   tiangong process refresh-references --out-dir ./process-refresh --help

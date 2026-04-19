@@ -334,6 +334,7 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
   const autoBuildHelp = await executeCli(['lifecyclemodel', 'auto-build', '--help'], makeDeps());
   assert.equal(autoBuildHelp.exitCode, 0);
   assert.match(autoBuildHelp.stdout, /tiangong lifecyclemodel auto-build --input <file>/u);
+  assert.match(autoBuildHelp.stdout, /request\.out_dir is required/u);
   assert.match(autoBuildHelp.stdout, /"local_runs": \["\/abs\/path\/to\/process-build-run"\]/u);
   assert.match(
     autoBuildHelp.stdout,
@@ -1028,24 +1029,19 @@ test('executeCli returns help for the process namespace and implemented subcomma
   const autoBuildHelp = await executeCli(['process', 'auto-build', '--help'], makeDeps());
   assert.equal(autoBuildHelp.exitCode, 0);
   assert.match(autoBuildHelp.stdout, /tiangong process auto-build --input <file>/u);
+  assert.match(autoBuildHelp.stdout, /request\.workspace_run_root is required/u);
   assert.match(autoBuildHelp.stdout, /--out-dir/u);
   assert.doesNotMatch(autoBuildHelp.stdout, /Planned command/u);
 
   const resumeBuildHelp = await executeCli(['process', 'resume-build', '--help'], makeDeps());
   assert.equal(resumeBuildHelp.exitCode, 0);
-  assert.match(
-    resumeBuildHelp.stdout,
-    /tiangong process resume-build \[--run-id <id>\] \[--run-dir <dir>\]/u,
-  );
+  assert.match(resumeBuildHelp.stdout, /tiangong process resume-build --run-dir <dir>/u);
   assert.match(resumeBuildHelp.stdout, /--run-dir/u);
   assert.doesNotMatch(resumeBuildHelp.stdout, /Planned command/u);
 
   const publishBuildHelp = await executeCli(['process', 'publish-build', '--help'], makeDeps());
   assert.equal(publishBuildHelp.exitCode, 0);
-  assert.match(
-    publishBuildHelp.stdout,
-    /tiangong process publish-build \[--run-id <id>\] \[--run-dir <dir>\]/u,
-  );
+  assert.match(publishBuildHelp.stdout, /tiangong process publish-build --run-dir <dir>/u);
   assert.match(publishBuildHelp.stdout, /--run-dir/u);
   assert.doesNotMatch(publishBuildHelp.stdout, /Planned command/u);
 
@@ -1081,6 +1077,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
   const batchBuildHelp = await executeCli(['process', 'batch-build', '--help'], makeDeps());
   assert.equal(batchBuildHelp.exitCode, 0);
   assert.match(batchBuildHelp.stdout, /tiangong process batch-build --input <file>/u);
+  assert.match(batchBuildHelp.stdout, /request\.out_dir is required/u);
   assert.match(batchBuildHelp.stdout, /--out-dir/u);
   assert.doesNotMatch(batchBuildHelp.stdout, /Planned command/u);
 });
