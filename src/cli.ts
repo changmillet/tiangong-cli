@@ -270,15 +270,15 @@ Examples:
   tiangong search process --input ./request.json --dry-run
   tiangong process get --id <process-id>
   tiangong process list --state-code 100 --limit 20
-  tiangong process auto-build --input ./pff-request.json
-  tiangong process resume-build --run-id <id>
-  tiangong process publish-build --run-id <id>
+  tiangong process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
+  tiangong process resume-build --run-dir /abs/path/to/process-run
+  tiangong process publish-build --run-dir /abs/path/to/process-run
   tiangong process save-draft --input ./patched-processes.jsonl --dry-run
-  tiangong process batch-build --input ./batch-request.json
-  tiangong lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json
-  tiangong lifecyclemodel validate-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id>
-  tiangong lifecyclemodel publish-build --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id>
-  tiangong lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir ./artifacts/lifecyclemodel_recursive/run-001
+  tiangong process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
+  tiangong lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
+  tiangong lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
+  tiangong lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run
+  tiangong lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run
   tiangong flow get --id <flow-id> --version <version>
   tiangong flow list --id <flow-id> --state-code 100 --limit 20
   tiangong flow fetch-rows --refs-file ./flow-refs.json --out-dir ./flow-fetch
@@ -293,9 +293,9 @@ Examples:
   tiangong flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regeneration --apply
   tiangong flow validate-processes --original-processes-file ./before.jsonl --patched-processes-file ./after.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-validation
   tiangong review process --rows-file ./processes.jsonl --out-dir ./review
-  tiangong review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review
+  tiangong review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review
   tiangong review flow --rows-file ./flows.json --out-dir ./review
-  tiangong review lifecyclemodel --run-dir ./artifacts/lifecyclemodel_auto_build/<run_id> --out-dir ./lifecyclemodel-review
+  tiangong review lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-review
   tiangong publish run --input ./publish-request.json --dry-run
   tiangong validation run --input-dir ./package --engine auto
   tiangong admin embedding-run --input ./jobs.json
@@ -915,7 +915,7 @@ function renderLifecyclemodelAutoBuildHelp(): string {
 
 Options:
   --input <file>     JSON request file
-  --out-dir <dir>    Override the default lifecyclemodel build run root
+  --out-dir <dir>    Explicit run root; otherwise request.out_dir is required
   --json             Print compact JSON
   -h, --help
 
@@ -925,6 +925,7 @@ Minimal request contract:
   }
 
 This first CLI slice is local-only and read-only:
+  - applies no implicit repo-local ./artifacts fallback; callers must provide a run root
   - loads local process build run directories
   - infers the process graph from shared flow UUIDs
   - emits native lifecyclemodel json_ordered artifacts
@@ -972,9 +973,11 @@ function renderProcessAutoBuildHelp(): string {
 
 Options:
   --input <file>     JSON request file
-  --out-dir <dir>    Override the default run root directory
+  --out-dir <dir>    Explicit run root; otherwise request.workspace_run_root is required
   --json             Print compact JSON
   -h, --help
+
+This command applies no implicit repo-local ./artifacts fallback.
 `.trim();
 }
 
@@ -1029,11 +1032,11 @@ Runtime note:
 
 function renderProcessResumeBuildHelp(): string {
   return `Usage:
-  tiangong process resume-build [--run-id <id>] [--run-dir <dir>] [options]
+  tiangong process resume-build --run-dir <dir> [options]
 
 Options:
-  --run-id <id>      Existing process build run id
   --run-dir <dir>    Existing process build run directory
+  --run-id <id>      Optional run id consistency check
   --json             Print compact JSON
   -h, --help
 `.trim();
@@ -1041,11 +1044,11 @@ Options:
 
 function renderProcessPublishBuildHelp(): string {
   return `Usage:
-  tiangong process publish-build [--run-id <id>] [--run-dir <dir>] [options]
+  tiangong process publish-build --run-dir <dir> [options]
 
 Options:
-  --run-id <id>      Existing process build run id
   --run-dir <dir>    Existing process build run directory
+  --run-id <id>      Optional run id consistency check
   --json             Print compact JSON
   -h, --help
 `.trim();
@@ -1083,9 +1086,11 @@ function renderProcessBatchBuildHelp(): string {
 
 Options:
   --input <file>     JSON batch manifest file
-  --out-dir <dir>    Override the batch artifact output directory
+  --out-dir <dir>    Explicit batch root; otherwise request.out_dir is required
   --json             Print compact JSON
   -h, --help
+
+This command applies no implicit repo-local ./artifacts fallback.
 `.trim();
 }
 
@@ -1107,8 +1112,8 @@ Examples:
   tiangong process get --id <process-id>
   tiangong process list --state-code 100 --limit 20 --help
   tiangong process auto-build --help
-  tiangong process resume-build --run-id <id> --help
-  tiangong process publish-build --run-id <id> --help
+  tiangong process resume-build --run-dir /abs/path/to/process-run --help
+  tiangong process publish-build --run-dir /abs/path/to/process-run --help
   tiangong process save-draft --input ./patched-processes.jsonl --help
   tiangong process batch-build --input ./batch-request.json --help
 `.trim();

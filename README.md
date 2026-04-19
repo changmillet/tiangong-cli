@@ -170,8 +170,16 @@ Key `flow materialize-decisions` outputs:
 ## Other Common Commands
 
 ```bash
+tiangong process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
+tiangong process resume-build --run-dir /abs/path/to/process-run --json
+tiangong process publish-build --run-dir /abs/path/to/process-run --json
+tiangong process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
+tiangong lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
+tiangong lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run --json
+tiangong lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
+tiangong lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 tiangong review process --rows-file ./process-list-report.json --out-dir ./review
-tiangong review process --run-root ./artifacts/process_from_flow/<run_id> --run-id <run_id> --out-dir ./review
+tiangong review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review
 tiangong publish run --input ./publish-request.json --dry-run
 tiangong doctor --json
 ```

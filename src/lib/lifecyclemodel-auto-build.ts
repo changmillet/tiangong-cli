@@ -477,7 +477,6 @@ function normalizeLocalRuns(value: unknown, requestDir: string): string[] {
 
 function resolveRunRoot(
   requestDir: string,
-  runId: string,
   outDirOverride: string | null | undefined,
   requestOutDir: unknown,
 ): string {
@@ -491,7 +490,13 @@ function resolveRunRoot(
     return path.resolve(requestDir, requestValue);
   }
 
-  return path.join(requestDir, 'artifacts', 'lifecyclemodel_auto_build', runId);
+  throw new CliError(
+    'Missing required lifecyclemodel auto-build run root. Provide --out-dir or request.out_dir.',
+    {
+      code: 'LIFECYCLEMODEL_AUTO_BUILD_RUN_ROOT_REQUIRED',
+      exitCode: 2,
+    },
+  );
 }
 
 function buildLayout(runRoot: string, runId: string): LifecyclemodelAutoBuildLayout {
@@ -594,7 +599,7 @@ export function normalizeLifecyclemodelAutoBuildRequest(
     schema_version: 1,
     request_path: requestPath,
     run_id: runId,
-    run_root: resolveRunRoot(requestDir, runId, options.outDir, request.out_dir),
+    run_root: resolveRunRoot(requestDir, options.outDir, request.out_dir),
     manifest: mergedManifest,
     local_runs: normalizeLocalRuns(mergedManifest.local_runs, requestDir),
   };

@@ -52,6 +52,7 @@ test('normalizeProcessAutoBuildRequest resolves defaults, flow summaries, and so
   writeFileSync(sourcePath, 'paper-data', 'utf8');
   writeJson(requestPath, {
     flow_file: `./${path.basename(flowPath)}`,
+    workspace_run_root: './workspace-run-root',
     source_inputs: [
       {
         source_id: 'paper-1',
@@ -70,10 +71,7 @@ test('normalizeProcessAutoBuildRequest resolves defaults, flow summaries, and so
 
     assert.equal(normalized.request_id, 'pff-pfw_01211_3a8d74d8_produce_20260329T000000Z');
     assert.equal(normalized.run_id, 'pfw_01211_3a8d74d8_produce_20260329T000000Z');
-    assert.equal(
-      normalized.run_root,
-      path.join(dir, 'artifacts', 'process_from_flow', normalized.run_id),
-    );
+    assert.equal(normalized.run_root, path.join(dir, 'workspace-run-root'));
     assert.equal(normalized.flow_file, flowPath);
     assert.equal(normalized.flow_summary.wrapper, 'flowDataSet');
     assert.equal(normalized.flow_summary.uuid, '4d8a3345-51fd-44ac-87e0-59bc8d3b0fdc');
@@ -86,15 +84,7 @@ test('normalizeProcessAutoBuildRequest resolves defaults, flow summaries, and so
     ]);
     assert.equal(
       normalized.source_inputs[0]?.artifact_path,
-      path.join(
-        dir,
-        'artifacts',
-        'process_from_flow',
-        normalized.run_id,
-        'evidence',
-        'incoming',
-        '01_paper_1.pdf',
-      ),
+      path.join(dir, 'workspace-run-root', 'evidence', 'incoming', '01_paper_1.pdf'),
     );
     assert.deepEqual(normalized.source_policy.step1_route.preferred, ['user_bundle', 'kb_bundle']);
     assert.equal(normalized.source_policy.step3b_exchange_values.allow_estimation, true);
@@ -204,10 +194,24 @@ test('normalizeProcessAutoBuildRequest rejects invalid request and source input 
         normalizeProcessAutoBuildRequest(
           {
             flow_file: './01211_3a8d74d8_reference-flow.json',
+          },
+          {
+            inputPath: requestPath,
+          },
+        ),
+      /Provide --out-dir or request\.workspace_run_root/u,
+    );
+
+    assert.throws(
+      () =>
+        normalizeProcessAutoBuildRequest(
+          {
+            flow_file: './01211_3a8d74d8_reference-flow.json',
             source_inputs: {},
           },
           {
             inputPath: requestPath,
+            outDir: './test-run-root',
           },
         ),
       /source_inputs must be an array/u,
@@ -222,6 +226,7 @@ test('normalizeProcessAutoBuildRequest rejects invalid request and source input 
           },
           {
             inputPath: requestPath,
+            outDir: './test-run-root',
           },
         ),
       /entries must be objects/u,
@@ -242,6 +247,7 @@ test('normalizeProcessAutoBuildRequest rejects invalid request and source input 
           },
           {
             inputPath: requestPath,
+            outDir: './test-run-root',
           },
         ),
       /type must be 'local_file' or 'local_text'/u,
@@ -262,6 +268,7 @@ test('normalizeProcessAutoBuildRequest rejects invalid request and source input 
           },
           {
             inputPath: requestPath,
+            outDir: './test-run-root',
           },
         ),
       /source input not found/u,
@@ -287,6 +294,7 @@ test('normalizeProcessAutoBuildRequest rejects invalid request and source input 
           },
           {
             inputPath: requestPath,
+            outDir: './test-run-root',
           },
         ),
       /Duplicate process auto-build source_id/u,
@@ -461,6 +469,7 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
   const requestPath = path.join(dir, 'request.json');
   writeJson(requestPath, {
     flow_file: `./${path.basename(flowPath)}`,
+    workspace_run_root: './process-run',
   });
 
   try {
@@ -471,7 +480,7 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
     });
 
     assert.equal(report.status, 'prepared_local_process_auto_build_run');
-    assert.equal(report.run_root, path.join(dir, 'artifacts', 'process_from_flow', report.run_id));
+    assert.equal(report.run_root, path.join(dir, 'process-run'));
     assert.equal(existsSync(report.files.state), true);
     assert.equal(existsSync(report.files.handoff_summary), true);
     assert.equal(existsSync(report.files.run_manifest), true);
@@ -601,6 +610,7 @@ test('runProcessAutoBuild rejects invalid flow payloads, non-empty run roots, an
   const sourceDirRequestPath = path.join(dir, 'source-dir-request.json');
   writeJson(sourceDirRequestPath, {
     flow_file: './valid-flow.json',
+    workspace_run_root: './source-dir-run',
     source_inputs: [
       {
         source_id: 'source-dir',
@@ -608,6 +618,10 @@ test('runProcessAutoBuild rejects invalid flow payloads, non-empty run roots, an
         path: './source-dir',
       },
     ],
+  });
+  const missingRootRequestPath = path.join(dir, 'missing-root-request.json');
+  writeJson(missingRootRequestPath, {
+    flow_file: './valid-flow.json',
   });
 
   try {
@@ -633,6 +647,14 @@ test('runProcessAutoBuild rejects invalid flow payloads, non-empty run roots, an
           inputPath: sourceDirRequestPath,
         }),
       /Failed to copy artifact file/u,
+    );
+
+    await assert.rejects(
+      () =>
+        runProcessAutoBuild({
+          inputPath: missingRootRequestPath,
+        }),
+      /Provide --out-dir or request\.workspace_run_root/u,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

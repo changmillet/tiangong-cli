@@ -128,7 +128,6 @@ function requiredRequestObject(input: unknown): JsonRecord {
 
 function resolveBatchRoot(
   manifestDir: string,
-  batchId: string,
   outDirOverride: string | null | undefined,
   requestOutDir: unknown,
 ): string {
@@ -142,7 +141,13 @@ function resolveBatchRoot(
     return path.resolve(manifestDir, requestValue);
   }
 
-  return path.join(manifestDir, 'artifacts', 'process_batch', batchId);
+  throw new CliError(
+    'Missing required process batch-build root. Provide --out-dir or request.out_dir.',
+    {
+      code: 'PROCESS_BATCH_BUILD_ROOT_REQUIRED',
+      exitCode: 2,
+    },
+  );
 }
 
 function buildLayout(batchRoot: string, batchId: string): ProcessBatchBuildLayout {
@@ -316,7 +321,7 @@ export function normalizeProcessBatchBuildRequest(
   const manifestDir = path.dirname(manifestPath);
   const now = options.now ?? new Date();
   const batchId = normalizeBatchId(manifestPath, request, now);
-  const batchRoot = resolveBatchRoot(manifestDir, batchId, options.outDir, request.out_dir);
+  const batchRoot = resolveBatchRoot(manifestDir, options.outDir, request.out_dir);
 
   return {
     schema_version: 1,

@@ -151,6 +151,7 @@ test('runProcessBatchBuild supports partial failures when continue_on_error is t
   const manifestPath = path.join(dir, 'batch-request.json');
   writeJson(manifestPath, {
     batch_id: 'batch-continue',
+    out_dir: './batch-continue-root',
     items: ['./request-a.json', './missing.json', './request-b.json'],
   });
 
@@ -191,6 +192,7 @@ test('runProcessBatchBuild stops after the first failure when continue_on_error 
   writeJson(manifestPath, {
     batch_id: 'batch-stop',
     continue_on_error: false,
+    out_dir: './batch-stop-root',
     items: ['./request-a.json', './missing.json', './request-c.json'],
   });
 
@@ -297,14 +299,26 @@ test('runProcessBatchBuild rejects invalid manifests and duplicate runtime ident
     );
 
     const missingItemsPath = path.join(dir, 'missing-items.json');
-    writeJson(missingItemsPath, {});
+    writeJson(missingItemsPath, {
+      out_dir: './missing-items-root',
+    });
     await assert.rejects(
       () => runProcessBatchBuild({ inputPath: missingItemsPath }),
       /items must be an array/u,
     );
 
+    const missingRootPath = path.join(dir, 'missing-root.json');
+    writeJson(missingRootPath, {
+      items: ['./request-a.json'],
+    });
+    await assert.rejects(
+      () => runProcessBatchBuild({ inputPath: missingRootPath }),
+      /Provide --out-dir or request\.out_dir/u,
+    );
+
     const emptyItemsPath = path.join(dir, 'empty-items.json');
     writeJson(emptyItemsPath, {
+      out_dir: './empty-items-root',
       items: [],
     });
     await assert.rejects(
@@ -314,6 +328,7 @@ test('runProcessBatchBuild rejects invalid manifests and duplicate runtime ident
 
     const badItemPath = path.join(dir, 'bad-item.json');
     writeJson(badItemPath, {
+      out_dir: './bad-item-root',
       items: [true],
     });
     await assert.rejects(
@@ -323,6 +338,7 @@ test('runProcessBatchBuild rejects invalid manifests and duplicate runtime ident
 
     const missingInputPath = path.join(dir, 'missing-input.json');
     writeJson(missingInputPath, {
+      out_dir: './missing-input-root',
       items: [{}],
     });
     await assert.rejects(
@@ -332,6 +348,7 @@ test('runProcessBatchBuild rejects invalid manifests and duplicate runtime ident
 
     const duplicateItemIdPath = path.join(dir, 'duplicate-item-id.json');
     writeJson(duplicateItemIdPath, {
+      out_dir: './duplicate-item-root',
       items: [
         { input_path: './request-a.json', item_id: 'same' },
         { input_path: './request-b.json', item_id: 'same' },
@@ -345,6 +362,7 @@ test('runProcessBatchBuild rejects invalid manifests and duplicate runtime ident
     const duplicateRunIdPath = path.join(dir, 'duplicate-run-id.json');
     writeJson(duplicateRunIdPath, {
       batch_id: 'batch-duplicate-runid',
+      out_dir: './duplicate-run-id-root',
       items: ['./request-a.json', './request-b.json'],
     });
     const duplicateRunIdReport = await runProcessBatchBuild({
@@ -388,16 +406,20 @@ test('process batch-build internals cover layout, normalization, and helper fall
   );
 
   assert.equal(
-    __testInternals.resolveBatchRoot('/tmp/work', 'batch-1', './override', null),
+    __testInternals.resolveBatchRoot('/tmp/work', './override', null),
     path.resolve('/tmp/work', './override'),
   );
   assert.equal(
-    __testInternals.resolveBatchRoot('/tmp/work', 'batch-1', null, './request-root'),
+    __testInternals.resolveBatchRoot('/tmp/work', null, './request-root'),
     path.resolve('/tmp/work', './request-root'),
   );
   assert.equal(
-    __testInternals.resolveBatchRoot('/tmp/work', 'batch-1', '   ', './request-root'),
+    __testInternals.resolveBatchRoot('/tmp/work', '   ', './request-root'),
     path.resolve('/tmp/work', './request-root'),
+  );
+  assert.throws(
+    () => __testInternals.resolveBatchRoot('/tmp/work', undefined, undefined),
+    /Provide --out-dir or request\.out_dir/u,
   );
 
   const normalized = __testInternals.normalizeProcessBatchBuildRequest(
@@ -420,6 +442,7 @@ test('process batch-build internals cover layout, normalization, and helper fall
   const normalizedWithoutNow = __testInternals.normalizeProcessBatchBuildRequest(
     {
       batch_id: 'batch-inline-default-now',
+      out_dir: './batch-root-default-now',
       items: ['./request-a.json'],
     },
     {
@@ -431,6 +454,7 @@ test('process batch-build internals cover layout, normalization, and helper fall
   const normalizedWithOccupiedSuffix = __testInternals.normalizeProcessBatchBuildRequest(
     {
       batch_id: 'batch-inline-loop',
+      out_dir: './batch-root-loop',
       items: [
         './request-a.json',
         {

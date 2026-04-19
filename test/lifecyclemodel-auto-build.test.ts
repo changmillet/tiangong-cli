@@ -268,6 +268,7 @@ test('normalizeLifecyclemodelAutoBuildRequest resolves defaults, run roots, and 
   const requestPath = path.join(dir, 'request.json');
   writeJson(requestPath, {
     run_label: 'demo-local-build',
+    out_dir: './normalized-run-root',
     local_runs: ['./run-1'],
   });
 
@@ -279,10 +280,7 @@ test('normalizeLifecyclemodelAutoBuildRequest resolves defaults, run roots, and 
     });
 
     assert.equal(normalized.run_id, 'lm-run-1');
-    assert.equal(
-      normalized.run_root,
-      path.join(dir, 'artifacts', 'lifecyclemodel_auto_build', 'lm-run-1'),
-    );
+    assert.equal(normalized.run_root, path.join(dir, 'normalized-run-root'));
     assert.deepEqual(normalized.local_runs, [runDir]);
     assert.equal(normalized.manifest.run_label, 'demo-local-build');
     assert.equal((normalized.manifest.selection as JsonRecord).mode, 'graph_first_local_build');
@@ -290,6 +288,7 @@ test('normalizeLifecyclemodelAutoBuildRequest resolves defaults, run roots, and 
     const fallbackRequestPath = path.join(dir, 'fallback-request.json');
     writeJson(fallbackRequestPath, {
       run_label: '',
+      out_dir: './fallback-run-root',
       local_runs: ['./run-1'],
     });
     const fallbackNormalized = normalizeLifecyclemodelAutoBuildRequest(
@@ -302,9 +301,19 @@ test('normalizeLifecyclemodelAutoBuildRequest resolves defaults, run roots, and 
       fallbackNormalized.run_id,
       /^lifecyclemodel_auto_build_fallback_request_build_\d{8}T\d{6}Z_[a-z0-9_]+$/u,
     );
-    assert.equal(
-      fallbackNormalized.run_root,
-      path.join(dir, 'artifacts', 'lifecyclemodel_auto_build', fallbackNormalized.run_id),
+    assert.equal(fallbackNormalized.run_root, path.join(dir, 'fallback-run-root'));
+
+    assert.throws(
+      () =>
+        normalizeLifecyclemodelAutoBuildRequest(
+          {
+            local_runs: ['./run-1'],
+          },
+          {
+            inputPath: requestPath,
+          },
+        ),
+      /Provide --out-dir or request\.out_dir/u,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -1777,6 +1786,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
     );
 
     writeJson(requestPath, {
+      out_dir: './missing-state-root',
       local_runs: ['./missing-run'],
     });
     await assert.rejects(
@@ -1794,6 +1804,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
       flow_dataset: {},
     });
     writeJson(requestPath, {
+      out_dir: './no-exports-root',
       local_runs: ['./no-exports-run'],
     });
     await assert.rejects(
@@ -1812,6 +1823,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
       flow_dataset: {},
     });
     writeJson(requestPath, {
+      out_dir: './empty-run-root',
       local_runs: ['./empty-run'],
     });
     await assert.rejects(
@@ -1826,6 +1838,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
       badProcess: 'missing_reference_exchange',
     });
     writeJson(requestPath, {
+      out_dir: './bad-reference-root',
       local_runs: ['./bad-reference-run'],
     });
     await assert.rejects(
@@ -1840,6 +1853,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
       badProcess: 'missing_uuid',
     });
     writeJson(requestPath, {
+      out_dir: './bad-uuid-root',
       local_runs: ['./bad-uuid-run'],
     });
     await assert.rejects(
@@ -1871,6 +1885,7 @@ test('runLifecyclemodelAutoBuild rejects invalid manifests and broken local runs
       }),
     );
     writeJson(requestPath, {
+      out_dir: './invalid-state-root',
       local_runs: ['./invalid-state-run'],
     });
     await assert.rejects(
