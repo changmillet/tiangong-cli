@@ -1,31 +1,3 @@
----
-title: TianGong LCA CLI README
-docType: guide
-scope: repo
-status: active
-authoritative: false
-owner: cli
-language: en
-whenToUse:
-  - when you need user-facing package installation, CLI invocation, env, or command examples
-whenToUpdate:
-  - when public CLI commands, required env, package installation, or user-facing examples change
-checkPaths:
-  - README.md
-  - package.json
-  - bin/**
-  - src/cli.ts
-  - src/main.ts
-  - src/lib/**
-lastReviewedAt: 2026-04-24
-lastReviewedCommit: a9a2a0507ea237b9e64b86ea2f79613c9be57ae5
-related:
-  - AGENTS.md
-  - .docpact/config.yaml
-  - DEV_CN.md
-  - docs/IMPLEMENTATION_GUIDE_CN.md
----
-
 # TianGong LCA CLI
 
 Package: `@tiangong-lca/cli` Executable: `tiangong` Node: `24.x`
