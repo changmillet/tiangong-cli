@@ -271,11 +271,9 @@ rules:
         kind: repo-landing
     requiredDocs:
       - path: AGENTS.md
-        mode: review_or_update
-      - path: README.md
-        mode: review_or_update
+        mode: must_exist
       - path: .docpact/config.yaml
-        mode: review_or_update
+        mode: must_exist
     reason: User-facing CLI invocation docs should stay aligned with the current public command and package surface.
   - id: cli-maintainer-docs-contract
     scope: repo
