@@ -1,7 +1,7 @@
 version: 1
 layout: repo
-lastReviewedAt: "2026-04-24"
-lastReviewedCommit: "365e939315ea8f02136816f575e1f6e89b003627"
+lastReviewedAt: 2026-05-08
+lastReviewedCommit: 4f364eb9e47017e3e54850108c65b53e3c860dbc
 
 catalog:
   repos:
@@ -92,8 +92,19 @@ ownership:
           - .github/workflows/tag-release-from-merge.yml
       ownerRepo: cli
 
+    - id: local-docpact-push-gate
+      paths:
+        include:
+          - .githooks/**
+          - scripts/docpact-gate.sh
+          - scripts/install-git-hooks.sh
+      ownerRepo: cli
+
 coverage:
   include:
+    - .githooks/**
+    - scripts/docpact-gate.sh
+    - scripts/install-git-hooks.sh
     - AGENTS.md
     - README.md
     - DEV_CN.md
@@ -136,6 +147,11 @@ freshness:
 
 routing:
   intents:
+    local-docpact-gate:
+      paths:
+        - .githooks/pre-push
+        - scripts/docpact-gate.sh
+        - scripts/install-git-hooks.sh
     command-surface:
       paths:
         - bin/**
@@ -465,3 +481,19 @@ rules:
       - path: docs/agents/repo-validation.md
         mode: review_or_update
     reason: Repo-local documentation maintenance automation must stay aligned with the repo contract and governed-doc rules.
+  - id: cli-local-docpact-push-gate
+    scope: repo
+    repo: cli
+    triggers:
+      - path: .githooks/pre-push
+        kind: local-git-hook
+      - path: scripts/docpact-gate.sh
+        kind: local-automation
+      - path: scripts/install-git-hooks.sh
+        kind: local-automation
+    requiredDocs:
+      - path: .docpact/config.yaml
+        mode: review_or_update
+      - path: docs/agents/repo-validation.md
+        mode: review_or_update
+    reason: Local push documentation governance gates must stay aligned with repo validation guidance and docpact configuration.

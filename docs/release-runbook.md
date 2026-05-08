@@ -17,8 +17,11 @@ checkPaths:
   - scripts/ci/**
   - .github/workflows/publish.yml
   - .github/workflows/tag-release-from-merge.yml
-lastReviewedAt: 2026-04-24
-lastReviewedCommit: a9a2a0507ea237b9e64b86ea2f79613c9be57ae5
+  - .githooks/pre-push
+  - scripts/docpact-gate.sh
+  - scripts/install-git-hooks.sh
+lastReviewedAt: 2026-05-08
+lastReviewedCommit: 4f364eb9e47017e3e54850108c65b53e3c860dbc
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -173,3 +176,7 @@ For the CLI repo, that helper defaults to:
 - `Publish Package` succeeded
 - `npm view @tiangong-lca/cli version` equals `<x.y.z>`
 - workspace pointer updated only after all checks above passed
+
+## Local Docpact Push Gate
+
+The repository now includes a local pre-push docpact gate in `scripts/docpact-gate.sh`. It is a lightweight documentation-governance guard and does not replace the release or protected-branch validation gates.

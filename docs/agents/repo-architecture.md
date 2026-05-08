@@ -22,8 +22,11 @@ checkPaths:
   - src/**
   - test/**
   - scripts/**
-lastReviewedAt: 2026-05-06
-lastReviewedCommit: 5cabf59d9c845ded012d660a247bc62834667dbb
+  - .githooks/pre-push
+  - scripts/docpact-gate.sh
+  - scripts/install-git-hooks.sh
+lastReviewedAt: 2026-05-08
+lastReviewedCommit: 4f364eb9e47017e3e54850108c65b53e3c860dbc
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -143,3 +146,7 @@ Important constraints:
 - a skill wrapper is not the source of truth for a missing command
 - the CLI should not absorb MCP transport behavior
 - a merged child PR does not finish workspace delivery
+
+## Local Docpact Push Gate
+
+This repository has a versioned local `pre-push` hook under `.githooks/pre-push` that delegates to `scripts/docpact-gate.sh`. The hook is a local developer guard for docpact config validation and enforced doc-governance linting; CI remains the authoritative PR enforcement path.
