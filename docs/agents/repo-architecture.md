@@ -43,7 +43,7 @@ This repo is organized around one stable launcher plus a library-style `src/lib/
 
 | Path group | Role |
 | --- | --- |
-| `bin/tiangong.js` | stable launcher entrypoint exposed as the public `tiangong` executable |
+| `bin/tiangong-lca.js` | stable launcher entrypoint exposed as the public `tiangong-lca` executable |
 | `src/main.ts` | process entry, dotenv loading, stdout and stderr wiring |
 | `src/cli.ts` | top-level command dispatch, parsing, and help routing |
 | `src/lib/**` | command-family implementations plus shared auth, IO, artifact, and remote helpers |
@@ -55,9 +55,9 @@ This repo is organized around one stable launcher plus a library-style `src/lib/
 
 ### Launcher and entry contract
 
-The public `tiangong` surface starts in:
+The public `tiangong-lca` surface starts in:
 
-- `bin/tiangong.js`
+- `bin/tiangong-lca.js`
 - `src/main.ts`
 - `src/cli.ts`
 

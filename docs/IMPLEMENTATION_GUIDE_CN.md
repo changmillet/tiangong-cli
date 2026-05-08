@@ -59,7 +59,7 @@ MCP 替代策略也固定为两条：
 ### 2.1 已实现命令
 
 ```text
-tiangong
+tiangong-lca
   doctor
   search
     flow
@@ -105,74 +105,74 @@ tiangong
 
 | CLI 命令 | 当前后端能力 |
 | --- | --- |
-| `tiangong doctor` | 本地环境诊断、`.env` 加载、统一 env 合同检查 |
-| `tiangong search flow` | `flow_hybrid_search` |
-| `tiangong search process` | `process_hybrid_search` |
-| `tiangong search lifecyclemodel` | `lifecyclemodel_hybrid_search` |
-| `tiangong flow get` | 统一 CLI 持有的只读 flow 详情读取面；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 按 `id/version/user/state` 读取 |
-| `tiangong flow list` | 统一 CLI 持有的只读 flow 枚举面；通过原生 `@supabase/supabase-js` 保持稳定过滤/排序/分页语义 |
-| `tiangong flow remediate` | 本地 flow governance round1 deterministic remediation、artifact-first 输出 |
-| `tiangong flow publish-version` | 统一 CLI 持有的 remediated-flow publish/update 入口；通过 REST 精确可见性预检 + Edge Function dataset command (`app_dataset_create` / `app_dataset_save_draft`) 写出稳定 success/failure artifacts |
-| `tiangong flow publish-reviewed-data` | 统一 CLI 持有的 reviewed publish preparation 入口；支持 flow unchanged skip、flow/process append-only bump / current-version upsert、process flow-ref rewrite、本地 `publish-report.json` 与兼容的 flow success/failure artifacts，并在 commit 时复用共享 dataset command writer |
-| `tiangong flow build-alias-map` | 独立 deterministic alias map 入口；从 old/new flow snapshots 与可选 seed alias map 生成 alias plan、manual queue 与稳定 alias map |
-| `tiangong flow scan-process-flow-refs` | 独立 process ref 扫描入口；对 local process rows 做 scope/catalog/alias 分类并写出 scan artifacts |
-| `tiangong flow plan-process-flow-repairs` | 独立 deterministic repair planning 入口；从 process/scope/alias/scan 契约生成 repair plan |
-| `tiangong flow apply-process-flow-repairs` | 独立 deterministic repair apply 入口；应用 deterministic subset、写出 patch evidence，并可同步本地 process pool |
-| `tiangong flow regen-product` | 本地治理后 process-side 再生产物入口；在一个命令下执行 scan / repair / apply / validate 并输出稳定 artifacts |
-| `tiangong flow validate-processes` | 本地治理后 patched process rows 的独立校验入口；校验 flow ref-only diff、quantitative reference 稳定性，并可选复用 `tidas-sdk` |
-| `tiangong process get` | 统一 CLI 持有的只读 process 详情读取面；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 按 `id/version` 读取 |
-| `tiangong process auto-build` | 本地 `process_from_flow` intake、run-id 生成、artifact scaffold 预写 |
-| `tiangong process resume-build` | 本地 `process_from_flow` resume handoff、state-lock/manifest 收口、resume 元数据与报告输出 |
-| `tiangong process publish-build` | 本地 `process_from_flow` publish handoff、publish bundle/request/intent 产出、state/invocation/handoff 更新 |
-| `tiangong process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
-| `tiangong lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
-| `tiangong lifecyclemodel validate-build` | 本地 lifecyclemodel build run 校验重跑、per-model 校验报告与 aggregate report 输出 |
-| `tiangong lifecyclemodel publish-build` | 本地 lifecyclemodel publish handoff、publish bundle/request/intent 产出、validation 摘要复用 |
-| `tiangong lifecyclemodel build-resulting-process` | 本地 lifecycle model resulting process 聚合、内部 flow 抵消、artifact 输出 |
-| `tiangong lifecyclemodel publish-resulting-process` | 读取 resulting-process run，生成 `publish-bundle.json` / `publish-intent.json` 本地交付物 |
-| `tiangong lifecyclemodel orchestrate` | 递归装配的 plan / execute / publish-handoff 命令；写出 graph/lineage/publish bundle 工件，并只调用原生 CLI builder slices |
-| `tiangong review process` | 本地 process review、artifact-first 报告输出、可选 CLI LLM 语义审核 |
-| `tiangong review flow` | 本地 flow governance review、rows-file 物化、artifact-first 报告输出、可选 CLI LLM 语义审核 |
-| `tiangong publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出；当提供 Supabase runtime 时默认通过共享 dataset command executor 提交 `lifecyclemodels` / `processes` / `sources` |
-| `tiangong validation run` | 本地 `@tiangong-lca/tidas-sdk` 直接依赖校验收口 |
-| `tiangong admin embedding-run` | `embedding_ft` |
+| `tiangong-lca doctor` | 本地环境诊断、`.env` 加载、统一 env 合同检查 |
+| `tiangong-lca search flow` | `flow_hybrid_search` |
+| `tiangong-lca search process` | `process_hybrid_search` |
+| `tiangong-lca search lifecyclemodel` | `lifecyclemodel_hybrid_search` |
+| `tiangong-lca flow get` | 统一 CLI 持有的只读 flow 详情读取面；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 按 `id/version/user/state` 读取 |
+| `tiangong-lca flow list` | 统一 CLI 持有的只读 flow 枚举面；通过原生 `@supabase/supabase-js` 保持稳定过滤/排序/分页语义 |
+| `tiangong-lca flow remediate` | 本地 flow governance round1 deterministic remediation、artifact-first 输出 |
+| `tiangong-lca flow publish-version` | 统一 CLI 持有的 remediated-flow publish/update 入口；通过 REST 精确可见性预检 + Edge Function dataset command (`app_dataset_create` / `app_dataset_save_draft`) 写出稳定 success/failure artifacts |
+| `tiangong-lca flow publish-reviewed-data` | 统一 CLI 持有的 reviewed publish preparation 入口；支持 flow unchanged skip、flow/process append-only bump / current-version upsert、process flow-ref rewrite、本地 `publish-report.json` 与兼容的 flow success/failure artifacts，并在 commit 时复用共享 dataset command writer |
+| `tiangong-lca flow build-alias-map` | 独立 deterministic alias map 入口；从 old/new flow snapshots 与可选 seed alias map 生成 alias plan、manual queue 与稳定 alias map |
+| `tiangong-lca flow scan-process-flow-refs` | 独立 process ref 扫描入口；对 local process rows 做 scope/catalog/alias 分类并写出 scan artifacts |
+| `tiangong-lca flow plan-process-flow-repairs` | 独立 deterministic repair planning 入口；从 process/scope/alias/scan 契约生成 repair plan |
+| `tiangong-lca flow apply-process-flow-repairs` | 独立 deterministic repair apply 入口；应用 deterministic subset、写出 patch evidence，并可同步本地 process pool |
+| `tiangong-lca flow regen-product` | 本地治理后 process-side 再生产物入口；在一个命令下执行 scan / repair / apply / validate 并输出稳定 artifacts |
+| `tiangong-lca flow validate-processes` | 本地治理后 patched process rows 的独立校验入口；校验 flow ref-only diff、quantitative reference 稳定性，并可选复用 `tidas-sdk` |
+| `tiangong-lca process get` | 统一 CLI 持有的只读 process 详情读取面；从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标并通过原生 `@supabase/supabase-js` 按 `id/version` 读取 |
+| `tiangong-lca process auto-build` | 本地 `process_from_flow` intake、run-id 生成、artifact scaffold 预写 |
+| `tiangong-lca process resume-build` | 本地 `process_from_flow` resume handoff、state-lock/manifest 收口、resume 元数据与报告输出 |
+| `tiangong-lca process publish-build` | 本地 `process_from_flow` publish handoff、publish bundle/request/intent 产出、state/invocation/handoff 更新 |
+| `tiangong-lca process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
+| `tiangong-lca lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
+| `tiangong-lca lifecyclemodel validate-build` | 本地 lifecyclemodel build run 校验重跑、per-model 校验报告与 aggregate report 输出 |
+| `tiangong-lca lifecyclemodel publish-build` | 本地 lifecyclemodel publish handoff、publish bundle/request/intent 产出、validation 摘要复用 |
+| `tiangong-lca lifecyclemodel build-resulting-process` | 本地 lifecycle model resulting process 聚合、内部 flow 抵消、artifact 输出 |
+| `tiangong-lca lifecyclemodel publish-resulting-process` | 读取 resulting-process run，生成 `publish-bundle.json` / `publish-intent.json` 本地交付物 |
+| `tiangong-lca lifecyclemodel orchestrate` | 递归装配的 plan / execute / publish-handoff 命令；写出 graph/lineage/publish bundle 工件，并只调用原生 CLI builder slices |
+| `tiangong-lca review process` | 本地 process review、artifact-first 报告输出、可选 CLI LLM 语义审核 |
+| `tiangong-lca review flow` | 本地 flow governance review、rows-file 物化、artifact-first 报告输出、可选 CLI LLM 语义审核 |
+| `tiangong-lca publish run` | 本地 publish 契约归一化、dry-run/commit、report 输出；当提供 Supabase runtime 时默认通过共享 dataset command executor 提交 `lifecyclemodels` / `processes` / `sources` |
+| `tiangong-lca validation run` | 本地 `@tiangong-lca/tidas-sdk` 直接依赖校验收口 |
+| `tiangong-lca admin embedding-run` | `embedding_ft` |
 
-此外，CLI 现在已经正式引入 `tiangong lifecyclemodel ...` 一级命名空间，其中：
+此外，CLI 现在已经正式引入 `tiangong-lca lifecyclemodel ...` 一级命名空间，其中：
 
-- `tiangong lifecyclemodel auto-build` 已可执行
-- `tiangong lifecyclemodel validate-build` 已可执行
-- `tiangong lifecyclemodel publish-build` 已可执行
-- `tiangong lifecyclemodel build-resulting-process` 已可执行
-- `tiangong lifecyclemodel publish-resulting-process` 已可执行
-- `tiangong lifecyclemodel orchestrate` 已可执行
+- `tiangong-lca lifecyclemodel auto-build` 已可执行
+- `tiangong-lca lifecyclemodel validate-build` 已可执行
+- `tiangong-lca lifecyclemodel publish-build` 已可执行
+- `tiangong-lca lifecyclemodel build-resulting-process` 已可执行
+- `tiangong-lca lifecyclemodel publish-resulting-process` 已可执行
+- `tiangong-lca lifecyclemodel orchestrate` 已可执行
 
-`tiangong review ...` 也已经开始进入统一命令树，其中：
+`tiangong-lca review ...` 也已经开始进入统一命令树，其中：
 
-- `tiangong review process` 已可执行
-- `tiangong review flow` 已可执行
-- `tiangong review lifecyclemodel` 已可执行
+- `tiangong-lca review process` 已可执行
+- `tiangong-lca review flow` 已可执行
+- `tiangong-lca review lifecyclemodel` 已可执行
 
-`tiangong flow ...` 也已经开始承接 flow-governance 主链迁移，其中：
+`tiangong-lca flow ...` 也已经开始承接 flow-governance 主链迁移，其中：
 
-- `tiangong flow get` 已可执行
-- `tiangong flow list` 已可执行
-- `tiangong flow remediate` 已可执行
-- `tiangong flow publish-version` 已可执行
-- `tiangong flow publish-reviewed-data` 已可执行
-- `tiangong flow build-alias-map` 已可执行
-- `tiangong flow scan-process-flow-refs` 已可执行
-- `tiangong flow plan-process-flow-repairs` 已可执行
-- `tiangong flow apply-process-flow-repairs` 已可执行
-- `tiangong flow regen-product` 已可执行
-- `tiangong flow validate-processes` 已可执行
+- `tiangong-lca flow get` 已可执行
+- `tiangong-lca flow list` 已可执行
+- `tiangong-lca flow remediate` 已可执行
+- `tiangong-lca flow publish-version` 已可执行
+- `tiangong-lca flow publish-reviewed-data` 已可执行
+- `tiangong-lca flow build-alias-map` 已可执行
+- `tiangong-lca flow scan-process-flow-refs` 已可执行
+- `tiangong-lca flow plan-process-flow-repairs` 已可执行
+- `tiangong-lca flow apply-process-flow-repairs` 已可执行
+- `tiangong-lca flow regen-product` 已可执行
+- `tiangong-lca flow validate-processes` 已可执行
 
-`tiangong process ...` 也已经开始承接 `process_from_flow` 主链迁移，其中：
+`tiangong-lca process ...` 也已经开始承接 `process_from_flow` 主链迁移，其中：
 
-- `tiangong process get` 已可执行
-- `tiangong process auto-build` 已可执行
-- `tiangong process resume-build` 已可执行
-- `tiangong process publish-build` 已可执行
-- `tiangong process batch-build` 已可执行
+- `tiangong-lca process get` 已可执行
+- `tiangong-lca process auto-build` 已可执行
+- `tiangong-lca process resume-build` 已可执行
+- `tiangong-lca process publish-build` 已可执行
+- `tiangong-lca process batch-build` 已可执行
 
 注意：
 
@@ -191,7 +191,7 @@ tiangong
 - 已实现的 `lifecyclemodel validate-build` 继续保留同一套 run 布局，并把模型扫描、统一 validation 模块调用、per-model report 与 aggregate report 输出统一收口到 CLI
 - `lifecyclemodel validate-build` 当前只负责本地 validation handoff，不直接触发 publish，也不做任何远端写入
 - 已实现的 `lifecyclemodel publish-build` 继续保留同一套 run 布局，并把本地 publish-bundle/request/intent、validation 摘要复用、invocation index 更新统一收口到 CLI
-- `lifecyclemodel publish-build` 当前只负责本地 publish handoff，不直接执行远端 publish commit 或数据库写入；真正的 dry-run / commit 边界仍由 `tiangong publish run` 负责
+- `lifecyclemodel publish-build` 当前只负责本地 publish handoff，不直接执行远端 publish commit 或数据库写入；真正的 dry-run / commit 边界仍由 `tiangong-lca publish run` 负责
 - 已实现的 `build-resulting-process` 和 `publish-resulting-process` 都走本地优先、artifact-first 路径，不依赖 Python 或 MCP
 - `build-resulting-process` 现在还支持一个显式的 deterministic direct-read 补全路径：当 request 打开 `process_sources.allow_remote_lookup=true` 时，CLI 会从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标，并通过原生 `@supabase/supabase-js` 按 `process_id/version` 直接补齐缺失的 process dataset
 - `publish-resulting-process` 当前负责生成本地 publish handoff 产物，还没有把提交语义直接并入 `publish run`
@@ -235,8 +235,8 @@ tiangong
 ```text
 tiangong-lca-cli/
   bin/
-    tiangong.js
-    tiangong.d.ts
+    tiangong-lca.js
+    tiangong-lca.d.ts
   dist/
   src/
     cli.ts
@@ -250,7 +250,7 @@ tiangong-lca-cli/
 
 职责边界：
 
-- `bin/`：稳定启动器，只负责把 `tiangong` 命令接到 `dist/src/main.js`
+- `bin/`：稳定启动器，只负责把 `tiangong-lca` 命令接到 `dist/src/main.js`
 - `dist/`：构建产物，供正式运行路径使用
 - `src/cli.ts`：命令分发、参数解析、命令帮助、错误出口
 - `src/main.ts`：进程入口源码，构建后输出到 `dist/src/main.js`
@@ -265,17 +265,17 @@ tiangong-lca-cli/
 不推荐：
 
 ```bash
-tiangong flow-hybrid-search
-tiangong process-hybrid-search
-tiangong embedding-ft
+tiangong-lca flow-hybrid-search
+tiangong-lca process-hybrid-search
+tiangong-lca embedding-ft
 ```
 
 推荐：
 
 ```bash
-tiangong search flow
-tiangong search process
-tiangong admin embedding-run
+tiangong-lca search flow
+tiangong-lca search process
+tiangong-lca admin embedding-run
 ```
 
 这能显著降低 agent 的搜索空间和误操作概率。
@@ -304,17 +304,17 @@ tiangong admin embedding-run
 优先形式：
 
 ```bash
-tiangong search flow --input ./request.json --json
-tiangong publish run --input ./publish-request.json --dry-run
-tiangong validation run --input-dir ./tidas-package --engine auto
-tiangong admin embedding-run --input ./jobs.json --dry-run
+tiangong-lca search flow --input ./request.json --json
+tiangong-lca publish run --input ./publish-request.json --dry-run
+tiangong-lca validation run --input-dir ./tidas-package --engine auto
+tiangong-lca admin embedding-run --input ./jobs.json --dry-run
 ```
 
 而不是长自然语言参数和不稳定的 shell 拼接。
 
 ### 4.3.1 `search flow` 的最小 contract
 
-`tiangong search flow` 现在固定的是“CLI 持有的 edge-function 请求转发契约层”。
+`tiangong-lca search flow` 现在固定的是“CLI 持有的 edge-function 请求转发契约层”。
 
 它负责：
 
@@ -742,7 +742,7 @@ tiangong admin embedding-run --input ./jobs.json --dry-run
 - `auto` 模式走当前默认的 direct-dependency 校验路径，也就是 CLI 内基于 `@tiangong-lca/tidas-sdk` 组装的 package validator
 - `sdk` 模式显式固定到同一条 `@tiangong-lca/tidas-sdk` 校验链
 
-这保证后续 workflow 只依赖 `tiangong validation run`，而不需要在 skill 里自己判断到底调哪个校验器。
+这保证后续 workflow 只依赖 `tiangong-lca validation run`，而不需要在 skill 里自己判断到底调哪个校验器。
 
 ## 5. 环境变量策略
 
@@ -768,7 +768,7 @@ TIANGONG_LCA_FORCE_REAUTH=false
 - `TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` 是 authenticated CLI 命令的必需项
 - `TIANGONG_LCA_SESSION_FILE`、`TIANGONG_LCA_DISABLE_SESSION_CACHE`、`TIANGONG_LCA_FORCE_REAUTH` 是可选 session cache 控制项
 
-按需启用的可选 review-only 变量：只有显式启用 `tiangong review process --enable-llm` 或 `tiangong review flow --enable-llm` 时才需要配置。`TIANGONG_LCA_REVIEW_LLM_BASE_URL` 应指向 OpenAI-compatible Responses API 根地址，CLI 会向 `<base_url>/responses` 发请求。
+按需启用的可选 review-only 变量：只有显式启用 `tiangong-lca review process --enable-llm` 或 `tiangong-lca review flow --enable-llm` 时才需要配置。`TIANGONG_LCA_REVIEW_LLM_BASE_URL` 应指向 OpenAI-compatible Responses API 根地址，CLI 会向 `<base_url>/responses` 发请求。
 
 ```bash
 TIANGONG_LCA_REVIEW_LLM_BASE_URL=
@@ -776,7 +776,7 @@ TIANGONG_LCA_REVIEW_LLM_API_KEY=
 TIANGONG_LCA_REVIEW_LLM_MODEL=
 ```
 
-仓库中已归一化、但当前没有任何公开 `tiangong` 命令消费的 internal/preparatory 变量：
+仓库中已归一化、但当前没有任何公开 `tiangong-lca` 命令消费的 internal/preparatory 变量：
 
 ```bash
 TIANGONG_LCA_KB_SEARCH_API_BASE_URL=
@@ -856,7 +856,7 @@ npm run prepush:gate
 
 原因：
 
-- `bin/tiangong.js` 是极薄启动器
+- `bin/tiangong-lca.js` 是极薄启动器
 - 运行时真正执行的是由 `src/**/*.ts` 编译出来的 `dist/` 产物
 - 它的价值主要在 smoke test，而不是复杂业务逻辑
 
@@ -890,50 +890,50 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 最适合先迁移到统一 CLI 的，是当前的薄远程 skill：
 
-| 当前 skill                     | 目标 CLI                         |
-| ------------------------------ | -------------------------------- |
-| `flow-hybrid-search`           | `tiangong search flow`           |
-| `process-hybrid-search`        | `tiangong search process`        |
-| `lifecyclemodel-hybrid-search` | `tiangong search lifecyclemodel` |
-| `embedding-ft`                 | `tiangong admin embedding-run`   |
+| 当前 skill                     | 目标 CLI                             |
+| ------------------------------ | ------------------------------------ |
+| `flow-hybrid-search`           | `tiangong-lca search flow`           |
+| `process-hybrid-search`        | `tiangong-lca search process`        |
+| `lifecyclemodel-hybrid-search` | `tiangong-lca search lifecyclemodel` |
+| `embedding-ft`                 | `tiangong-lca admin embedding-run`   |
 
 ### 7.3 已完成 CLI 收口的 workflow skills
 
-当前 canonical path 已经固定为 `skill -> 原生 Node .mjs wrapper -> tiangong CLI`：
+当前 canonical path 已经固定为 `skill -> 原生 Node .mjs wrapper -> tiangong-lca CLI`：
 
 - `process-automated-builder`
-  - `tiangong process auto-build`
-  - `tiangong process resume-build`
-  - `tiangong process publish-build`
-  - `tiangong process batch-build`
+  - `tiangong-lca process auto-build`
+  - `tiangong-lca process resume-build`
+  - `tiangong-lca process publish-build`
+  - `tiangong-lca process batch-build`
   - skill 侧不再保留 Python / LangGraph / MCP / KB / OCR fallback
 - `lifecyclemodel-automated-builder`
-  - `tiangong lifecyclemodel auto-build`
-  - `tiangong lifecyclemodel validate-build`
-  - `tiangong lifecyclemodel publish-build`
+  - `tiangong-lca lifecyclemodel auto-build`
+  - `tiangong-lca lifecyclemodel validate-build`
+  - `tiangong-lca lifecyclemodel publish-build`
   - skill 侧不再保留 shell 兼容壳或 Python / MCP runtime
 - `lifecycleinventory-review`
-  - `tiangong review process`
-  - `tiangong review lifecyclemodel`
+  - `tiangong-lca review process`
+  - `tiangong-lca review lifecyclemodel`
 - `flow-governance-review`
-  - `tiangong review flow`
-  - `tiangong flow get`
-  - `tiangong flow list`
-  - `tiangong flow remediate`
-  - `tiangong flow publish-version`
-  - `tiangong flow publish-reviewed-data`
-  - `tiangong flow build-alias-map`
-  - `tiangong flow scan-process-flow-refs`
-  - `tiangong flow plan-process-flow-repairs`
-  - `tiangong flow apply-process-flow-repairs`
-  - `tiangong flow regen-product`
-  - `tiangong flow validate-processes`
+  - `tiangong-lca review flow`
+  - `tiangong-lca flow get`
+  - `tiangong-lca flow list`
+  - `tiangong-lca flow remediate`
+  - `tiangong-lca flow publish-version`
+  - `tiangong-lca flow publish-reviewed-data`
+  - `tiangong-lca flow build-alias-map`
+  - `tiangong-lca flow scan-process-flow-refs`
+  - `tiangong-lca flow plan-process-flow-repairs`
+  - `tiangong-lca flow apply-process-flow-repairs`
+  - `tiangong-lca flow regen-product`
+  - `tiangong-lca flow validate-processes`
   - OpenClaw / dedup / legacy Python orchestration 已从 supported path 中移除
 - `lifecyclemodel-recursive-orchestrator`
-  - `tiangong lifecyclemodel orchestrate`
+  - `tiangong-lca lifecyclemodel orchestrate`
   - skill wrapper 只保留对 `plan | execute | publish` 的薄调用
 - `lca-publish-executor`
-  - `tiangong publish run`
+  - `tiangong-lca publish run`
   - publish contract 已不再保留私有 Python 实现
 
 当前更合理的扩展路径是：
@@ -954,9 +954,9 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 调用方式优先顺序：
 
-1. `node "${TIANGONG_LCA_CLI_DIR}/bin/tiangong.js" ...`
+1. `node "${TIANGONG_LCA_CLI_DIR}/bin/tiangong-lca.js" ...`
 2. `node "${TIANGONG_LCA_CLI_DIR}/dist/src/main.js" ...`
-3. `npm exec --prefix "${TIANGONG_LCA_CLI_DIR}" tiangong -- ...`
+3. `npm exec --prefix "${TIANGONG_LCA_CLI_DIR}" tiangong-lca -- ...`
 
 不要再在 skill 内部重复实现一套 `curl` 参数解析和环境变量规则。
 
@@ -973,7 +973,7 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 - lifecyclemodel 的 discovery / AI 选择逻辑，只有在产品面确认需要时才继续抽象成新的 CLI 子命令
 - `auth` / `job` 之类 placeholder surface 只有在真实场景出现时才补齐，而不是为了对称性先做
-- 任何新增能力都必须先定义成 `tiangong <noun> <verb>`，再决定是否要进一步服务化
+- 任何新增能力都必须先定义成 `tiangong-lca <noun> <verb>`，再决定是否要进一步服务化
 
 ## 10. 结论
 
@@ -986,4 +986,4 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 如果后续继续扩能力，也必须遵守同一条原则：
 
-先判断它是不是稳定的业务动作，再决定它是不是应该进入 `tiangong` 命令树。
+先判断它是不是稳定的业务动作，再决定它是不是应该进入 `tiangong-lca` 命令树。

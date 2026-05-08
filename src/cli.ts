@@ -276,7 +276,7 @@ Design principles:
   - file-first input and JSON-first output
 
 Usage:
-  tiangong <command> [subcommand] [options]
+  tiangong-lca <command> [subcommand] [options]
 
 Commands:
 Implemented Commands:
@@ -297,44 +297,44 @@ Planned Surface (not implemented yet):
 Planned commands currently print an explicit "not implemented yet" message and exit with code 2.
 
 Examples:
-  tiangong doctor
-  tiangong search flow --input ./request.json
-  tiangong search process --input ./request.json --dry-run
-  tiangong process get --id <process-id>
-  tiangong process list --state-code 100 --limit 20
-  tiangong process scope-statistics --out-dir /abs/path/to/process-scope --state-code 0 --state-code 100
-  tiangong process dedup-review --input ./duplicate-groups.json --out-dir /abs/path/to/process-dedup
-  tiangong process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
-  tiangong process resume-build --run-dir /abs/path/to/process-run
-  tiangong process publish-build --run-dir /abs/path/to/process-run
-  tiangong process save-draft --input ./patched-processes.jsonl --out-dir /abs/path/to/process-save-draft --dry-run
-  tiangong process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
-  tiangong process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
-  tiangong process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
-  tiangong lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
-  tiangong lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
-  tiangong lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run
-  tiangong lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run
-  tiangong flow get --id <flow-id> --version <version>
-  tiangong flow list --id <flow-id> --state-code 100 --limit 20
-  tiangong flow fetch-rows --refs-file ./flow-refs.json --out-dir ./flow-fetch
-  tiangong flow materialize-decisions --decision-file ./approved-decisions.json --flow-rows-file ./review-input-rows.jsonl --out-dir ./flow-decisions
-  tiangong flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation
-  tiangong flow publish-version --input-file ./ready-flows.jsonl --out-dir ./flow-publish --commit
-  tiangong flow publish-reviewed-data --flow-rows-file ./reviewed-flows.jsonl --original-flow-rows-file ./original-flows.jsonl --out-dir ./flow-publish-review
-  tiangong flow build-alias-map --old-flow-file ./old-flows.jsonl --new-flow-file ./new-flows.jsonl --out-dir ./flow-alias-map
-  tiangong flow scan-process-flow-refs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-scan
-  tiangong flow plan-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-repair-plan
-  tiangong flow apply-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-repair-apply
-  tiangong flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regeneration --apply
-  tiangong flow validate-processes --original-processes-file ./before.jsonl --patched-processes-file ./after.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-validation
-  tiangong review process --rows-file ./processes.jsonl --out-dir ./review
-  tiangong review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review
-  tiangong review flow --rows-file ./flows.json --out-dir ./review
-  tiangong review lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-review
-  tiangong publish run --input ./publish-request.json --dry-run
-  tiangong validation run --input-dir ./package --engine auto
-  tiangong admin embedding-run --input ./jobs.json
+  tiangong-lca doctor
+  tiangong-lca search flow --input ./request.json
+  tiangong-lca search process --input ./request.json --dry-run
+  tiangong-lca process get --id <process-id>
+  tiangong-lca process list --state-code 100 --limit 20
+  tiangong-lca process scope-statistics --out-dir /abs/path/to/process-scope --state-code 0 --state-code 100
+  tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir /abs/path/to/process-dedup
+  tiangong-lca process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
+  tiangong-lca process resume-build --run-dir /abs/path/to/process-run
+  tiangong-lca process publish-build --run-dir /abs/path/to/process-run
+  tiangong-lca process save-draft --input ./patched-processes.jsonl --out-dir /abs/path/to/process-save-draft --dry-run
+  tiangong-lca process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
+  tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
+  tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
+  tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
+  tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
+  tiangong-lca lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run
+  tiangong-lca lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run
+  tiangong-lca flow get --id <flow-id> --version <version>
+  tiangong-lca flow list --id <flow-id> --state-code 100 --limit 20
+  tiangong-lca flow fetch-rows --refs-file ./flow-refs.json --out-dir ./flow-fetch
+  tiangong-lca flow materialize-decisions --decision-file ./approved-decisions.json --flow-rows-file ./review-input-rows.jsonl --out-dir ./flow-decisions
+  tiangong-lca flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation
+  tiangong-lca flow publish-version --input-file ./ready-flows.jsonl --out-dir ./flow-publish --commit
+  tiangong-lca flow publish-reviewed-data --flow-rows-file ./reviewed-flows.jsonl --original-flow-rows-file ./original-flows.jsonl --out-dir ./flow-publish-review
+  tiangong-lca flow build-alias-map --old-flow-file ./old-flows.jsonl --new-flow-file ./new-flows.jsonl --out-dir ./flow-alias-map
+  tiangong-lca flow scan-process-flow-refs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-scan
+  tiangong-lca flow plan-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-repair-plan
+  tiangong-lca flow apply-process-flow-repairs --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-repair-apply
+  tiangong-lca flow regen-product --processes-file ./processes.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-regeneration --apply
+  tiangong-lca flow validate-processes --original-processes-file ./before.jsonl --patched-processes-file ./after.jsonl --scope-flow-file ./flows.jsonl --out-dir ./flow-validation
+  tiangong-lca review process --rows-file ./processes.jsonl --out-dir ./review
+  tiangong-lca review process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./review
+  tiangong-lca review flow --rows-file ./flows.json --out-dir ./review
+  tiangong-lca review lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-review
+  tiangong-lca publish run --input ./publish-request.json --dry-run
+  tiangong-lca validation run --input-dir ./package --engine auto
+  tiangong-lca admin embedding-run --input ./jobs.json
 
 Environment:
   .env loaded: ${dotEnvStatus.loaded ? `yes (${dotEnvStatus.path}, ${dotEnvStatus.count} keys)` : 'no'}
@@ -343,7 +343,7 @@ Environment:
 
 function renderDoctorHelp(): string {
   return `Usage:
-  tiangong doctor [--json]
+  tiangong-lca doctor [--json]
 
 Options:
   --json    Print structured environment diagnostics
@@ -353,7 +353,7 @@ Options:
 
 function renderSearchHelp(): string {
   return `Usage:
-  tiangong search <flow|process|lifecyclemodel> --input <file> [options]
+  tiangong-lca search <flow|process|lifecyclemodel> --input <file> [options]
 
 Options:
   --input <file>   JSON request file
@@ -379,7 +379,7 @@ Runtime note:
 
 function renderAdminHelp(): string {
   return `Usage:
-  tiangong admin embedding-run --input <file> [options]
+  tiangong-lca admin embedding-run --input <file> [options]
 
 Options:
   --input <file>   JSON request file
@@ -403,7 +403,7 @@ Runtime note:
 
 function renderPublishHelp(): string {
   return `Usage:
-  tiangong publish run --input <file> [options]
+  tiangong-lca publish run --input <file> [options]
 
 Options:
   --input <file>       JSON publish request file
@@ -420,7 +420,7 @@ Path rule:
 
 function renderValidationHelp(): string {
   return `Usage:
-  tiangong validation run --input-dir <dir> [options]
+  tiangong-lca validation run --input-dir <dir> [options]
 
 Options:
   --input-dir <dir>    TIDAS package directory
@@ -433,7 +433,7 @@ Options:
 
 function renderFlowHelp(): string {
   return `Usage:
-  tiangong flow <subcommand> [options]
+  tiangong-lca flow <subcommand> [options]
 
 Implemented Subcommands:
   get          Load one flow dataset by identifier through direct Supabase access
@@ -451,26 +451,26 @@ Implemented Subcommands:
   validate-processes Validate locally patched process rows against allowed flow-reference-only changes
 
 Examples:
-  tiangong flow --help
-  tiangong flow get --help
-  tiangong flow list --help
-  tiangong flow fetch-rows --help
-  tiangong flow materialize-decisions --help
-  tiangong flow remediate --help
-  tiangong flow publish-version --help
-  tiangong flow publish-reviewed-data --help
-  tiangong flow build-alias-map --help
-  tiangong flow scan-process-flow-refs --help
-  tiangong flow plan-process-flow-repairs --help
-  tiangong flow apply-process-flow-repairs --help
-  tiangong flow regen-product --help
-  tiangong flow validate-processes --help
+  tiangong-lca flow --help
+  tiangong-lca flow get --help
+  tiangong-lca flow list --help
+  tiangong-lca flow fetch-rows --help
+  tiangong-lca flow materialize-decisions --help
+  tiangong-lca flow remediate --help
+  tiangong-lca flow publish-version --help
+  tiangong-lca flow publish-reviewed-data --help
+  tiangong-lca flow build-alias-map --help
+  tiangong-lca flow scan-process-flow-refs --help
+  tiangong-lca flow plan-process-flow-repairs --help
+  tiangong-lca flow apply-process-flow-repairs --help
+  tiangong-lca flow regen-product --help
+  tiangong-lca flow validate-processes --help
 `.trim();
 }
 
 function renderFlowGetHelp(): string {
   return `Usage:
-  tiangong flow get --id <flow-id> [options]
+  tiangong-lca flow get --id <flow-id> [options]
 
 Options:
   --id <flow-id>        Flow UUID
@@ -493,7 +493,7 @@ Runtime note:
 
 function renderFlowListHelp(): string {
   return `Usage:
-  tiangong flow list [options]
+  tiangong-lca flow list [options]
 
 Options:
   --id <flow-id>                  Repeatable exact flow UUID filter
@@ -522,7 +522,7 @@ Runtime note:
 
 function renderFlowRemediateHelp(): string {
   return `Usage:
-  tiangong flow remediate --input-file <file> --out-dir <dir> [options]
+  tiangong-lca flow remediate --input-file <file> --out-dir <dir> [options]
 
 Options:
   --input-file <file>  Invalid flow rows as JSON or JSONL
@@ -542,7 +542,7 @@ Outputs written under --out-dir:
 
 function renderFlowFetchRowsHelp(): string {
   return `Usage:
-  tiangong flow fetch-rows --refs-file <file> --out-dir <dir> [options]
+  tiangong-lca flow fetch-rows --refs-file <file> --out-dir <dir> [options]
 
 Options:
   --refs-file <file>         Flow refs as JSON or JSONL
@@ -568,7 +568,7 @@ Outputs written under --out-dir:
 
 function renderFlowMaterializeDecisionsHelp(): string {
   return `Usage:
-  tiangong flow materialize-decisions --decision-file <file> --flow-rows-file <file> --out-dir <dir> [options]
+  tiangong-lca flow materialize-decisions --decision-file <file> --flow-rows-file <file> --out-dir <dir> [options]
 
 Options:
   --decision-file <file>     Approved cluster decisions as JSON or JSONL
@@ -588,7 +588,7 @@ Outputs written under --out-dir:
 
 function renderFlowPublishVersionHelp(): string {
   return `Usage:
-  tiangong flow publish-version --input-file <file> --out-dir <dir> [options]
+  tiangong-lca flow publish-version --input-file <file> --out-dir <dir> [options]
 
 Options:
   --input-file <file>       Ready-for-publish flow rows as JSON or JSONL
@@ -615,7 +615,7 @@ Outputs written under --out-dir:
 
 function renderFlowPublishReviewedDataHelp(): string {
   return `Usage:
-  tiangong flow publish-reviewed-data --out-dir <dir> [--flow-rows-file <file>] [--process-rows-file <file>] [options]
+  tiangong-lca flow publish-reviewed-data --out-dir <dir> [--flow-rows-file <file>] [--process-rows-file <file>] [options]
 
 Options:
   --flow-rows-file <file>           Reviewed flow rows as JSON or JSONL
@@ -651,7 +651,7 @@ Outputs written under --out-dir:
 
 function renderFlowBuildAliasMapHelp(): string {
   return `Usage:
-  tiangong flow build-alias-map --old-flow-file <file> --new-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow build-alias-map --old-flow-file <file> --new-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --old-flow-file <file>          Repeatable pre-governance flow snapshot as JSON or JSONL
@@ -672,7 +672,7 @@ Outputs written under --out-dir:
 
 function renderFlowScanProcessFlowRefsHelp(): string {
   return `Usage:
-  tiangong flow scan-process-flow-refs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow scan-process-flow-refs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --processes-file <file>         Process rows as JSON or JSONL
@@ -694,7 +694,7 @@ Outputs written under --out-dir:
 
 function renderFlowPlanProcessFlowRepairsHelp(): string {
   return `Usage:
-  tiangong flow plan-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow plan-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --processes-file <file>         Process rows as JSON or JSONL
@@ -716,7 +716,7 @@ Outputs written under --out-dir:
 
 function renderFlowApplyProcessFlowRepairsHelp(): string {
   return `Usage:
-  tiangong flow apply-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow apply-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --processes-file <file>         Process rows as JSON or JSONL
@@ -741,7 +741,7 @@ Outputs written under --out-dir:
 
 function renderFlowRegenProductHelp(): string {
   return `Usage:
-  tiangong flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --processes-file <file>         Process rows as JSON or JSONL
@@ -768,7 +768,7 @@ Outputs written under --out-dir:
 
 function renderFlowValidateProcessesHelp(): string {
   return `Usage:
-  tiangong flow validate-processes --original-processes-file <file> --patched-processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
+  tiangong-lca flow validate-processes --original-processes-file <file> --patched-processes-file <file> --scope-flow-file <file> --out-dir <dir> [options]
 
 Options:
   --original-processes-file <file>  Original process rows before repair as JSON or JSONL
@@ -787,7 +787,7 @@ Outputs written under --out-dir:
 
 function renderReviewHelp(): string {
   return `Usage:
-  tiangong review <subcommand> [options]
+  tiangong-lca review <subcommand> [options]
 
 Implemented Subcommands:
   process      Review process build runs or rows-file snapshots and emit artifact-first findings
@@ -795,16 +795,16 @@ Implemented Subcommands:
   lifecyclemodel Review one local lifecyclemodel build run and emit artifact-first findings
 
 Examples:
-  tiangong review --help
-  tiangong review process --help
-  tiangong review flow --help
-  tiangong review lifecyclemodel --help
+  tiangong-lca review --help
+  tiangong-lca review process --help
+  tiangong-lca review flow --help
+  tiangong-lca review lifecyclemodel --help
 `.trim();
 }
 
 function renderReviewProcessHelp(): string {
   return `Usage:
-  tiangong review process (--rows-file <file> | --run-root <dir>) --out-dir <dir> [options]
+  tiangong-lca review process (--rows-file <file> | --run-root <dir>) --out-dir <dir> [options]
 
 Options:
   --rows-file <file>        Process rows JSON/JSONL file; full process list reports with rows[] are also accepted
@@ -824,7 +824,7 @@ Options:
 
 function renderReviewFlowHelp(): string {
   return `Usage:
-  tiangong review flow (--rows-file <file> | --flows-dir <dir> | --run-root <dir>) --out-dir <dir> [options]
+  tiangong-lca review flow (--rows-file <file> | --flows-dir <dir> | --run-root <dir>) --out-dir <dir> [options]
 
 Options:
   --rows-file <file>        Flow rows JSON / JSONL file; the CLI materializes review-input/flows automatically
@@ -848,7 +848,7 @@ Options:
 
 function renderReviewLifecyclemodelHelp(): string {
   return `Usage:
-  tiangong review lifecyclemodel --run-dir <dir> --out-dir <dir> [options]
+  tiangong-lca review lifecyclemodel --run-dir <dir> --out-dir <dir> [options]
 
 Options:
   --run-dir <dir>          Existing lifecyclemodel auto-build run directory
@@ -868,7 +868,7 @@ This command:
 
 function renderLifecyclemodelBuildResultingProcessHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel build-resulting-process --input <file> [options]
+  tiangong-lca lifecyclemodel build-resulting-process --input <file> [options]
 
 Options:
   --input <file>     JSON request file
@@ -885,7 +885,7 @@ Remote lookup env (only when process_sources.allow_remote_lookup=true):
 
 function renderLifecyclemodelPublishResultingProcessHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel publish-resulting-process --run-dir <dir> [options]
+  tiangong-lca lifecyclemodel publish-resulting-process --run-dir <dir> [options]
 
 Options:
   --run-dir <dir>         Existing lifecyclemodel resulting-process run directory
@@ -898,7 +898,7 @@ Options:
 
 function renderLifecyclemodelHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel <subcommand> [options]
+  tiangong-lca lifecyclemodel <subcommand> [options]
 
 Implemented Subcommands:
   auto-build                Build native lifecyclemodel json_ordered artifacts from local process run exports
@@ -909,18 +909,18 @@ Implemented Subcommands:
   orchestrate               Plan, execute, or publish a recursive lifecyclemodel assembly run
 
 Examples:
-  tiangong lifecyclemodel --help
-  tiangong lifecyclemodel auto-build --help
-  tiangong lifecyclemodel validate-build --help
-  tiangong lifecyclemodel publish-build --help
-  tiangong lifecyclemodel build-resulting-process --help
-  tiangong lifecyclemodel orchestrate --help
+  tiangong-lca lifecyclemodel --help
+  tiangong-lca lifecyclemodel auto-build --help
+  tiangong-lca lifecyclemodel validate-build --help
+  tiangong-lca lifecyclemodel publish-build --help
+  tiangong-lca lifecyclemodel build-resulting-process --help
+  tiangong-lca lifecyclemodel orchestrate --help
 `.trim();
 }
 
 function renderLifecyclemodelOrchestrateHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel orchestrate <plan|execute|publish> [options]
+  tiangong-lca lifecyclemodel orchestrate <plan|execute|publish> [options]
 
 Plan / execute options:
   --input <file>                           JSON request file
@@ -947,7 +947,7 @@ This command:
 
 function renderLifecyclemodelAutoBuildHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel auto-build --input <file> [options]
+  tiangong-lca lifecyclemodel auto-build --input <file> [options]
 
 Options:
   --input <file>     JSON request file
@@ -971,7 +971,7 @@ This first CLI slice is local-only and read-only:
 
 function renderLifecyclemodelValidateBuildHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel validate-build --run-dir <dir> [options]
+  tiangong-lca lifecyclemodel validate-build --run-dir <dir> [options]
 
 Options:
   --run-dir <dir>    Existing lifecyclemodel auto-build run directory
@@ -988,7 +988,7 @@ This command:
 
 function renderLifecyclemodelPublishBuildHelp(): string {
   return `Usage:
-  tiangong lifecyclemodel publish-build --run-dir <dir> [options]
+  tiangong-lca lifecyclemodel publish-build --run-dir <dir> [options]
 
 Options:
   --run-dir <dir>    Existing lifecyclemodel auto-build run directory
@@ -998,14 +998,14 @@ Options:
 This command:
   - collects native lifecyclemodel json_ordered payloads from one local build run
   - writes publish-bundle.json, publish-request.json, and publish-intent.json
-  - keeps actual dry-run / commit execution in tiangong publish run
+  - keeps actual dry-run / commit execution in tiangong-lca publish run
   - routes lifecyclemodel commit through save_lifecycle_model_bundle internally
 `.trim();
 }
 
 function renderProcessAutoBuildHelp(): string {
   return `Usage:
-  tiangong process auto-build --input <file> [options]
+  tiangong-lca process auto-build --input <file> [options]
 
 Options:
   --input <file>     JSON request file
@@ -1019,7 +1019,7 @@ This command applies no implicit repo-local ./artifacts fallback.
 
 function renderProcessGetHelp(): string {
   return `Usage:
-  tiangong process get --id <process-id> [options]
+  tiangong-lca process get --id <process-id> [options]
 
 Options:
   --id <process-id>    Process UUID
@@ -1040,7 +1040,7 @@ Runtime note:
 
 function renderProcessListHelp(): string {
   return `Usage:
-  tiangong process list [options]
+  tiangong-lca process list [options]
 
 Options:
   --id <process-id>               Repeatable exact process UUID filter
@@ -1068,7 +1068,7 @@ Runtime note:
 
 function renderProcessScopeStatisticsHelp(): string {
   return `Usage:
-  tiangong process scope-statistics --out-dir <dir> [options]
+  tiangong-lca process scope-statistics --out-dir <dir> [options]
 
 Options:
   --out-dir <dir>          Artifact root to write inputs/outputs/reports
@@ -1095,7 +1095,7 @@ Outputs written under --out-dir:
 
 function renderProcessDedupReviewHelp(): string {
   return `Usage:
-  tiangong process dedup-review --input <file> --out-dir <dir> [options]
+  tiangong-lca process dedup-review --input <file> --out-dir <dir> [options]
 
 Options:
   --input <file>           Grouped duplicate-candidate JSON input
@@ -1141,7 +1141,7 @@ Outputs written under --out-dir:
 
 function renderProcessResumeBuildHelp(): string {
   return `Usage:
-  tiangong process resume-build --run-dir <dir> [options]
+  tiangong-lca process resume-build --run-dir <dir> [options]
 
 Options:
   --run-dir <dir>    Existing process build run directory
@@ -1153,7 +1153,7 @@ Options:
 
 function renderProcessPublishBuildHelp(): string {
   return `Usage:
-  tiangong process publish-build --run-dir <dir> [options]
+  tiangong-lca process publish-build --run-dir <dir> [options]
 
 Options:
   --run-dir <dir>    Existing process build run directory
@@ -1165,7 +1165,7 @@ Options:
 
 function renderProcessSaveDraftHelp(): string {
   return `Usage:
-  tiangong process save-draft --input <file> [options]
+  tiangong-lca process save-draft --input <file> [options]
 
 Options:
   --input <file>     Process rows JSON/JSONL file or publish-request.json
@@ -1195,7 +1195,7 @@ Outputs written under --out-dir:
 
 function renderProcessRefreshReferencesHelp(): string {
   return `Usage:
-  tiangong process refresh-references --out-dir <dir> [options]
+  tiangong-lca process refresh-references --out-dir <dir> [options]
 
 Options:
   --out-dir <dir>      Artifact root for manifest, progress, blockers, and reports
@@ -1231,7 +1231,7 @@ Outputs written under --out-dir:
 
 function renderProcessVerifyRowsHelp(): string {
   return `Usage:
-  tiangong process verify-rows --rows-file <file> --out-dir <dir> [options]
+  tiangong-lca process verify-rows --rows-file <file> --out-dir <dir> [options]
 
 Options:
   --rows-file <file>   Raw process rows JSON/JSONL file; full process list reports with rows[] are also accepted
@@ -1247,7 +1247,7 @@ Outputs written under --out-dir:
 
 function renderProcessBatchBuildHelp(): string {
   return `Usage:
-  tiangong process batch-build --input <file> [options]
+  tiangong-lca process batch-build --input <file> [options]
 
 Options:
   --input <file>     JSON batch manifest file
@@ -1261,7 +1261,7 @@ This command applies no implicit repo-local ./artifacts fallback.
 
 function renderProcessHelp(): string {
   return `Usage:
-  tiangong process <subcommand> [options]
+  tiangong-lca process <subcommand> [options]
 
 Implemented Subcommands:
   get          Load one process dataset by identifier through direct Supabase access
@@ -1277,18 +1277,18 @@ Implemented Subcommands:
   verify-rows  Re-validate fetched process rows and required naming fields locally
 
 Examples:
-  tiangong process --help
-  tiangong process get --id <process-id>
-  tiangong process list --state-code 100 --limit 20 --help
-  tiangong process scope-statistics --out-dir ./process-scope --state-code 0 --state-code 100 --help
-  tiangong process dedup-review --input ./duplicate-groups.json --out-dir ./process-dedup --help
-  tiangong process auto-build --help
-  tiangong process resume-build --run-dir /abs/path/to/process-run --help
-  tiangong process publish-build --run-dir /abs/path/to/process-run --help
-  tiangong process save-draft --input ./patched-processes.jsonl --help
-  tiangong process batch-build --input ./batch-request.json --help
-  tiangong process refresh-references --out-dir ./process-refresh --help
-  tiangong process verify-rows --rows-file ./process-list-report.json --out-dir ./process-verify --help
+  tiangong-lca process --help
+  tiangong-lca process get --id <process-id>
+  tiangong-lca process list --state-code 100 --limit 20 --help
+  tiangong-lca process scope-statistics --out-dir ./process-scope --state-code 0 --state-code 100 --help
+  tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir ./process-dedup --help
+  tiangong-lca process auto-build --help
+  tiangong-lca process resume-build --run-dir /abs/path/to/process-run --help
+  tiangong-lca process publish-build --run-dir /abs/path/to/process-run --help
+  tiangong-lca process save-draft --input ./patched-processes.jsonl --help
+  tiangong-lca process batch-build --input ./batch-request.json --help
+  tiangong-lca process refresh-references --out-dir ./process-refresh --help
+  tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir ./process-verify --help
 `.trim();
 }
 

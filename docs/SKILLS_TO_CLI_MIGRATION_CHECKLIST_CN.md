@@ -7,7 +7,7 @@ authoritative: false
 owner: cli
 language: zh-CN
 whenToUse:
-  - when auditing historical migration from skills wrappers and legacy runtimes into the native `tiangong` CLI
+  - when auditing historical migration from skills wrappers and legacy runtimes into the native `tiangong-lca` CLI
 whenToUpdate:
   - when the historical migration conclusion, evidence, or remaining cross-repo notes change
 checkPaths:
@@ -32,7 +32,7 @@ related:
 
 当前更准确的判断是：
 
-- `tiangong-lca-cli` 和 `tiangong-lca-skills` 的主运行时路径，已经完全收敛到 TypeScript / Node + `tiangong` CLI
+- `tiangong-lca-cli` 和 `tiangong-lca-skills` 的主运行时路径，已经完全收敛到 TypeScript / Node + `tiangong-lca` CLI
 - 仓库治理、开发质量门、公开文档和跨平台验证已经形成可验证闭环
 - 这可以证明主运行时已经脱离 Python 和无法跨平台的 shell
 - 但如果要满足更严格的“一句话标准”，还必须同时清掉 direct dependency / env / docs / CI 的剩余收口项；不能只拿本 checklist 直接下“完全是”的结论
@@ -53,9 +53,9 @@ related:
 
 ### 1.1 已确认成立
 
-- [x] `tiangong-lca-cli` 的稳定入口是 Node：`bin/tiangong.js` -> `dist/src/main.js`
+- [x] `tiangong-lca-cli` 的稳定入口是 Node：`bin/tiangong-lca.js` -> `dist/src/main.js`
 - [x] `tiangong-lca-skills` 当前保留的 wrapper 入口都是原生 Node `.mjs`
-- [x] skills wrapper 当前的 canonical 路径是 `wrapper -> tiangong`
+- [x] skills wrapper 当前的 canonical 路径是 `wrapper -> tiangong-lca`
 - [x] 两个仓库当前没有现存的 `.py` 或 `.sh` 运行时文件
 - [x] 业务 Python runtime、shell shim、MCP transport 已不再是主执行路径
 - [x] `tiangong-lca-cli` 已把 `.env.example`、README、`DEV_CN.md` 收敛成 public / optional / internal-preparatory 三层 env 说明
@@ -118,11 +118,11 @@ related:
 
 ### Phase 2：补齐 CLI 的跨平台文档
 
-- [x] 重写 `README.md` 的 Quick start 当前阻塞：文档默认使用 `curl ... | bash`、`nvm`、`cp .env.example .env` 处理目标：把“Node 24 安装”和“.env 初始化”改成跨平台表述，而不是只给 bash 命令涉及文件：`tiangong-lca-cli/README.md` 验收标准：一个 Windows 用户不需要自行翻译 shell 命令，也能按文档完成安装并执行 `node ./bin/tiangong.js --help` 已完成：README 已改成“任意平台可用的 Node 24 安装方式 + `npm ci` + `npm run build` + 用编辑器/文件管理器复制 `.env.example`”的主路径，并去掉了 `curl|bash` / `nvm` / `cp` 作为默认入口
+- [x] 重写 `README.md` 的 Quick start 当前阻塞：文档默认使用 `curl ... | bash`、`nvm`、`cp .env.example .env` 处理目标：把“Node 24 安装”和“.env 初始化”改成跨平台表述，而不是只给 bash 命令涉及文件：`tiangong-lca-cli/README.md` 验收标准：一个 Windows 用户不需要自行翻译 shell 命令，也能按文档完成安装并执行 `node ./bin/tiangong-lca.js --help` 已完成：README 已改成“任意平台可用的 Node 24 安装方式 + `npm ci` + `npm run build` + 用编辑器/文件管理器复制 `.env.example`”的主路径，并去掉了 `curl|bash` / `nvm` / `cp` 作为默认入口
 
 - [x] 重写 `DEV_CN.md` 的安装与初始化段落当前阻塞：开发文档同样默认使用 `bash`、`nvm`、`cp` 处理目标：给出平台中立写法，必要时补 macOS/Linux 和 Windows 两组示例涉及文件：`tiangong-lca-cli/DEV_CN.md` 验收标准：文档中不再把 POSIX shell 命令当作唯一入口已完成：`DEV_CN.md` 已改成平台中立的 Node 24 前提说明，并明确 `.env` 初始化不要求 shell 命令翻译
 
-- [x] 统一公开推荐的执行方式处理目标：明确推荐哪几个入口是跨平台稳定入口，例如： `npm exec tiangong -- ...` `node ./bin/tiangong.js ...` `node ./dist/src/main.js ...` 涉及文件：`tiangong-lca-cli/README.md` 涉及文件：`tiangong-lca-cli/DEV_CN.md` 验收标准：README 与开发文档对稳定入口的说法一致已完成：README 与 `DEV_CN.md` 都把 `npm exec tiangong -- ...`、`node ./bin/tiangong.js ...`、`node ./dist/src/main.js ...` 收口为主入口；`npm start -- ...` 降级为开发便利脚本
+- [x] 统一公开推荐的执行方式处理目标：明确推荐哪几个入口是跨平台稳定入口，例如： `npm exec tiangong-lca -- ...` `node ./bin/tiangong-lca.js ...` `node ./dist/src/main.js ...` 涉及文件：`tiangong-lca-cli/README.md` 涉及文件：`tiangong-lca-cli/DEV_CN.md` 验收标准：README 与开发文档对稳定入口的说法一致已完成：README 与 `DEV_CN.md` 都把 `npm exec tiangong-lca -- ...`、`node ./bin/tiangong-lca.js ...`、`node ./dist/src/main.js ...` 收口为主入口；`npm start -- ...` 降级为开发便利脚本
 
 ### Phase 3：清理 skills 仓库里的 Python 治理残留
 
@@ -160,7 +160,7 @@ related:
 
 - [x] 重新跑代码扫描推荐扫描项： `rg --files -g '*.py' -g '*.sh'` `rg -n 'init_skill\\.py|quick_validate\\.py|run_lifecyclemodel_review\\.py|validate\\.py'` `rg -n 'curl -o-|install\\.sh \\| bash|cp \\.env\\.example \\.env|TIANGONG_LCA_COVERAGE=1'` 验收标准：结果只剩明确允许的历史说明，且不再出现在主路径文档和质量门里已完成：`tiangong-lca-cli` 与 `tiangong-lca-skills` 均未再发现运行时 `.py` / `.sh` 文件；命中项只剩 checklist 自身的历史整改记录，以及 `tiangong-lca-skills/lifecyclemodel-automated-builder/references/source-analysis.md` 中明确标注为 historical upstream note 的 `validate.py` 背景说明
 
-- [x] 重新跑最小 smoke test 推荐命令： `node ./bin/tiangong.js --help` `node ./bin/tiangong.js doctor --json` `node ./scripts/validate-skills.mjs --help` 以及至少两个 representative wrapper 的 `--help` 验收标准：所有入口都只经过 Node / CLI 路径，不再依赖 Python 或 shell shim已完成：`node ./bin/tiangong.js --help`、`node ./bin/tiangong.js doctor --json`、`node ./scripts/validate-skills.mjs --help`、`node ./process-automated-builder/scripts/run-process-automated-builder.mjs --help`、`node ./lifecyclemodel-recursive-orchestrator/scripts/run-lifecyclemodel-recursive-orchestrator.mjs --help` 均已执行，入口链路只经过 Node / CLI
+- [x] 重新跑最小 smoke test 推荐命令： `node ./bin/tiangong-lca.js --help` `node ./bin/tiangong-lca.js doctor --json` `node ./scripts/validate-skills.mjs --help` 以及至少两个 representative wrapper 的 `--help` 验收标准：所有入口都只经过 Node / CLI 路径，不再依赖 Python 或 shell shim已完成：`node ./bin/tiangong-lca.js --help`、`node ./bin/tiangong-lca.js doctor --json`、`node ./scripts/validate-skills.mjs --help`、`node ./process-automated-builder/scripts/run-process-automated-builder.mjs --help`、`node ./lifecyclemodel-recursive-orchestrator/scripts/run-lifecyclemodel-recursive-orchestrator.mjs --help` 均已执行，入口链路只经过 Node / CLI
 
 - [x] 只有在所有验收项完成后，再更新迁移结论处理目标：把“基本完成”改回“完全脱离”验收标准：这一步必须是最后一步，不能提前写结论已完成：现在可以重新使用“迁移已全部完成”与“已经彻底脱离 Python 和无法跨平台 shell”这类表述
 
@@ -199,7 +199,7 @@ related:
 - [x] skills wrapper 继续保持 Node `.mjs`
 - [x] skills wrapper 继续保持薄调用，不回到私有 transport / CRUD / env parsing
 - [x] CLI 继续保持统一命令树，不回到多套 skill 私有 runtime
-- [x] 新能力仍然必须优先落成原生 `tiangong <noun> <verb>` 命令
+- [x] 新能力仍然必须优先落成原生 `tiangong-lca <noun> <verb>` 命令
 - [x] 不为了解决跨平台问题重新引入 shell shim
 - [x] 不为了解决文档问题重新引入 Python fallback
 
@@ -207,6 +207,6 @@ related:
 
 只问这一句：
 
-> 一个 agent 要完成工作时，是否只需要知道 `tiangong` 命令树，并且在 macOS / Linux / Windows 上都能按文档和质量门执行，而不需要知道 skills 内部的 Python、MCP、shell 兼容层细节？
+> 一个 agent 要完成工作时，是否只需要知道 `tiangong-lca` 命令树，并且在 macOS / Linux / Windows 上都能按文档和质量门执行，而不需要知道 skills 内部的 Python、MCP、shell 兼容层细节？
 
 当前答案已经是“是”。

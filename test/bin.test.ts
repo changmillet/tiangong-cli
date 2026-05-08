@@ -26,7 +26,7 @@ function assertSuccessfulExit(
 }
 
 maybeTest('runFromBin executes when imported without direct auto-run', async () => {
-  const { runFromBin } = await import('../bin/tiangong.js');
+  const { runFromBin } = await import('../bin/tiangong-lca.js');
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
   let stdout = '';
@@ -72,7 +72,7 @@ maybeTest('packed tarball exposes non-empty help through installed bin and npm e
     tempInstallDir,
     'node_modules',
     '.bin',
-    process.platform === 'win32' ? 'tiangong.cmd' : 'tiangong',
+    process.platform === 'win32' ? 'tiangong-lca.cmd' : 'tiangong-lca',
   );
 
   try {
@@ -91,7 +91,7 @@ maybeTest('packed tarball exposes non-empty help through installed bin and npm e
     assert.match(binHelpResult.stdout, /Unified TianGong command entrypoint/u);
 
     const execHelpResult = runNpm(
-      ['exec', '--yes', `--package=${tarballPath}`, '--', 'tiangong', '--help'],
+      ['exec', '--yes', `--package=${tarballPath}`, '--', 'tiangong-lca', '--help'],
       tempExecDir,
     );
     assertSuccessfulExit(execHelpResult, execHelpResult.stderr);

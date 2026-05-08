@@ -92,7 +92,7 @@ test('run helpers apply fallback defaults for ids, latest markers, and metadata'
 
     const manifest = buildRunManifest({
       layout,
-      command: ['tiangong', 'process', 'auto-build'],
+      command: ['tiangong-lca', 'process', 'auto-build'],
     });
     assert.equal(manifest.cwd, process.cwd());
     assert.equal(new Date(manifest.createdAt).toISOString(), manifest.createdAt);
@@ -131,7 +131,7 @@ test('buildRunManifest and buildResumeMetadata emit deterministic metadata paylo
   assert.deepEqual(
     buildRunManifest({
       layout,
-      command: ['tiangong', 'flow', 'get'],
+      command: ['tiangong-lca', 'flow', 'get'],
       cwd: workspaceCwd,
       createdAt,
     }),
@@ -139,7 +139,7 @@ test('buildRunManifest and buildResumeMetadata emit deterministic metadata paylo
       schemaVersion: 1,
       namespace: 'flow',
       runId: 'run-abc',
-      command: ['tiangong', 'flow', 'get'],
+      command: ['tiangong-lca', 'flow', 'get'],
       cwd: workspaceCwd,
       createdAt: '2026-03-28T08:40:00.000Z',
       layout: {
@@ -201,7 +201,7 @@ test('run helpers behave the same from the built dist module', async () => {
 
     const manifest = run.buildRunManifest({
       layout,
-      command: ['tiangong', 'flow', 'search'],
+      command: ['tiangong-lca', 'flow', 'search'],
       cwd: '/tmp/workspace',
       createdAt: now,
     });

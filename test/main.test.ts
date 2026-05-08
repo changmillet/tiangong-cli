@@ -135,7 +135,7 @@ test('maybeRunFromProcess executes the CLI when running as the entry module', as
 integrationTest('bin entrypoint executes successfully in a child process', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-main-'));
   const repoRoot = path.resolve(process.cwd());
-  const binPath = path.join(repoRoot, 'bin', 'tiangong.js');
+  const binPath = path.join(repoRoot, 'bin', 'tiangong-lca.js');
   const env = makeRuntimeEnv();
 
   writeFileSync(

@@ -855,7 +855,7 @@ function build_default_dataset_executor(options: {
         fetchImpl: options.fetchImpl,
         timeoutMs: options.timeoutMs,
         audit: {
-          command: 'tiangong publish run',
+          command: 'tiangong-lca publish run',
           source: args.source,
           bundle_path: args.bundle_path,
         },

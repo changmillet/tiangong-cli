@@ -124,7 +124,7 @@ test('executeCli doctor text reports loaded dotenv metadata and missing keys', a
 test('executeCli returns doctor help without falling back to main help', async () => {
   const result = await executeCli(['doctor', '--help'], makeDeps());
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /tiangong doctor \[--json\]/u);
+  assert.match(result.stdout, /tiangong-lca doctor \[--json\]/u);
   assert.doesNotMatch(result.stdout, /Unified TianGong command entrypoint/u);
 });
 
@@ -144,31 +144,31 @@ test('executeCli returns doctor json and failure status when required env is mis
 test('executeCli returns remote help for search flow', async () => {
   const result = await executeCli(['search', 'flow', '--help'], makeDeps());
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /tiangong search flow/u);
+  assert.match(result.stdout, /tiangong-lca search flow/u);
 });
 
 test('executeCli returns remote help for admin embedding-run', async () => {
   const result = await executeCli(['admin', 'embedding-run', '--help'], makeDeps());
   assert.equal(result.exitCode, 0);
-  assert.match(result.stdout, /tiangong admin embedding-run/u);
+  assert.match(result.stdout, /tiangong-lca admin embedding-run/u);
 });
 
 test('executeCli returns help for publish and validation namespaces', async () => {
   const publishHelp = await executeCli(['publish', '--help'], makeDeps());
   assert.equal(publishHelp.exitCode, 0);
-  assert.match(publishHelp.stdout, /tiangong publish run/u);
+  assert.match(publishHelp.stdout, /tiangong-lca publish run/u);
 
   const validationHelp = await executeCli(['validation', '--help'], makeDeps());
   assert.equal(validationHelp.exitCode, 0);
-  assert.match(validationHelp.stdout, /tiangong validation run/u);
+  assert.match(validationHelp.stdout, /tiangong-lca validation run/u);
 
   const reviewHelp = await executeCli(['review', '--help'], makeDeps());
   assert.equal(reviewHelp.exitCode, 0);
-  assert.match(reviewHelp.stdout, /tiangong review <subcommand>/u);
+  assert.match(reviewHelp.stdout, /tiangong-lca review <subcommand>/u);
 
   const flowHelp = await executeCli(['flow', '--help'], makeDeps());
   assert.equal(flowHelp.exitCode, 0);
-  assert.match(flowHelp.stdout, /tiangong flow <subcommand>/u);
+  assert.match(flowHelp.stdout, /tiangong-lca flow <subcommand>/u);
   assert.match(flowHelp.stdout, /get/u);
   assert.match(flowHelp.stdout, /list/u);
   assert.match(flowHelp.stdout, /fetch-rows/u);
@@ -198,7 +198,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(reviewHelp.exitCode, 0);
   assert.ok(
     reviewHelp.stdout.includes(
-      'tiangong review process (--rows-file <file> | --run-root <dir>) --out-dir <dir>',
+      'tiangong-lca review process (--rows-file <file> | --run-root <dir>) --out-dir <dir>',
     ),
   );
   assert.match(reviewHelp.stdout, /full process list reports with rows\[\] are also accepted/u);
@@ -208,7 +208,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(reviewFlowHelp.exitCode, 0);
   assert.ok(
     reviewFlowHelp.stdout.includes(
-      'tiangong review flow (--rows-file <file> | --flows-dir <dir> | --run-root <dir>) --out-dir <dir>',
+      'tiangong-lca review flow (--rows-file <file> | --flows-dir <dir> | --run-root <dir>) --out-dir <dir>',
     ),
   );
   assert.match(reviewFlowHelp.stdout, /--similarity-threshold/u);
@@ -220,7 +220,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(reviewLifecyclemodelHelp.exitCode, 0);
   assert.match(
     reviewLifecyclemodelHelp.stdout,
-    /tiangong review lifecyclemodel --run-dir <dir> --out-dir <dir>/u,
+    /tiangong-lca review lifecyclemodel --run-dir <dir> --out-dir <dir>/u,
   );
   assert.match(
     reviewLifecyclemodelHelp.stdout,
@@ -231,7 +231,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowRemediateHelp.exitCode, 0);
   assert.match(
     flowRemediateHelp.stdout,
-    /tiangong flow remediate --input-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow remediate --input-file <file> --out-dir <dir>/u,
   );
   assert.match(flowRemediateHelp.stdout, /ready_for_mcp/u);
 
@@ -239,7 +239,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowPublishHelp.exitCode, 0);
   assert.match(
     flowPublishHelp.stdout,
-    /tiangong flow publish-version --input-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow publish-version --input-file <file> --out-dir <dir>/u,
   );
   assert.match(flowPublishHelp.stdout, /--commit/u);
   assert.match(flowPublishHelp.stdout, /TIANGONG_LCA_API_BASE_URL/u);
@@ -251,28 +251,28 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowPublishReviewedHelp.exitCode, 0);
   assert.match(
     flowPublishReviewedHelp.stdout,
-    /tiangong flow publish-reviewed-data --out-dir <dir> \[--flow-rows-file <file>\] \[--process-rows-file <file>\]/u,
+    /tiangong-lca flow publish-reviewed-data --out-dir <dir> \[--flow-rows-file <file>\] \[--process-rows-file <file>\]/u,
   );
   assert.match(flowPublishReviewedHelp.stdout, /--flow-publish-policy/u);
   assert.match(flowPublishReviewedHelp.stdout, /--process-publish-policy/u);
 
   const flowGetHelp = await executeCli(['flow', 'get', '--help'], makeDeps());
   assert.equal(flowGetHelp.exitCode, 0);
-  assert.match(flowGetHelp.stdout, /tiangong flow get --id <flow-id>/u);
+  assert.match(flowGetHelp.stdout, /tiangong-lca flow get --id <flow-id>/u);
   assert.match(flowGetHelp.stdout, /--user-id/u);
   assert.match(flowGetHelp.stdout, /TIANGONG_LCA_API_KEY/u);
   assert.doesNotMatch(flowGetHelp.stdout, /Planned command/u);
 
   const flowListHelp = await executeCli(['flow', 'list', '--help'], makeDeps());
   assert.equal(flowListHelp.exitCode, 0);
-  assert.match(flowListHelp.stdout, /tiangong flow list \[options\]/u);
+  assert.match(flowListHelp.stdout, /tiangong-lca flow list \[options\]/u);
   assert.match(flowListHelp.stdout, /--type-of-dataset/u);
   assert.match(flowListHelp.stdout, /--page-size/u);
   assert.doesNotMatch(flowListHelp.stdout, /Planned command/u);
 
   const flowFetchRowsHelp = await executeCli(['flow', 'fetch-rows', '--help'], makeDeps());
   assert.equal(flowFetchRowsHelp.exitCode, 0);
-  assert.match(flowFetchRowsHelp.stdout, /tiangong flow fetch-rows --refs-file <file>/u);
+  assert.match(flowFetchRowsHelp.stdout, /tiangong-lca flow fetch-rows --refs-file <file>/u);
   assert.match(flowFetchRowsHelp.stdout, /--no-latest-fallback/u);
   assert.match(flowFetchRowsHelp.stdout, /review-input-rows\.jsonl/u);
   assert.doesNotMatch(flowFetchRowsHelp.stdout, /Planned command/u);
@@ -284,7 +284,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowMaterializeDecisionsHelp.exitCode, 0);
   assert.match(
     flowMaterializeDecisionsHelp.stdout,
-    /tiangong flow materialize-decisions --decision-file <file>/u,
+    /tiangong-lca flow materialize-decisions --decision-file <file>/u,
   );
   assert.match(flowMaterializeDecisionsHelp.stdout, /manual-semantic-merge-seed\.current\.json/u);
   assert.match(flowMaterializeDecisionsHelp.stdout, /blocked-clusters\.json/u);
@@ -294,7 +294,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowRegenHelp.exitCode, 0);
   assert.match(
     flowRegenHelp.stdout,
-    /tiangong flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow regen-product --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(flowRegenHelp.stdout, /--auto-patch-policy/u);
   assert.match(flowRegenHelp.stdout, /repair-apply\/ \(only with --apply\)/u);
@@ -304,7 +304,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(flowValidateHelp.exitCode, 0);
   assert.match(
     flowValidateHelp.stdout,
-    /tiangong flow validate-processes --original-processes-file <file> --patched-processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow validate-processes --original-processes-file <file> --patched-processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(flowValidateHelp.stdout, /--tidas-mode/u);
   assert.match(flowValidateHelp.stdout, /validation-failures\.jsonl/u);
@@ -313,17 +313,17 @@ test('executeCli returns help for publish and validation subcommands', async () 
 test('executeCli returns group help for search and admin namespaces', async () => {
   const searchHelp = await executeCli(['search', '--help'], makeDeps());
   assert.equal(searchHelp.exitCode, 0);
-  assert.match(searchHelp.stdout, /tiangong search <flow\|process\|lifecyclemodel>/u);
+  assert.match(searchHelp.stdout, /tiangong-lca search <flow\|process\|lifecyclemodel>/u);
 
   const adminHelp = await executeCli(['admin', '--help'], makeDeps());
   assert.equal(adminHelp.exitCode, 0);
-  assert.match(adminHelp.stdout, /tiangong admin embedding-run/u);
+  assert.match(adminHelp.stdout, /tiangong-lca admin embedding-run/u);
 });
 
 test('executeCli returns help for the lifecyclemodel namespace and implemented subcommands', async () => {
   const lifecyclemodelHelp = await executeCli(['lifecyclemodel'], makeDeps());
   assert.equal(lifecyclemodelHelp.exitCode, 0);
-  assert.match(lifecyclemodelHelp.stdout, /tiangong lifecyclemodel <subcommand>/u);
+  assert.match(lifecyclemodelHelp.stdout, /tiangong-lca lifecyclemodel <subcommand>/u);
   assert.match(lifecyclemodelHelp.stdout, /auto-build/u);
   assert.match(lifecyclemodelHelp.stdout, /validate-build/u);
   assert.match(lifecyclemodelHelp.stdout, /publish-build/u);
@@ -333,7 +333,7 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
 
   const autoBuildHelp = await executeCli(['lifecyclemodel', 'auto-build', '--help'], makeDeps());
   assert.equal(autoBuildHelp.exitCode, 0);
-  assert.match(autoBuildHelp.stdout, /tiangong lifecyclemodel auto-build --input <file>/u);
+  assert.match(autoBuildHelp.stdout, /tiangong-lca lifecyclemodel auto-build --input <file>/u);
   assert.match(autoBuildHelp.stdout, /request\.out_dir is required/u);
   assert.match(autoBuildHelp.stdout, /"local_runs": \["\/abs\/path\/to\/process-build-run"\]/u);
   assert.match(
@@ -347,7 +347,10 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
     makeDeps(),
   );
   assert.equal(buildHelp.exitCode, 0);
-  assert.match(buildHelp.stdout, /tiangong lifecyclemodel build-resulting-process --input <file>/u);
+  assert.match(
+    buildHelp.stdout,
+    /tiangong-lca lifecyclemodel build-resulting-process --input <file>/u,
+  );
   assert.match(buildHelp.stdout, /TIANGONG_LCA_API_BASE_URL/u);
   assert.match(buildHelp.stdout, /TIANGONG_LCA_API_KEY/u);
   assert.doesNotMatch(buildHelp.stdout, /Planned command/u);
@@ -359,7 +362,7 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
   assert.equal(publishHelp.exitCode, 0);
   assert.match(
     publishHelp.stdout,
-    /tiangong lifecyclemodel publish-resulting-process --run-dir <dir>/u,
+    /tiangong-lca lifecyclemodel publish-resulting-process --run-dir <dir>/u,
   );
   assert.match(publishHelp.stdout, /--publish-processes/u);
   assert.doesNotMatch(publishHelp.stdout, /Planned command/u);
@@ -369,7 +372,10 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
     makeDeps(),
   );
   assert.equal(validateBuildHelp.exitCode, 0);
-  assert.match(validateBuildHelp.stdout, /tiangong lifecyclemodel validate-build --run-dir <dir>/u);
+  assert.match(
+    validateBuildHelp.stdout,
+    /tiangong-lca lifecyclemodel validate-build --run-dir <dir>/u,
+  );
   assert.match(validateBuildHelp.stdout, /--engine <mode>/u);
   assert.doesNotMatch(validateBuildHelp.stdout, /Planned command/u);
 
@@ -380,7 +386,7 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
   assert.equal(lifecyclemodelPublishBuildHelp.exitCode, 0);
   assert.match(
     lifecyclemodelPublishBuildHelp.stdout,
-    /tiangong lifecyclemodel publish-build --run-dir <dir>/u,
+    /tiangong-lca lifecyclemodel publish-build --run-dir <dir>/u,
   );
   assert.match(lifecyclemodelPublishBuildHelp.stdout, /publish-bundle\.json/u);
   assert.doesNotMatch(lifecyclemodelPublishBuildHelp.stdout, /Planned command/u);
@@ -392,7 +398,7 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
   assert.equal(lifecyclemodelOrchestrateHelp.exitCode, 0);
   assert.match(
     lifecyclemodelOrchestrateHelp.stdout,
-    /tiangong lifecyclemodel orchestrate <plan\|execute\|publish>/u,
+    /tiangong-lca lifecyclemodel orchestrate <plan\|execute\|publish>/u,
   );
   assert.match(lifecyclemodelOrchestrateHelp.stdout, /--allow-process-build/u);
   assert.match(lifecyclemodelOrchestrateHelp.stdout, /--publish-resulting-process-relations/u);
@@ -982,7 +988,7 @@ test('executeCli executes lifecyclemodel publish-build with injected implementat
 test('executeCli returns help for the process namespace and implemented subcommands', async () => {
   const processHelp = await executeCli(['process'], makeDeps());
   assert.equal(processHelp.exitCode, 0);
-  assert.match(processHelp.stdout, /tiangong process <subcommand>/u);
+  assert.match(processHelp.stdout, /tiangong-lca process <subcommand>/u);
   assert.match(processHelp.stdout, /get/u);
   assert.match(processHelp.stdout, /list/u);
   assert.match(processHelp.stdout, /scope-statistics/u);
@@ -997,14 +1003,14 @@ test('executeCli returns help for the process namespace and implemented subcomma
 
   const getHelp = await executeCli(['process', 'get', '--help'], makeDeps());
   assert.equal(getHelp.exitCode, 0);
-  assert.match(getHelp.stdout, /tiangong process get --id <process-id>/u);
+  assert.match(getHelp.stdout, /tiangong-lca process get --id <process-id>/u);
   assert.match(getHelp.stdout, /TIANGONG_LCA_API_BASE_URL/u);
   assert.match(getHelp.stdout, /TIANGONG_LCA_API_KEY/u);
   assert.doesNotMatch(getHelp.stdout, /Planned command/u);
 
   const listHelp = await executeCli(['process', 'list', '--help'], makeDeps());
   assert.equal(listHelp.exitCode, 0);
-  assert.match(listHelp.stdout, /tiangong process list \[options\]/u);
+  assert.match(listHelp.stdout, /tiangong-lca process list \[options\]/u);
   assert.match(listHelp.stdout, /--page-size/u);
   assert.match(listHelp.stdout, /TIANGONG_LCA_API_BASE_URL/u);
   assert.doesNotMatch(listHelp.stdout, /Planned command/u);
@@ -1014,40 +1020,43 @@ test('executeCli returns help for the process namespace and implemented subcomma
     makeDeps(),
   );
   assert.equal(scopeStatisticsHelp.exitCode, 0);
-  assert.match(scopeStatisticsHelp.stdout, /tiangong process scope-statistics --out-dir <dir>/u);
+  assert.match(
+    scopeStatisticsHelp.stdout,
+    /tiangong-lca process scope-statistics --out-dir <dir>/u,
+  );
   assert.match(scopeStatisticsHelp.stdout, /--state-code/u);
   assert.match(scopeStatisticsHelp.stdout, /process-scope-statistics\.zh-CN\.md/u);
   assert.doesNotMatch(scopeStatisticsHelp.stdout, /Planned command/u);
 
   const dedupReviewHelp = await executeCli(['process', 'dedup-review', '--help'], makeDeps());
   assert.equal(dedupReviewHelp.exitCode, 0);
-  assert.match(dedupReviewHelp.stdout, /tiangong process dedup-review --input <file>/u);
+  assert.match(dedupReviewHelp.stdout, /tiangong-lca process dedup-review --input <file>/u);
   assert.match(dedupReviewHelp.stdout, /--skip-remote/u);
   assert.match(dedupReviewHelp.stdout, /inputs\/dedup-input\.manifest\.json/u);
   assert.doesNotMatch(dedupReviewHelp.stdout, /Planned command/u);
 
   const autoBuildHelp = await executeCli(['process', 'auto-build', '--help'], makeDeps());
   assert.equal(autoBuildHelp.exitCode, 0);
-  assert.match(autoBuildHelp.stdout, /tiangong process auto-build --input <file>/u);
+  assert.match(autoBuildHelp.stdout, /tiangong-lca process auto-build --input <file>/u);
   assert.match(autoBuildHelp.stdout, /request\.workspace_run_root is required/u);
   assert.match(autoBuildHelp.stdout, /--out-dir/u);
   assert.doesNotMatch(autoBuildHelp.stdout, /Planned command/u);
 
   const resumeBuildHelp = await executeCli(['process', 'resume-build', '--help'], makeDeps());
   assert.equal(resumeBuildHelp.exitCode, 0);
-  assert.match(resumeBuildHelp.stdout, /tiangong process resume-build --run-dir <dir>/u);
+  assert.match(resumeBuildHelp.stdout, /tiangong-lca process resume-build --run-dir <dir>/u);
   assert.match(resumeBuildHelp.stdout, /--run-dir/u);
   assert.doesNotMatch(resumeBuildHelp.stdout, /Planned command/u);
 
   const publishBuildHelp = await executeCli(['process', 'publish-build', '--help'], makeDeps());
   assert.equal(publishBuildHelp.exitCode, 0);
-  assert.match(publishBuildHelp.stdout, /tiangong process publish-build --run-dir <dir>/u);
+  assert.match(publishBuildHelp.stdout, /tiangong-lca process publish-build --run-dir <dir>/u);
   assert.match(publishBuildHelp.stdout, /--run-dir/u);
   assert.doesNotMatch(publishBuildHelp.stdout, /Planned command/u);
 
   const saveDraftHelp = await executeCli(['process', 'save-draft', '--help'], makeDeps());
   assert.equal(saveDraftHelp.exitCode, 0);
-  assert.match(saveDraftHelp.stdout, /tiangong process save-draft --input <file>/u);
+  assert.match(saveDraftHelp.stdout, /tiangong-lca process save-draft --input <file>/u);
   assert.match(saveDraftHelp.stdout, /--commit/u);
   assert.match(saveDraftHelp.stdout, /outputs\/save-draft-rpc\/summary\.json/u);
   assert.doesNotMatch(saveDraftHelp.stdout, /Planned command/u);
@@ -1059,7 +1068,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.equal(refreshReferencesHelp.exitCode, 0);
   assert.match(
     refreshReferencesHelp.stdout,
-    /tiangong process refresh-references --out-dir <dir>/u,
+    /tiangong-lca process refresh-references --out-dir <dir>/u,
   );
   assert.match(refreshReferencesHelp.stdout, /--reuse-manifest/u);
   assert.match(refreshReferencesHelp.stdout, /never requires raw SUPABASE_EMAIL/u);
@@ -1069,14 +1078,14 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.equal(verifyRowsHelp.exitCode, 0);
   assert.match(
     verifyRowsHelp.stdout,
-    /tiangong process verify-rows --rows-file <file> --out-dir <dir>/u,
+    /tiangong-lca process verify-rows --rows-file <file> --out-dir <dir>/u,
   );
   assert.match(verifyRowsHelp.stdout, /outputs\/verification\.jsonl/u);
   assert.doesNotMatch(verifyRowsHelp.stdout, /Planned command/u);
 
   const batchBuildHelp = await executeCli(['process', 'batch-build', '--help'], makeDeps());
   assert.equal(batchBuildHelp.exitCode, 0);
-  assert.match(batchBuildHelp.stdout, /tiangong process batch-build --input <file>/u);
+  assert.match(batchBuildHelp.stdout, /tiangong-lca process batch-build --input <file>/u);
   assert.match(batchBuildHelp.stdout, /request\.out_dir is required/u);
   assert.match(batchBuildHelp.stdout, /--out-dir/u);
   assert.doesNotMatch(batchBuildHelp.stdout, /Planned command/u);
@@ -4734,7 +4743,7 @@ test('executeCli returns planned command message for other unimplemented process
 
   const flowRegenHelp = await executeCli(['flow', 'regen-product', '--help'], makeDeps());
   assert.equal(flowRegenHelp.exitCode, 0);
-  assert.match(flowRegenHelp.stdout, /tiangong flow regen-product/u);
+  assert.match(flowRegenHelp.stdout, /tiangong-lca flow regen-product/u);
   assert.match(flowRegenHelp.stdout, /Apply deterministic patches and run local validation/u);
 });
 

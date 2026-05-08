@@ -489,7 +489,7 @@ export async function runProcessSaveDraft(
         fetchImpl: options.fetchImpl!,
         timeoutMs: options.timeoutMs,
         audit: {
-          command: 'tiangong process save-draft',
+          command: 'tiangong-lca process save-draft',
           source: candidate.source,
           bundle_path: candidate.bundle_path,
         },

@@ -40,7 +40,7 @@ test('executeCli returns help for flow build-alias-map', async () => {
   assert.equal(buildAliasHelp.exitCode, 0);
   assert.match(
     buildAliasHelp.stdout,
-    /tiangong flow build-alias-map --old-flow-file <file> --new-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow build-alias-map --old-flow-file <file> --new-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(buildAliasHelp.stdout, /--seed-alias-map/u);
 });

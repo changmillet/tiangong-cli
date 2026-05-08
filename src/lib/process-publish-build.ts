@@ -500,7 +500,7 @@ function buildNextActions(layout: ProcessPublishBuildLayout): string[] {
   return [
     `inspect: ${layout.publishBundlePath}`,
     `inspect: ${layout.publishRequestPath}`,
-    `run: tiangong publish run --input ${layout.publishRequestPath}`,
+    `run: tiangong-lca publish run --input ${layout.publishRequestPath}`,
     'future: wire publish executors before remote commit mode is expected',
   ];
 }

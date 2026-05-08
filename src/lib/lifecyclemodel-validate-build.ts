@@ -292,7 +292,7 @@ function buildNextActions(layout: LifecyclemodelValidateBuildLayout): string[] {
   return [
     `inspect: ${layout.reportPath}`,
     `inspect: ${layout.modelReportsDir}`,
-    `run: tiangong lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
+    `run: tiangong-lca lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 

@@ -356,7 +356,7 @@ function buildNextActions(layout: LifecyclemodelPublishBuildLayout): string[] {
   return [
     `inspect: ${layout.publishBundlePath}`,
     `inspect: ${layout.publishRequestPath}`,
-    `run: tiangong publish run --input ${layout.publishRequestPath}  # lifecyclemodels commit through save_lifecycle_model_bundle`,
+    `run: tiangong-lca publish run --input ${layout.publishRequestPath}  # lifecyclemodels commit through save_lifecycle_model_bundle`,
   ];
 }
 

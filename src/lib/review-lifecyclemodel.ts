@@ -1014,8 +1014,8 @@ function buildNextActions(
     `inspect: ${layout.findingsPath}`,
     validationAggregate.reportPath
       ? `inspect: ${validationAggregate.reportPath}`
-      : `run: tiangong lifecyclemodel validate-build --run-dir ${layout.runRoot}`,
-    `run: tiangong lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
+      : `run: tiangong-lca lifecyclemodel validate-build --run-dir ${layout.runRoot}`,
+    `run: tiangong-lca lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 

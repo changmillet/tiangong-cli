@@ -1149,7 +1149,7 @@ async function processOne(options: {
         timeoutMs: options.timeoutMs,
         audit: {
           command: 'process_refresh_references',
-          source: 'tiangong process refresh-references',
+          source: 'tiangong-lca process refresh-references',
         },
         modelId: detail.model_id,
       });
