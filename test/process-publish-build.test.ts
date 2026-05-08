@@ -238,7 +238,7 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
 
     assert.equal(
       (publishReport.next_actions[2] ?? '').includes(
-        `tiangong publish run --input ${publishReport.files.publish_request}`,
+        `tiangong-lca publish run --input ${publishReport.files.publish_request}`,
       ),
       true,
     );

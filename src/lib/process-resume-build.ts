@@ -398,7 +398,7 @@ function buildNextActions(
     summary.next_stage
       ? `future: migrate CLI stage executor for ${summary.next_stage}`
       : `future: inspect completed run state for ${layout.runId}`,
-    `future: tiangong process publish-build --run-dir ${layout.runRoot}`,
+    `future: tiangong-lca process publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 

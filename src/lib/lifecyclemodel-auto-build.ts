@@ -575,7 +575,7 @@ export function normalizeLifecyclemodelAutoBuildRequest(
 
   if (mergedManifest.allow_remote_write === true) {
     throw new CliError(
-      'allow_remote_write=true is not supported by tiangong lifecyclemodel auto-build. Keep the run read-only.',
+      'allow_remote_write=true is not supported by tiangong-lca lifecyclemodel auto-build. Keep the run read-only.',
       {
         code: 'LIFECYCLEMODEL_AUTO_BUILD_REMOTE_WRITE_UNSUPPORTED',
         exitCode: 2,
@@ -751,12 +751,12 @@ function buildPlan(
       {
         name: 'validate',
         mode: 'deferred',
-        description: 'Deferred to tiangong lifecyclemodel validate-build.',
+        description: 'Deferred to tiangong-lca lifecyclemodel validate-build.',
       },
       {
         name: 'publish',
         mode: 'deferred',
-        description: 'Deferred to tiangong lifecyclemodel publish-build.',
+        description: 'Deferred to tiangong-lca lifecyclemodel publish-build.',
       },
     ],
     local_runs: normalized.local_runs,
@@ -1722,8 +1722,8 @@ function buildNextActions(layout: LifecyclemodelAutoBuildLayout): string[] {
   return [
     `inspect: ${layout.runPlanPath}`,
     `inspect: ${layout.modelsDir}`,
-    `run: tiangong lifecyclemodel validate-build --run-dir ${layout.runRoot}`,
-    `run: tiangong lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
+    `run: tiangong-lca lifecyclemodel validate-build --run-dir ${layout.runRoot}`,
+    `run: tiangong-lca lifecyclemodel publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 

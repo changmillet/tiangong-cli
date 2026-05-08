@@ -16,22 +16,22 @@ const REMOTE_COMMANDS: Record<string, RemoteCommandSpec> = {
   'search:flow': {
     endpoint: 'flow_hybrid_search',
     includeRegion: true,
-    help: 'tiangong search flow --input ./request.json [--dry-run] [--json]',
+    help: 'tiangong-lca search flow --input ./request.json [--dry-run] [--json]',
   },
   'search:process': {
     endpoint: 'process_hybrid_search',
     includeRegion: true,
-    help: 'tiangong search process --input ./request.json [--dry-run] [--json]',
+    help: 'tiangong-lca search process --input ./request.json [--dry-run] [--json]',
   },
   'search:lifecyclemodel': {
     endpoint: 'lifecyclemodel_hybrid_search',
     includeRegion: true,
-    help: 'tiangong search lifecyclemodel --input ./request.json [--dry-run] [--json]',
+    help: 'tiangong-lca search lifecyclemodel --input ./request.json [--dry-run] [--json]',
   },
   'admin:embedding-run': {
     endpoint: 'embedding_ft',
     includeRegion: false,
-    help: 'tiangong admin embedding-run --input ./jobs.json [--dry-run] [--json]',
+    help: 'tiangong-lca admin embedding-run --input ./jobs.json [--dry-run] [--json]',
   },
 };
 

@@ -46,7 +46,7 @@ test('executeCli returns help for the flow process-ref scan and repair subcomman
   assert.equal(scanHelp.exitCode, 0);
   assert.match(
     scanHelp.stdout,
-    /tiangong flow scan-process-flow-refs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow scan-process-flow-refs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(scanHelp.stdout, /--catalog-flow-file/u);
 
@@ -54,7 +54,7 @@ test('executeCli returns help for the flow process-ref scan and repair subcomman
   assert.equal(planHelp.exitCode, 0);
   assert.match(
     planHelp.stdout,
-    /tiangong flow plan-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow plan-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(planHelp.stdout, /--scan-findings/u);
 
@@ -62,7 +62,7 @@ test('executeCli returns help for the flow process-ref scan and repair subcomman
   assert.equal(applyHelp.exitCode, 0);
   assert.match(
     applyHelp.stdout,
-    /tiangong flow apply-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
+    /tiangong-lca flow apply-process-flow-repairs --processes-file <file> --scope-flow-file <file> --out-dir <dir>/u,
   );
   assert.match(applyHelp.stdout, /--process-pool-file/u);
 });

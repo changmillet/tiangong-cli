@@ -440,8 +440,8 @@ test('runLifecyclemodelReview supports missing validation reports and consistent
     });
     assert.deepEqual(report.next_actions, [
       `inspect: ${path.join(outDir, 'findings.jsonl')}`,
-      `run: tiangong lifecyclemodel validate-build --run-dir ${runRoot}`,
-      `run: tiangong lifecyclemodel publish-build --run-dir ${runRoot}`,
+      `run: tiangong-lca lifecyclemodel validate-build --run-dir ${runRoot}`,
+      `run: tiangong-lca lifecyclemodel publish-build --run-dir ${runRoot}`,
     ]);
     assert.equal(report.model_summaries[0]?.validation.available, false);
     assert.equal(report.model_summaries[0]?.process_instance_count, 1);

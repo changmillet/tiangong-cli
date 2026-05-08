@@ -7,7 +7,7 @@ authoritative: true
 owner: cli
 language: en
 whenToUse:
-  - when a task may change the public `tiangong` command surface, CLI runtime behavior, session handling, or release gating
+  - when a task may change the public `tiangong-lca` command surface, CLI runtime behavior, session handling, or release gating
   - when routing work from the workspace root into tiangong-lca-cli
   - when deciding whether a change belongs here, in tiangong-lca-skills, in tiangong-lca-mcp, or in a remote runtime repo
 whenToUpdate:
@@ -46,7 +46,7 @@ related:
 
 ## Repo Contract
 
-`tiangong-lca-cli` owns the checked-in public `tiangong` CLI contract: command nouns and verbs, launcher behavior, local artifact workflow, remote session/auth handling, and the repo-level release gate. Start here when the task may change what the CLI does or how it is validated.
+`tiangong-lca-cli` owns the checked-in public `tiangong-lca` CLI contract: command nouns and verbs, launcher behavior, local artifact workflow, remote session/auth handling, and the repo-level release gate. Start here when the task may change what the CLI does or how it is validated.
 
 ## Bootstrap Order
 
@@ -74,7 +74,7 @@ Preferred docpact commands:
 
 This repo owns:
 
-- `bin/tiangong.js` as the stable launcher entrypoint
+- `bin/tiangong-lca.js` as the stable launcher entrypoint
 - `src/cli.ts` and `src/main.ts` for command dispatch, process entry, help, and exit behavior
 - `src/lib/**` for reusable CLI command logic, session handling, artifacts, and remote adapters
 - `test/**` and `scripts/assert-full-coverage.ts` for the hard validation gate
@@ -110,7 +110,7 @@ Route those tasks to:
 ## Hard Boundaries
 
 - Do not add orchestration frameworks or new npm dependencies without explicit approval
-- Do not move business logic into skill wrappers when the native `tiangong` CLI should own it
+- Do not move business logic into skill wrappers when the native `tiangong-lca` CLI should own it
 - Do not weaken the coverage gate with ignore pragmas; cover the branch or remove dead code
 - Do not treat governed docs as optional when command-surface, validation, or release-gate behavior changes; `docpact` should either require a matching source-doc update or record explicit review evidence.
 - Do not treat a merged repo PR here as workspace-delivery complete if the root repo still needs a submodule bump

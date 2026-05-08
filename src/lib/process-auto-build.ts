@@ -796,8 +796,8 @@ function buildNextActions(layout: ProcessAutoBuildLayout): string[] {
     `inspect: ${layout.normalizedRequestPath}`,
     `inspect: ${layout.statePath}`,
     `inspect: ${layout.assemblyPlanPath}`,
-    `future: tiangong process resume-build --run-dir ${layout.runRoot}`,
-    `future: tiangong process publish-build --run-dir ${layout.runRoot}`,
+    `future: tiangong-lca process resume-build --run-dir ${layout.runRoot}`,
+    `future: tiangong-lca process publish-build --run-dir ${layout.runRoot}`,
   ];
 }
 
