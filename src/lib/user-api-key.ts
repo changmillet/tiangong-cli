@@ -50,7 +50,7 @@ export function requireUserApiKeyCredentials(apiKey: string): UserApiKeyCredenti
   const credentials = decodeUserApiKey(apiKey);
   if (!credentials) {
     throw new CliError(
-      'TIANGONG_LCA_API_KEY is invalid. Generate a new user API key from the TianGong account page.',
+      'TIANGONG_LCA_API_KEY is invalid. Generate a new user API key from the TianGong user API key page.',
       {
         code: 'USER_API_KEY_INVALID',
         exitCode: 2,

@@ -14,7 +14,7 @@ function encodeUserApiKey(payload: unknown): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64');
 }
 
-test('decodeUserApiKey accepts the TianGong account-page payload shape', () => {
+test('decodeUserApiKey accepts the TianGong user API key payload shape', () => {
   const apiKey = encodeUserApiKey({
     email: ' user@example.com ',
     password: ' secret-password ',

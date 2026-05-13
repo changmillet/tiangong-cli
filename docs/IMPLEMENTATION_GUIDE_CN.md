@@ -83,10 +83,15 @@ tiangong-lca
     resume-build
     publish-build
     batch-build
+  dataset
+    validate
+    references rewrite
   lifecyclemodel
     auto-build
     validate-build
     publish-build
+    save-draft
+    graph
     build-resulting-process
     publish-resulting-process
     orchestrate
@@ -125,9 +130,13 @@ tiangong-lca
 | `tiangong-lca process resume-build` | 本地 `process_from_flow` resume handoff、state-lock/manifest 收口、resume 元数据与报告输出 |
 | `tiangong-lca process publish-build` | 本地 `process_from_flow` publish handoff、publish bundle/request/intent 产出、state/invocation/handoff 更新 |
 | `tiangong-lca process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
+| `tiangong-lca dataset validate` | 本地 flow / process / lifecyclemodel rows 的统一 TIDAS SDK validation 与稳定报告输出 |
+| `tiangong-lca dataset references rewrite` | 本地 process / lifecyclemodel rows 的 flow reference rewrite、patch evidence 输出，并可选走 state-aware save-draft commit |
 | `tiangong-lca lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
 | `tiangong-lca lifecyclemodel validate-build` | 本地 lifecyclemodel build run 校验重跑、per-model 校验报告与 aggregate report 输出 |
 | `tiangong-lca lifecyclemodel publish-build` | 本地 lifecyclemodel publish handoff、publish bundle/request/intent 产出、validation 摘要复用 |
+| `tiangong-lca lifecyclemodel save-draft` | 本地 lifecyclemodel rows 的 schema validation、dry-run bundle 输出与可选远端 save-draft 写入 |
+| `tiangong-lca lifecyclemodel graph` | 本地 lifecyclemodel graph / DOT / SVG artifact 输出与连接检查报告 |
 | `tiangong-lca lifecyclemodel build-resulting-process` | 本地 lifecycle model resulting process 聚合、内部 flow 抵消、artifact 输出 |
 | `tiangong-lca lifecyclemodel publish-resulting-process` | 读取 resulting-process run，生成 `publish-bundle.json` / `publish-intent.json` 本地交付物 |
 | `tiangong-lca lifecyclemodel orchestrate` | 递归装配的 plan / execute / publish-handoff 命令；写出 graph/lineage/publish bundle 工件，并只调用原生 CLI builder slices |
@@ -142,6 +151,8 @@ tiangong-lca
 - `tiangong-lca lifecyclemodel auto-build` 已可执行
 - `tiangong-lca lifecyclemodel validate-build` 已可执行
 - `tiangong-lca lifecyclemodel publish-build` 已可执行
+- `tiangong-lca lifecyclemodel save-draft` 已可执行
+- `tiangong-lca lifecyclemodel graph` 已可执行
 - `tiangong-lca lifecyclemodel build-resulting-process` 已可执行
 - `tiangong-lca lifecyclemodel publish-resulting-process` 已可执行
 - `tiangong-lca lifecyclemodel orchestrate` 已可执行
@@ -174,6 +185,11 @@ tiangong-lca
 - `tiangong-lca process publish-build` 已可执行
 - `tiangong-lca process batch-build` 已可执行
 
+`tiangong-lca dataset ...` 现在已经开始承接跨 dataset 的本地治理切片，其中：
+
+- `tiangong-lca dataset validate` 已可执行
+- `tiangong-lca dataset references rewrite` 已可执行
+
 注意：
 
 - `process get` 当前固定为 CLI 内部共享的 deterministic direct-read 面，内部执行已收口到原生 `@supabase/supabase-js`，供 lifecyclemodel resulting-process 和后续 review/governance 迁移复用
@@ -185,6 +201,8 @@ tiangong-lca
 - `process publish-build` 当前只负责本地 publish handoff，不直接执行远端 publish commit 或数据库写入
 - 已实现的 `process batch-build` 继续走本地优先、artifact-first 路径，并把批量 item 编排、聚合 report、显式 batch root 下的 item run_dir 分配统一收口到 CLI
 - `process batch-build` 当前只负责本地 batch orchestration，不直接串接 resume / publish 或远端执行器
+- 已实现的 `dataset validate` 把 flow / process / lifecyclemodel 本地 rows 的 TIDAS SDK 校验收口到一个 dataset 级入口，并输出 type summary、validation report 与 failures jsonl
+- 已实现的 `dataset references rewrite` 把 process / lifecyclemodel rows 中的 flow reference rewrite 收口到一个 deterministic 本地入口，默认只写 patch artifacts，只有显式 `--commit` 时才调用 state-aware save-draft 写入路径
 - 已实现的 `lifecyclemodel auto-build` 走本地只读、artifact-first 路径，输入固定为 local run manifest，不依赖 Python、MCP、KB、LLM 或远端 CRUD
 - `lifecyclemodel auto-build` 当前负责 graph 推断、reference process 选择、`@multiplicationFactor` 计算与 `json_ordered` lifecyclemodel 产物输出，并保留 `run-plan.json`、`resolved-manifest.json`、`selection/selection-brief.md`、`discovery/reference-model-summary.json`、`connections.json`、`process-catalog.json` 等 CLI 契约
 - `lifecyclemodel auto-build` 当前明确不负责 reference-model discovery、任何远端 lifecyclemodel 写入，也不会自动串接 validate-build / publish-build
@@ -192,6 +210,8 @@ tiangong-lca
 - `lifecyclemodel validate-build` 当前只负责本地 validation handoff，不直接触发 publish，也不做任何远端写入
 - 已实现的 `lifecyclemodel publish-build` 继续保留同一套 run 布局，并把本地 publish-bundle/request/intent、validation 摘要复用、invocation index 更新统一收口到 CLI
 - `lifecyclemodel publish-build` 当前只负责本地 publish handoff，不直接执行远端 publish commit 或数据库写入；真正的 dry-run / commit 边界仍由 `tiangong-lca publish run` 负责
+- 已实现的 `lifecyclemodel save-draft` 读取 lifecyclemodel rows JSON/JSONL，先用 `LifeCycleModelSchema` 做本地校验，再按 dry-run / commit 边界输出 selected、progress、failures 与 summary artifacts
+- 已实现的 `lifecyclemodel graph` 从本地 lifecyclemodel rows 生成 graph report、JSON graph、DOT 与 SVG artifacts，并可检查连接问题
 - 已实现的 `build-resulting-process` 和 `publish-resulting-process` 都走本地优先、artifact-first 路径，不依赖 Python 或 MCP
 - `build-resulting-process` 现在还支持一个显式的 deterministic direct-read 补全路径：当 request 打开 `process_sources.allow_remote_lookup=true` 时，CLI 会从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase 目标，并通过原生 `@supabase/supabase-js` 按 `process_id/version` 直接补齐缺失的 process dataset
 - `publish-resulting-process` 当前负责生成本地 publish handoff 产物，还没有把提交语义直接并入 `publish run`

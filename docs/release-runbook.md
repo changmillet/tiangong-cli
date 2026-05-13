@@ -49,6 +49,7 @@ Before starting a release:
 - work from the latest `main`
 - keep the release-prep change scoped to CLI package version metadata
 - confirm npm has not already published the target version
+- confirm any command-surface feature PRs that will be included in the release have passed `npm run prepush:gate` and the docpact CI gate before preparing the version bump
 
 Useful commands:
 

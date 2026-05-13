@@ -42,6 +42,7 @@ related:
 - 自 2026-04-01 起，这份文档主要作为“Python / POSIX runtime 脱离”审计记录保留
 - 关于 `@supabase/supabase-js`、`@tiangong-lca/tidas-sdk` 直接依赖收口的当前执行状态，以 `docs/TEMP_ISSUE_55_DIRECT_DEPS_TODO_CN.md` 为准
 - 如果两份文档冲突，以后者代表当前待办和当前结论
+- 2026-05-13 复核：新增 `dataset validate`、`dataset references rewrite`、`lifecyclemodel save-draft` 和 `lifecyclemodel graph` 仍属于既有 CLI-native 迁移方向，不重新引入 Python、POSIX shell 或 MCP runtime 前提
 
 这份文档记录的是：
 

@@ -61,9 +61,13 @@ related:
 - `tiangong-lca process resume-build`
 - `tiangong-lca process publish-build`
 - `tiangong-lca process batch-build`
+- `tiangong-lca dataset validate`
+- `tiangong-lca dataset references rewrite`
 - `tiangong-lca lifecyclemodel auto-build`
 - `tiangong-lca lifecyclemodel validate-build`
 - `tiangong-lca lifecyclemodel publish-build`
+- `tiangong-lca lifecyclemodel save-draft`
+- `tiangong-lca lifecyclemodel graph`
 - `tiangong-lca lifecyclemodel build-resulting-process`
 - `tiangong-lca lifecyclemodel publish-resulting-process`
 - `tiangong-lca lifecyclemodel orchestrate`
@@ -177,13 +181,16 @@ TIANGONG_LCA_UNSTRUCTURED_RETURN_TXT=true
 命令级 env 现实如下：
 
 | 命令组 | 必需 env |
-| --- | --- | --- | --- | --- |
+| --- | --- |
 | `doctor` | 无 |
-| `search flow | process | lifecyclemodel` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
+| `search flow \| process \| lifecyclemodel` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `admin embedding-run` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
-| `process get | list` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
-| `process auto-build | resume-build | publish-build | batch-build` | 无 |
-| `lifecyclemodel auto-build | validate-build | publish-build | orchestrate` | 无 |
+| `process get \| list` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
+| `process auto-build \| resume-build \| publish-build \| batch-build` | 无 |
+| `dataset validate` | 无 |
+| `dataset references rewrite` | 本地 rewrite 默认无；若 `--commit` 写入 patched rows，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
+| `lifecyclemodel auto-build \| validate-build \| publish-build \| graph \| orchestrate` | 无 |
+| `lifecyclemodel save-draft` | 本地 dry-run 默认无；若 `--commit` 写入 lifecyclemodel draft，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `lifecyclemodel build-resulting-process` | 本地运行默认无；若 request 打开 `process_sources.allow_remote_lookup=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `lifecyclemodel publish-resulting-process` | 无 |
 | `review process` | 纯规则 review 默认无；若显式启用 `--enable-llm`，则需要 `TIANGONG_LCA_REVIEW_LLM_BASE_URL`、`TIANGONG_LCA_REVIEW_LLM_API_KEY`、`TIANGONG_LCA_REVIEW_LLM_MODEL` |
@@ -224,9 +231,13 @@ npm exec tiangong-lca -- process auto-build --input ./examples/process-auto-buil
 npm exec tiangong-lca -- process resume-build --run-dir /abs/path/to/process-run --json
 npm exec tiangong-lca -- process publish-build --run-dir /abs/path/to/process-run --json
 npm exec tiangong-lca -- process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
+npm exec tiangong-lca -- dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --json
+npm exec tiangong-lca -- dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --json
 npm exec tiangong-lca -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
 npm exec tiangong-lca -- lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run --json
 npm exec tiangong-lca -- lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
+npm exec tiangong-lca -- lifecyclemodel save-draft --input ./lifecyclemodels.jsonl --out-dir ./lifecyclemodel-save-draft --dry-run --json
+npm exec tiangong-lca -- lifecyclemodel graph --input ./lifecyclemodels.jsonl --out-dir ./lifecyclemodel-graph --format all --json
 npm exec tiangong-lca -- lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 npm exec tiangong-lca -- lifecyclemodel build-resulting-process --input ./request.json --json
 npm exec tiangong-lca -- lifecyclemodel publish-resulting-process --run-dir ./runs/example --publish-processes --publish-relations --json
