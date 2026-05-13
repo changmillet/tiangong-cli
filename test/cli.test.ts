@@ -405,6 +405,382 @@ test('executeCli returns help for the lifecyclemodel namespace and implemented s
   assert.doesNotMatch(lifecyclemodelOrchestrateHelp.stdout, /Planned command/u);
 });
 
+test('executeCli exposes dataset and lifecyclemodel friction-fix commands', async () => {
+  const datasetHelp = await executeCli(['dataset'], makeDeps());
+  assert.equal(datasetHelp.exitCode, 0);
+  assert.match(datasetHelp.stdout, /tiangong-lca dataset <subcommand>/u);
+  assert.match(datasetHelp.stdout, /validate/u);
+  assert.match(datasetHelp.stdout, /references rewrite/u);
+
+  const datasetValidateHelp = await executeCli(['dataset', 'validate', '--help'], makeDeps());
+  assert.equal(datasetValidateHelp.exitCode, 0);
+  assert.match(datasetValidateHelp.stdout, /tiangong-lca dataset validate --input <file>/u);
+  assert.doesNotMatch(datasetValidateHelp.stdout, /Planned command/u);
+
+  const datasetReferencesHelp = await executeCli(
+    ['dataset', 'references', 'rewrite', '--help'],
+    makeDeps(),
+  );
+  assert.equal(datasetReferencesHelp.exitCode, 0);
+  assert.match(datasetReferencesHelp.stdout, /tiangong-lca dataset references rewrite/u);
+  assert.match(datasetReferencesHelp.stdout, /--commit/u);
+  assert.doesNotMatch(datasetReferencesHelp.stdout, /Planned command/u);
+
+  const lifecyclemodelSaveDraftHelp = await executeCli(
+    ['lifecyclemodel', 'save-draft', '--help'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelSaveDraftHelp.exitCode, 0);
+  assert.match(
+    lifecyclemodelSaveDraftHelp.stdout,
+    /tiangong-lca lifecyclemodel save-draft --input <file>/u,
+  );
+  assert.doesNotMatch(lifecyclemodelSaveDraftHelp.stdout, /Planned command/u);
+
+  const lifecyclemodelGraphHelp = await executeCli(
+    ['lifecyclemodel', 'graph', '--help'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelGraphHelp.exitCode, 0);
+  assert.match(lifecyclemodelGraphHelp.stdout, /tiangong-lca lifecyclemodel graph --input <file>/u);
+  assert.match(lifecyclemodelGraphHelp.stdout, /--check-connections/u);
+  assert.doesNotMatch(lifecyclemodelGraphHelp.stdout, /Planned command/u);
+});
+
+test('executeCli dispatches dataset and lifecyclemodel friction-fix commands', async () => {
+  const datasetValidate = await executeCli(
+    [
+      'dataset',
+      'validate',
+      '--json',
+      '--input',
+      'rows.jsonl',
+      '--type',
+      'process',
+      '--out-dir',
+      'validate-out',
+    ],
+    {
+      ...makeDeps(),
+      runDatasetValidateImpl: async (options) => {
+        assert.equal(options.inputPath, 'rows.jsonl');
+        assert.equal(options.type, 'process');
+        assert.equal(options.outDir, 'validate-out');
+        return {
+          generated_at_utc: '2026-05-05T00:00:00.000Z',
+          input_path: 'rows.jsonl',
+          requested_type: 'auto',
+          status: 'completed',
+          counts: {
+            total: 1,
+            valid: 1,
+            invalid: 0,
+            by_type: { flow: 0, process: 1, lifecyclemodel: 0 },
+          },
+          files: { report: null, valid_rows: null, invalid_rows: null },
+          rows: [],
+        };
+      },
+    },
+  );
+  assert.equal(datasetValidate.exitCode, 0);
+
+  const datasetValidateFailure = await executeCli(
+    ['dataset', 'validate', '--json', '--input', 'rows.jsonl'],
+    {
+      ...makeDeps(),
+      runDatasetValidateImpl: async () => ({
+        generated_at_utc: '2026-05-05T00:00:00.000Z',
+        input_path: 'rows.jsonl',
+        requested_type: 'auto',
+        status: 'completed_with_failures',
+        counts: {
+          total: 1,
+          valid: 0,
+          invalid: 1,
+          by_type: { flow: 0, process: 1, lifecyclemodel: 0 },
+        },
+        files: { report: null, valid_rows: null, invalid_rows: null },
+        rows: [],
+      }),
+    },
+  );
+  assert.equal(datasetValidateFailure.exitCode, 1);
+
+  const datasetValidateParseError = await executeCli(['dataset', 'validate', '--wat'], makeDeps());
+  assert.equal(datasetValidateParseError.exitCode, 2);
+  assert.match(datasetValidateParseError.stderr, /Unknown option/u);
+
+  const datasetRewrite = await executeCli(
+    [
+      'dataset',
+      'references',
+      'rewrite',
+      '--json',
+      '--input',
+      'rows.jsonl',
+      '--from',
+      'flow:old@01.00.000',
+      '--to',
+      'flow:new@01.01.000',
+      '--type',
+      'process',
+      '--types',
+      'lifecyclemodel',
+      '--scope',
+      'current',
+      '--out-dir',
+      'rewrite-out',
+    ],
+    {
+      ...makeDeps(),
+      runDatasetReferencesRewriteImpl: async (options) => {
+        assert.equal(options.inputPath, 'rows.jsonl');
+        assert.equal(options.from, 'flow:old@01.00.000');
+        assert.equal(options.to, 'flow:new@01.01.000');
+        assert.deepEqual(options.types, ['process', 'lifecyclemodel']);
+        assert.equal(options.scope, 'current');
+        assert.equal(options.outDir, 'rewrite-out');
+        assert.equal(options.commit, false);
+        return {
+          generated_at_utc: '2026-05-05T00:00:00.000Z',
+          input_path: 'rows.jsonl',
+          out_dir: 'rewrite-out',
+          mode: 'dry_run',
+          status: 'completed',
+          from: { kind: 'flow', id: 'old', version: '01.00.000' },
+          to: { kind: 'flow', id: 'new', version: '01.01.000' },
+          filters: { types: ['process'], scope: null },
+          counts: {
+            input_rows: 1,
+            patched_rows: 1,
+            changes: 1,
+            process_rows: 1,
+            lifecyclemodel_rows: 0,
+          },
+          files: { patched_rows: '', rewrite_plan: '', summary: '' },
+          changes: [],
+          commit_reports: { processes: null, lifecyclemodels: null },
+        };
+      },
+    },
+  );
+  assert.equal(datasetRewrite.exitCode, 0);
+
+  const datasetRewriteFailure = await executeCli(
+    [
+      'dataset',
+      'references',
+      'rewrite',
+      '--json',
+      '--input',
+      'rows.jsonl',
+      '--from',
+      'flow:old',
+      '--to',
+      'flow:new',
+      '--out-dir',
+      'rewrite-out',
+    ],
+    {
+      ...makeDeps(),
+      runDatasetReferencesRewriteImpl: async () => ({
+        generated_at_utc: '2026-05-05T00:00:00.000Z',
+        input_path: 'rows.jsonl',
+        out_dir: 'rewrite-out',
+        mode: 'commit',
+        status: 'completed_with_failures',
+        from: { kind: 'flow', id: 'old', version: null },
+        to: { kind: 'flow', id: 'new', version: null },
+        filters: { types: ['process', 'lifecyclemodel'], scope: null },
+        counts: {
+          input_rows: 1,
+          patched_rows: 1,
+          changes: 1,
+          process_rows: 1,
+          lifecyclemodel_rows: 0,
+        },
+        files: { patched_rows: '', rewrite_plan: '', summary: '' },
+        changes: [],
+        commit_reports: { processes: null, lifecyclemodels: null },
+      }),
+    },
+  );
+  assert.equal(datasetRewriteFailure.exitCode, 1);
+
+  const datasetReferencesRootHelp = await executeCli(['dataset', 'references'], makeDeps());
+  assert.equal(datasetReferencesRootHelp.exitCode, 0);
+  assert.match(datasetReferencesRootHelp.stdout, /tiangong-lca dataset references rewrite/u);
+
+  const invalidDatasetReferenceAction = await executeCli(
+    ['dataset', 'references', 'scan'],
+    makeDeps(),
+  );
+  assert.equal(invalidDatasetReferenceAction.exitCode, 2);
+  assert.match(invalidDatasetReferenceAction.stderr, /must be 'rewrite'/u);
+
+  const datasetReferencesModeError = await executeCli(
+    [
+      'dataset',
+      'references',
+      'rewrite',
+      '--input',
+      'rows.jsonl',
+      '--from',
+      'flow:old',
+      '--to',
+      'flow:new',
+      '--out-dir',
+      'rewrite-out',
+      '--commit',
+      '--dry-run',
+    ],
+    makeDeps(),
+  );
+  assert.equal(datasetReferencesModeError.exitCode, 2);
+  assert.match(datasetReferencesModeError.stderr, /Cannot pass both/u);
+
+  const datasetReferencesParseError = await executeCli(
+    ['dataset', 'references', 'rewrite', '--wat'],
+    makeDeps(),
+  );
+  assert.equal(datasetReferencesParseError.exitCode, 2);
+  assert.match(datasetReferencesParseError.stderr, /Unknown option/u);
+
+  const lifecyclemodelSaveDraft = await executeCli(
+    ['lifecyclemodel', 'save-draft', '--json', '--input', 'models.jsonl', '--out-dir', 'save-out'],
+    {
+      ...makeDeps(),
+      runLifecyclemodelSaveDraftImpl: async (options) => {
+        assert.equal(options.inputPath, 'models.jsonl');
+        assert.equal(options.outDir, 'save-out');
+        assert.equal(options.commit, false);
+        return {
+          generated_at_utc: '2026-05-05T00:00:00.000Z',
+          input_path: 'models.jsonl',
+          out_dir: 'save-out',
+          commit: false,
+          mode: 'dry_run',
+          status: 'completed',
+          counts: { selected: 1, prepared: 1, executed: 0, failed: 0 },
+          files: {
+            normalized_input: '',
+            selected_lifecyclemodels: '',
+            progress_jsonl: '',
+            failures_jsonl: '',
+            summary_json: '',
+          },
+          lifecyclemodels: [],
+        };
+      },
+    },
+  );
+  assert.equal(lifecyclemodelSaveDraft.exitCode, 0);
+
+  const lifecyclemodelSaveDraftFailure = await executeCli(
+    ['lifecyclemodel', 'save-draft', '--json', '--input', 'models.jsonl'],
+    {
+      ...makeDeps(),
+      runLifecyclemodelSaveDraftImpl: async () => ({
+        generated_at_utc: '2026-05-05T00:00:00.000Z',
+        input_path: 'models.jsonl',
+        out_dir: 'save-out',
+        commit: false,
+        mode: 'dry_run',
+        status: 'completed_with_failures',
+        counts: { selected: 1, prepared: 0, executed: 0, failed: 1 },
+        files: {
+          normalized_input: '',
+          selected_lifecyclemodels: '',
+          progress_jsonl: '',
+          failures_jsonl: '',
+          summary_json: '',
+        },
+        lifecyclemodels: [],
+      }),
+    },
+  );
+  assert.equal(lifecyclemodelSaveDraftFailure.exitCode, 1);
+
+  const lifecyclemodelSaveDraftModeError = await executeCli(
+    ['lifecyclemodel', 'save-draft', '--input', 'models.jsonl', '--commit', '--dry-run'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelSaveDraftModeError.exitCode, 2);
+  assert.match(lifecyclemodelSaveDraftModeError.stderr, /Cannot pass both/u);
+
+  const lifecyclemodelSaveDraftParseError = await executeCli(
+    ['lifecyclemodel', 'save-draft', '--wat'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelSaveDraftParseError.exitCode, 2);
+  assert.match(lifecyclemodelSaveDraftParseError.stderr, /Unknown option/u);
+
+  const lifecyclemodelGraph = await executeCli(
+    [
+      'lifecyclemodel',
+      'graph',
+      '--json',
+      '--input',
+      'models.jsonl',
+      '--out-dir',
+      'graph-out',
+      '--format',
+      'dot',
+      '--check-connections',
+    ],
+    {
+      ...makeDeps(),
+      runLifecyclemodelGraphImpl: async (options) => {
+        assert.equal(options.inputPath, 'models.jsonl');
+        assert.equal(options.outDir, 'graph-out');
+        assert.equal(options.format, 'dot');
+        assert.equal(options.checkConnections, true);
+        return {
+          generated_at_utc: '2026-05-05T00:00:00.000Z',
+          input_path: 'models.jsonl',
+          out_dir: 'graph-out',
+          format: 'dot',
+          check_connections: true,
+          status: 'completed',
+          counts: { models: 1, nodes: 1, edges: 0, findings: 0 },
+          files: { report: '', findings: '' },
+          models: [],
+          findings: [],
+        };
+      },
+    },
+  );
+  assert.equal(lifecyclemodelGraph.exitCode, 0);
+
+  const lifecyclemodelGraphFindings = await executeCli(
+    ['lifecyclemodel', 'graph', '--json', '--input', 'models.jsonl', '--out-dir', 'graph-out'],
+    {
+      ...makeDeps(),
+      runLifecyclemodelGraphImpl: async () => ({
+        generated_at_utc: '2026-05-05T00:00:00.000Z',
+        input_path: 'models.jsonl',
+        out_dir: 'graph-out',
+        format: 'all',
+        check_connections: false,
+        status: 'completed_with_findings',
+        counts: { models: 1, nodes: 1, edges: 1, findings: 1 },
+        files: { report: '', findings: '' },
+        models: [],
+        findings: [],
+      }),
+    },
+  );
+  assert.equal(lifecyclemodelGraphFindings.exitCode, 1);
+
+  const lifecyclemodelGraphParseError = await executeCli(
+    ['lifecyclemodel', 'graph', '--wat'],
+    makeDeps(),
+  );
+  assert.equal(lifecyclemodelGraphParseError.exitCode, 2);
+  assert.match(lifecyclemodelGraphParseError.stderr, /Unknown option/u);
+});
+
 test('executeCli executes lifecyclemodel auto-build with injected implementation', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-auto-build-cli-'));
   const inputPath = path.join(dir, 'request.json');

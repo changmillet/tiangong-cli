@@ -31,6 +31,16 @@ import {
   type RunLifecyclemodelPublishBuildOptions,
 } from './lib/lifecyclemodel-publish-build.js';
 import {
+  runLifecyclemodelSaveDraft,
+  type LifecyclemodelSaveDraftReport,
+  type RunLifecyclemodelSaveDraftOptions,
+} from './lib/lifecyclemodel-save-draft-run.js';
+import {
+  runLifecyclemodelGraph,
+  type LifecyclemodelGraphReport,
+  type RunLifecyclemodelGraphOptions,
+} from './lib/lifecyclemodel-graph.js';
+import {
   runLifecyclemodelOrchestrate,
   type LifecyclemodelOrchestrateReport,
   type RunLifecyclemodelOrchestrateOptions,
@@ -161,6 +171,16 @@ import {
   type RunValidationOptions,
   type ValidationRunReport,
 } from './lib/validation.js';
+import {
+  runDatasetValidate,
+  type DatasetValidateReport,
+  type RunDatasetValidateOptions,
+} from './lib/dataset-validate.js';
+import {
+  runDatasetReferencesRewrite,
+  type DatasetReferencesRewriteReport,
+  type RunDatasetReferencesRewriteOptions,
+} from './lib/dataset-references-rewrite.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
@@ -183,6 +203,12 @@ export type CliDeps = {
   runLifecyclemodelPublishBuildImpl?: (
     options: RunLifecyclemodelPublishBuildOptions,
   ) => Promise<LifecyclemodelPublishBuildReport>;
+  runLifecyclemodelSaveDraftImpl?: (
+    options: RunLifecyclemodelSaveDraftOptions,
+  ) => Promise<LifecyclemodelSaveDraftReport>;
+  runLifecyclemodelGraphImpl?: (
+    options: RunLifecyclemodelGraphOptions,
+  ) => Promise<LifecyclemodelGraphReport>;
   runLifecyclemodelOrchestrateImpl?: (
     options: RunLifecyclemodelOrchestrateOptions,
   ) => Promise<LifecyclemodelOrchestrateReport>;
@@ -251,6 +277,10 @@ export type CliDeps = {
   runFlowValidateProcessesImpl?: (
     options: RunFlowValidateProcessesOptions,
   ) => Promise<FlowValidateProcessesReport>;
+  runDatasetValidateImpl?: (options: RunDatasetValidateOptions) => Promise<DatasetValidateReport>;
+  runDatasetReferencesRewriteImpl?: (
+    options: RunDatasetReferencesRewriteOptions,
+  ) => Promise<DatasetReferencesRewriteReport>;
 };
 
 export type CliResult = {
@@ -283,8 +313,9 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
+  dataset    validate | references rewrite
   flow       get | list | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
-  lifecyclemodel auto-build | validate-build | publish-build | build-resulting-process | publish-resulting-process | orchestrate
+  lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
   publish    run
   validation run
@@ -311,9 +342,13 @@ Examples:
   tiangong-lca process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
   tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
   tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
+  tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir /abs/path/to/dataset-validate
+  tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir /abs/path/to/dataset-rewrite
   tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run
+  tiangong-lca lifecyclemodel save-draft --input ./lifecyclemodels.jsonl --out-dir /abs/path/to/lifecyclemodel-save-draft --dry-run
+  tiangong-lca lifecyclemodel graph --input ./lifecyclemodels.jsonl --out-dir /abs/path/to/lifecyclemodel-graph --format all
   tiangong-lca lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run
   tiangong-lca flow get --id <flow-id> --version <version>
   tiangong-lca flow list --id <flow-id> --state-code 100 --limit 20
@@ -428,6 +463,67 @@ Options:
   --report-file <file> Write the structured validation report to a file
   --json               Print compact JSON
   -h, --help
+`.trim();
+}
+
+function renderDatasetHelp(): string {
+  return `Usage:
+  tiangong-lca dataset <subcommand> [options]
+
+Implemented Subcommands:
+  validate             Validate local flow / process / lifecyclemodel rows with the TIDAS SDK
+  references rewrite   Rewrite flow references in local process and lifecyclemodel rows
+
+Examples:
+  tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --help
+  tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
+`.trim();
+}
+
+function renderDatasetValidateHelp(): string {
+  return `Usage:
+  tiangong-lca dataset validate --input <file> [options]
+
+Options:
+  --input <file>   Local rows as JSON or JSONL; objects with rows[] are also accepted
+  --type <type>    auto | flow | process | lifecyclemodel (default: auto)
+  --out-dir <dir>  Optional artifact directory for validation report and row splits
+  --json           Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/validation-report.json
+  - outputs/valid-rows.jsonl
+  - outputs/invalid-rows.jsonl
+`.trim();
+}
+
+function renderDatasetReferencesHelp(): string {
+  return `Usage:
+  tiangong-lca dataset references rewrite --input <file> --from flow:<id>[@<version>] --to flow:<id>[@<version>] [options]
+
+Options:
+  --input <file>   Local rows as JSON or JSONL; process and lifecyclemodel rows are supported
+  --from <ref>     Source flow reference, for example flow:<old-id>@01.00.000
+  --to <ref>       Target flow reference, for example flow:<new-id>@01.01.000
+  --type <type>    Repeatable row type filter: process | lifecyclemodel (default: both)
+  --types <csv>    Comma-separated alias for one or more row types
+  --scope <label>  Optional artifact label for the already-frozen input scope
+  --out-dir <dir>  Artifact directory for rewrite plan and patched rows
+  --commit         Execute state-aware save-draft writes for patched rows
+  --dry-run        Keep the command local-only (default)
+  --json           Print compact JSON
+  -h, --help
+
+Environment:
+  none for local dry-run
+  TIANGONG_LCA_API_BASE_URL, TIANGONG_LCA_API_KEY, and TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY
+  when --commit executes remote writes
+
+Outputs written under --out-dir:
+  - outputs/patched-rows.jsonl
+  - outputs/rewrite-plan.json
+  - outputs/summary.json
 `.trim();
 }
 
@@ -896,6 +992,57 @@ Options:
 `.trim();
 }
 
+function renderLifecyclemodelSaveDraftHelp(): string {
+  return `Usage:
+  tiangong-lca lifecyclemodel save-draft --input <file> [options]
+
+Options:
+  --input <file>     Lifecyclemodel rows JSON/JSONL file or publish-request.json
+  --out-dir <dir>    Run root written relative to cwd when a relative path is passed
+  --commit           Execute remote save-draft writes
+  --dry-run          Keep the command local-only (default)
+  --json             Print compact JSON
+  -h, --help
+
+Environment:
+  none for local dry-run
+  TIANGONG_LCA_API_BASE_URL, TIANGONG_LCA_API_KEY, and TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY
+  when --commit executes remote writes
+
+Local gate:
+  canonical lifecyclemodel payloads are validated against LifeCycleModelSchema before any remote write;
+  schema-invalid rows stay in failures.jsonl instead of being committed
+
+Outputs written under --out-dir:
+  - inputs/normalized-input.json
+  - outputs/save-draft-bundle/selected-lifecyclemodels.jsonl
+  - outputs/save-draft-bundle/progress.jsonl
+  - outputs/save-draft-bundle/failures.jsonl
+  - outputs/save-draft-bundle/summary.json
+`.trim();
+}
+
+function renderLifecyclemodelGraphHelp(): string {
+  return `Usage:
+  tiangong-lca lifecyclemodel graph --input <file> [options]
+
+Options:
+  --input <file>          Lifecyclemodel rows JSON/JSONL file
+  --out-dir <dir>         Artifact directory for graph files and findings
+  --format <format>       json | dot | svg | all (default: all)
+  --check-connections     Fail when process-instance links are missing or unresolved
+  --json                  Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/graph-report.json
+  - outputs/findings.jsonl
+  - graphs/*.json
+  - graphs/*.dot
+  - graphs/*.svg
+`.trim();
+}
+
 function renderLifecyclemodelHelp(): string {
   return `Usage:
   tiangong-lca lifecyclemodel <subcommand> [options]
@@ -904,6 +1051,8 @@ Implemented Subcommands:
   auto-build                Build native lifecyclemodel json_ordered artifacts from local process run exports
   validate-build            Re-run local validation on one lifecyclemodel build run
   publish-build             Prepare lifecyclemodel publish handoff artifacts from one local build run
+  save-draft                Save canonical lifecyclemodel datasets through the bundle save path
+  graph                     Derive lifecyclemodel graph artifacts and connection findings
   build-resulting-process   Deterministically aggregate a lifecycle model into a resulting process bundle
   publish-resulting-process Prepare publish-bundle.json and publish-intent.json from a prior resulting-process run
   orchestrate               Plan, execute, or publish a recursive lifecyclemodel assembly run
@@ -913,6 +1062,8 @@ Examples:
   tiangong-lca lifecyclemodel auto-build --help
   tiangong-lca lifecyclemodel validate-build --help
   tiangong-lca lifecyclemodel publish-build --help
+  tiangong-lca lifecyclemodel save-draft --help
+  tiangong-lca lifecyclemodel graph --help
   tiangong-lca lifecyclemodel build-resulting-process --help
   tiangong-lca lifecyclemodel orchestrate --help
 `.trim();
@@ -1539,6 +1690,108 @@ function parseValidationFlags(args: string[]): {
     inputDir: typeof values['input-dir'] === 'string' ? values['input-dir'] : '',
     engine: typeof values.engine === 'string' ? values.engine : undefined,
     reportFile: typeof values['report-file'] === 'string' ? values['report-file'] : null,
+  };
+}
+
+function parseDatasetValidateFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  type: string | undefined;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        type: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    type: typeof values.type === 'string' ? values.type : undefined,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetReferencesRewriteFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  from: string;
+  to: string;
+  types: string[];
+  scope: string | null;
+  outDir: string;
+  commit: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        from: { type: 'string' },
+        to: { type: 'string' },
+        type: { type: 'string', multiple: true },
+        types: { type: 'string', multiple: true },
+        scope: { type: 'string' },
+        'out-dir': { type: 'string' },
+        commit: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  if (values.commit && values['dry-run']) {
+    throw new CliError('Cannot pass both --commit and --dry-run.', {
+      code: 'DATASET_REFERENCES_REWRITE_MODE_CONFLICT',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    from: typeof values.from === 'string' ? values.from : '',
+    to: typeof values.to === 'string' ? values.to : '',
+    types: [
+      ...(Array.isArray(values.type)
+        ? values.type.filter((value): value is string => typeof value === 'string')
+        : []),
+      ...(Array.isArray(values.types)
+        ? values.types.filter((value): value is string => typeof value === 'string')
+        : []),
+    ],
+    scope: typeof values.scope === 'string' ? values.scope : null,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    commit: Boolean(values.commit),
   };
 }
 
@@ -2776,6 +3029,91 @@ function parseLifecyclemodelPublishBuildFlags(args: string[]): {
   };
 }
 
+function parseLifecyclemodelSaveDraftFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string | null;
+  commit: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'out-dir': { type: 'string' },
+        commit: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  if (values.commit && values['dry-run']) {
+    throw new CliError('Cannot pass both --commit and --dry-run.', {
+      code: 'INVALID_LIFECYCLEMODEL_SAVE_DRAFT_MODE',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    commit: Boolean(values.commit),
+  };
+}
+
+function parseLifecyclemodelGraphFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string;
+  format: string | undefined;
+  checkConnections: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'out-dir': { type: 'string' },
+        format: { type: 'string' },
+        'check-connections': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    format: typeof values.format === 'string' ? values.format : undefined,
+    checkConnections: Boolean(values['check-connections']),
+  };
+}
+
 function parseLifecyclemodelBuildFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -3484,6 +3822,9 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       deps.runLifecyclemodelValidateBuildImpl ?? runLifecyclemodelValidateBuild;
     const lifecyclemodelPublishBuildImpl =
       deps.runLifecyclemodelPublishBuildImpl ?? runLifecyclemodelPublishBuild;
+    const lifecyclemodelSaveDraftImpl =
+      deps.runLifecyclemodelSaveDraftImpl ?? runLifecyclemodelSaveDraft;
+    const lifecyclemodelGraphImpl = deps.runLifecyclemodelGraphImpl ?? runLifecyclemodelGraph;
     const lifecyclemodelOrchestrateImpl =
       deps.runLifecyclemodelOrchestrateImpl ?? runLifecyclemodelOrchestrate;
     const processGetImpl = deps.runProcessGetImpl ?? runProcessGet;
@@ -3520,6 +3861,9 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       deps.runFlowApplyProcessFlowRepairsImpl ?? runFlowApplyProcessFlowRepairs;
     const flowRegenProductImpl = deps.runFlowRegenProductImpl ?? runFlowRegenProduct;
     const flowValidateProcessesImpl = deps.runFlowValidateProcessesImpl ?? runFlowValidateProcesses;
+    const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
+    const datasetReferencesRewriteImpl =
+      deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
 
     if (flags.version) {
       return { exitCode: 0, stdout: `${loadCliPackageVersion(import.meta.url)}\n`, stderr: '' };
@@ -3565,6 +3909,65 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
           compactJson: remoteFlags.json,
           fetchImpl: deps.fetchImpl,
         }),
+        stderr: '',
+      };
+    }
+
+    if (command === 'dataset' && !subcommand) {
+      return { exitCode: 0, stdout: `${renderDatasetHelp()}\n`, stderr: '' };
+    }
+
+    if (command === 'dataset' && subcommand === 'validate') {
+      const datasetFlags = parseDatasetValidateFlags(commandArgs);
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetValidateHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetValidateImpl({
+        inputPath: datasetFlags.inputPath,
+        type: datasetFlags.type,
+        outDir: datasetFlags.outDir,
+      });
+
+      return {
+        exitCode: report.counts.invalid > 0 ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'dataset' && subcommand === 'references') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetReferencesHelp()}\n`, stderr: '' };
+      }
+      if (action !== 'rewrite') {
+        throw new CliError("dataset references action must be 'rewrite'.", {
+          code: 'INVALID_ARGS',
+          exitCode: 2,
+        });
+      }
+
+      const datasetFlags = parseDatasetReferencesRewriteFlags(commandArgs.slice(1));
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetReferencesHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetReferencesRewriteImpl({
+        inputPath: datasetFlags.inputPath,
+        from: datasetFlags.from,
+        to: datasetFlags.to,
+        types: datasetFlags.types,
+        scope: datasetFlags.scope,
+        outDir: datasetFlags.outDir,
+        commit: datasetFlags.commit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode: report.status === 'completed_with_failures' ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
         stderr: '',
       };
     }
@@ -3683,6 +4086,55 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
 
       return {
         exitCode: 0,
+        stdout: stringifyJson(report, lifecyclemodelFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'lifecyclemodel' && subcommand === 'save-draft') {
+      const lifecyclemodelFlags = parseLifecyclemodelSaveDraftFlags(commandArgs);
+      if (lifecyclemodelFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderLifecyclemodelSaveDraftHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report = await lifecyclemodelSaveDraftImpl({
+        inputPath: lifecyclemodelFlags.inputPath,
+        outDir: lifecyclemodelFlags.outDir,
+        commit: lifecyclemodelFlags.commit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode: report.status === 'completed_with_failures' ? 1 : 0,
+        stdout: stringifyJson(report, lifecyclemodelFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'lifecyclemodel' && subcommand === 'graph') {
+      const lifecyclemodelFlags = parseLifecyclemodelGraphFlags(commandArgs);
+      if (lifecyclemodelFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderLifecyclemodelGraphHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report = await lifecyclemodelGraphImpl({
+        inputPath: lifecyclemodelFlags.inputPath,
+        outDir: lifecyclemodelFlags.outDir,
+        format: lifecyclemodelFlags.format,
+        checkConnections: lifecyclemodelFlags.checkConnections,
+      });
+
+      return {
+        exitCode: report.status === 'completed_with_findings' ? 1 : 0,
         stdout: stringifyJson(report, lifecyclemodelFlags.json),
         stderr: '',
       };
