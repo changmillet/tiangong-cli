@@ -93,6 +93,7 @@ Leave the environment name unset unless the workflow is explicitly updated to us
 - `publish.yml` validates that the Git tag matches the package version before upload.
 - `tag-release-from-merge.yml` only creates a tag when `package.json` version changes on `main`.
 - The release-prep PR should update only the intended versioned release metadata for the CLI package.
+- Adding CLI command families such as dataset or lifecyclemodel maintenance commands does not require release setup changes by itself; those feature PRs are covered by the normal quality and docpact gates before a later version bump.
 
 ## Local Docpact Push Gate
 

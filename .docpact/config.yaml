@@ -48,6 +48,7 @@ ownership:
         include:
           - src/lib/artifacts.ts
           - src/lib/dataset-command.ts
+          - src/lib/dataset-*.ts
           - src/lib/errors.ts
           - src/lib/flow-*.ts
           - src/lib/io.ts
@@ -177,6 +178,7 @@ routing:
       paths:
         - src/lib/artifacts.ts
         - src/lib/dataset-command.ts
+        - src/lib/dataset-*.ts
         - src/lib/errors.ts
         - src/lib/flow-*.ts
         - src/lib/io.ts
@@ -350,6 +352,8 @@ rules:
       - path: src/lib/artifacts.ts
         kind: artifact-runtime
       - path: src/lib/dataset-command.ts
+        kind: command-logic
+      - path: src/lib/dataset-*.ts
         kind: command-logic
       - path: src/lib/errors.ts
         kind: shared-runtime

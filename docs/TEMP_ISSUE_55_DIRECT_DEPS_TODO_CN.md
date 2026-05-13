@@ -66,6 +66,7 @@ related:
 
 最近更新：
 
+- 2026-05-13：已复核 dataset / lifecyclemodel governance 命令扩展；新增本地 validation、reference rewrite、save-draft 和 graph 路径继续使用当前 `@supabase/supabase-js` 与 `@tiangong-lca/tidas-sdk` 直接依赖模型，不重开 Issue #55 的直接依赖 TODO。
 - 2026-04-01：已提交 `7bd8a93`，推送分支 `codex/chore-issue-55-direct-deps` 到 fork，并创建 PR `tiangong-lca/tiangong-cli#56`；child issue `#55` 的执行 TODO 已同步为完成态，parent / child issue 都已补充结构化进展评论。
 - 2026-04-01：`npm run prepush:gate` 已通过，包含 `lint`、`test:coverage`、`test:coverage:assert-full` 全绿；repo-local 质量门已全部满足。
 - 2026-04-01：已用 Prettier 修复 `test/tidas-sdk-package-validator.test.ts` 的格式问题，当前准备重跑 `npm run prepush:gate`。

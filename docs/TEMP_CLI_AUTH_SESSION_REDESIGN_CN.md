@@ -33,6 +33,7 @@ related:
 - 这是一份临时 RFC。
 - 在 `tiangong-lca-cli` 正式实现新的认证链之前，这份文件作为后续实现、测试和文档同步的工作底稿。
 - 在方案正式落地前，不把这里的内容视为对外稳定 contract。
+- 2026-05-13 复核：`dataset references rewrite --commit` 与 `lifecyclemodel save-draft --commit` 继续复用现有用户 session 链，不新增认证 env 或 alternate bearer 模式。
 
 ## 1. 已确认事实
 

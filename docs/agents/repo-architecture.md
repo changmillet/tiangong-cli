@@ -83,6 +83,7 @@ This is where the CLI-owned remote access contract lives.
 The widest feature families currently live in:
 
 - `src/lib/flow-*.ts`
+- `src/lib/dataset-*.ts`
 - `src/lib/review-*.ts`
 - `src/lib/process-*.ts`
 - `src/lib/lifecyclemodel-*.ts`
@@ -108,6 +109,18 @@ These modules share one contract:
 - `src/cli.ts` owns subcommand registration, help, and exit semantics
 - `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes
 - maintenance and review commands still emit artifact-first local outputs and remain covered by the strict `src/**/*.ts` coverage gate
+
+### Dataset and lifecyclemodel governance commands
+
+Dataset-local governance now uses the same CLI-native command layer:
+
+- `src/lib/dataset-validate.ts`
+- `src/lib/dataset-references-rewrite.ts`
+- `src/lib/dataset-local.ts`
+- `src/lib/lifecyclemodel-save-draft-run.ts`
+- `src/lib/lifecyclemodel-graph.ts`
+
+These modules keep validation, reference rewrites, save-draft preparation, graph extraction, and local artifact reports inside the CLI instead of routing through skills or MCP transports.
 
 ### Artifact and filesystem behavior
 

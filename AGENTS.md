@@ -102,6 +102,8 @@ Route those tasks to:
 - Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only
 - Newly added process-maintenance commands such as `process scope-statistics`, `process dedup-review`, `process refresh-references`, and `process verify-rows` still belong to the native CLI command surface in `src/cli.ts` and `src/lib/process-*.ts`.
 - `process save-draft` now has a local `ProcessSchema` validation gate before any commit path writes remote state.
+- Dataset-level local governance commands such as `dataset validate` and `dataset references rewrite` belong to the same native CLI command surface in `src/cli.ts` and `src/lib/dataset-*.ts`.
+- `lifecyclemodel save-draft` validates canonical lifecyclemodel payloads with `LifeCycleModelSchema` before any commit path writes remote state; `lifecyclemodel graph` remains a local artifact command.
 - The canonical minimum validation command is `npm run lint`
 - The authoritative full gate is `npm run prepush:gate`
 - Release tagging is guarded in `.github/workflows/tag-release-from-merge.yml` so only the upstream repository can execute the merge-tag flow.

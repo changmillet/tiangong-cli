@@ -254,7 +254,8 @@ test('runLifecyclemodelSaveDraft records candidate failures and default output l
 
     assert.equal(report.status, 'completed_with_failures');
     assert.equal(report.counts.failed, 2);
-    assert.match(report.out_dir, /artifacts\/lifecyclemodel_save_draft/u);
+    assert.equal(path.basename(path.dirname(report.out_dir)), 'lifecyclemodel_save_draft');
+    assert.equal(path.basename(path.dirname(path.dirname(report.out_dir))), 'artifacts');
     assert.equal(readJsonl(report.files.failures_jsonl).length, 2);
 
     const missingIdCandidate = __testInternals.buildCandidate(
@@ -308,6 +309,7 @@ test('runLifecyclemodelSaveDraft records candidate failures and default output l
 
     const validPayload = __testInternals.validateLifecyclemodelPayload(
       makeSchemaValidLifecyclemodel(),
+      { safeParse: () => ({ success: true }) },
     );
     assert.equal(validPayload.ok, true);
     assert.equal(
