@@ -15,6 +15,8 @@ checkPaths:
   - .github/workflows/publish.yml
   - .github/workflows/tag-release-from-merge.yml
   - .githooks/pre-push
+  - scripts/docpact
+  - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-05-10
@@ -97,4 +99,4 @@ Leave the environment name unset unless the workflow is explicitly updated to us
 
 ## Local Docpact Push Gate
 
-The repository now includes a local pre-push docpact gate in `scripts/docpact-gate.sh`. It is a lightweight documentation-governance guard and does not replace the release or protected-branch validation gates.
+The repository now includes a local pre-push docpact gate in `scripts/docpact-gate.sh`. The gate resolves the CLI through `scripts/docpact`. It is a lightweight documentation-governance guard and does not replace the release or protected-branch validation gates.
