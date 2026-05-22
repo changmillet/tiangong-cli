@@ -60,7 +60,7 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /Planned Surface \(not implemented yet\):/u);
   assert.match(
     result.stdout,
-    /process\s+get \| list \| scope-statistics \| dedup-review \| auto-build/u,
+    /process\s+get \| list \| identity-preflight \| scope-statistics \| dedup-review \| auto-build/u,
   );
   assert.match(result.stdout, /process\s+auto-build/u);
   assert.match(result.stdout, /lifecyclemodel auto-build/u);
@@ -171,6 +171,7 @@ test('executeCli returns help for publish and validation namespaces', async () =
   assert.match(flowHelp.stdout, /tiangong-lca flow <subcommand>/u);
   assert.match(flowHelp.stdout, /get/u);
   assert.match(flowHelp.stdout, /list/u);
+  assert.match(flowHelp.stdout, /identity-preflight/u);
   assert.match(flowHelp.stdout, /fetch-rows/u);
   assert.match(flowHelp.stdout, /materialize-decisions/u);
   assert.match(flowHelp.stdout, /remediate/u);
@@ -269,6 +270,18 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.match(flowListHelp.stdout, /--type-of-dataset/u);
   assert.match(flowListHelp.stdout, /--page-size/u);
   assert.doesNotMatch(flowListHelp.stdout, /Planned command/u);
+
+  const flowIdentityPreflightHelp = await executeCli(
+    ['flow', 'identity-preflight', '--help'],
+    makeDeps(),
+  );
+  assert.equal(flowIdentityPreflightHelp.exitCode, 0);
+  assert.match(
+    flowIdentityPreflightHelp.stdout,
+    /tiangong-lca flow identity-preflight --input <file>/u,
+  );
+  assert.match(flowIdentityPreflightHelp.stdout, /identity-candidates\.jsonl/u);
+  assert.doesNotMatch(flowIdentityPreflightHelp.stdout, /Planned command/u);
 
   const flowFetchRowsHelp = await executeCli(['flow', 'fetch-rows', '--help'], makeDeps());
   assert.equal(flowFetchRowsHelp.exitCode, 0);
@@ -1367,6 +1380,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.match(processHelp.stdout, /tiangong-lca process <subcommand>/u);
   assert.match(processHelp.stdout, /get/u);
   assert.match(processHelp.stdout, /list/u);
+  assert.match(processHelp.stdout, /identity-preflight/u);
   assert.match(processHelp.stdout, /scope-statistics/u);
   assert.match(processHelp.stdout, /dedup-review/u);
   assert.match(processHelp.stdout, /auto-build/u);
@@ -1390,6 +1404,18 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.match(listHelp.stdout, /--page-size/u);
   assert.match(listHelp.stdout, /TIANGONG_LCA_API_BASE_URL/u);
   assert.doesNotMatch(listHelp.stdout, /Planned command/u);
+
+  const identityPreflightHelp = await executeCli(
+    ['process', 'identity-preflight', '--help'],
+    makeDeps(),
+  );
+  assert.equal(identityPreflightHelp.exitCode, 0);
+  assert.match(
+    identityPreflightHelp.stdout,
+    /tiangong-lca process identity-preflight --input <file>/u,
+  );
+  assert.match(identityPreflightHelp.stdout, /identity-decision\.json/u);
+  assert.doesNotMatch(identityPreflightHelp.stdout, /Planned command/u);
 
   const scopeStatisticsHelp = await executeCli(
     ['process', 'scope-statistics', '--help'],
@@ -1784,6 +1810,134 @@ test('executeCli parses non-all process list pagination flags', async () => {
   assert.match(result.stdout, /"offset": 3/u);
 });
 
+test('executeCli executes process identity-preflight with injected implementation', async () => {
+  const result = await executeCli(
+    [
+      'process',
+      'identity-preflight',
+      '--json',
+      '--input',
+      '/tmp/process-preflight.json',
+      '--out-dir',
+      '/tmp/process-preflight',
+    ],
+    {
+      ...makeDeps(),
+      runProcessIdentityPreflightImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/process-preflight.json');
+        assert.equal(options.outDir, '/tmp/process-preflight');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-22T00:00:00.000Z',
+          kind: 'process',
+          status: 'blocked',
+          decision: 'block_duplicate',
+          confidence: 'high',
+          input_path: '/tmp/process-preflight.json',
+          out_dir: '/tmp/process-preflight',
+          target: {
+            id: null,
+            version: null,
+            identity_key: 'process-key',
+            exchange_signature: ['flow-a:input:1'],
+            schema_validation: {
+              status: 'not_applicable',
+              validator: null,
+              issue_count: 0,
+              issues: [],
+            },
+          },
+          candidates: [
+            {
+              index: 0,
+              id: 'process-existing',
+              version: '01.00.000',
+              state_code: 100,
+              identity_key: 'process-key',
+              match_score: 100,
+              match_reasons: ['same_identity_key'],
+              decision_hint: 'block_duplicate',
+            },
+          ],
+          findings: [
+            {
+              code: 'process_duplicate_candidate',
+              severity: 'blocker',
+              message: 'duplicate',
+              candidate_index: 0,
+            },
+          ],
+          blockers: [
+            {
+              code: 'process_duplicate_candidate',
+              severity: 'blocker',
+              message: 'duplicate',
+              candidate_index: 0,
+            },
+          ],
+          next_action: 'stop_duplicate',
+          files: {
+            identity_decision: null,
+            candidates: null,
+          },
+        };
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /"decision":"block_duplicate"/u);
+});
+
+test('executeCli maps process identity-preflight success and argument errors', async () => {
+  const result = await executeCli(
+    ['process', 'identity-preflight', '--input', '/tmp/process-preflight.json'],
+    {
+      ...makeDeps(),
+      runProcessIdentityPreflightImpl: async () => ({
+        schema_version: 1,
+        generated_at_utc: '2026-05-22T00:00:00.000Z',
+        kind: 'process',
+        status: 'passed',
+        decision: 'create_new',
+        confidence: 'medium',
+        input_path: '/tmp/process-preflight.json',
+        out_dir: null,
+        target: {
+          id: null,
+          version: null,
+          identity_key: 'process-key',
+          exchange_signature: [],
+          schema_validation: {
+            status: 'not_applicable',
+            validator: null,
+            issue_count: 0,
+            issues: [],
+          },
+        },
+        candidates: [],
+        findings: [],
+        blockers: [],
+        next_action: 'materialize_new_payload',
+        files: {
+          identity_decision: null,
+          candidates: null,
+        },
+      }),
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /"decision": "create_new"/u);
+
+  const invalid = await executeCli(
+    ['process', 'identity-preflight', '--input', '/tmp/process-preflight.json', '--bad'],
+    makeDeps(),
+  );
+  assert.equal(invalid.exitCode, 2);
+  assert.match(invalid.stderr, /Unknown option/u);
+});
+
 test('executeCli executes flow get with injected implementation', async () => {
   const deps = makeDeps({
     TIANGONG_LCA_API_BASE_URL: 'https://supabase.example/functions/v1',
@@ -1962,6 +2116,106 @@ test('executeCli parses non-all flow list pagination flags', async () => {
   assert.equal(result.exitCode, 0);
   assert.equal(result.stderr, '');
   assert.equal(JSON.parse(result.stdout).filters.offset, 1);
+});
+
+test('executeCli executes flow identity-preflight with injected implementation', async () => {
+  const result = await executeCli(
+    ['flow', 'identity-preflight', '--input', '/tmp/flow-preflight.json'],
+    {
+      ...makeDeps(),
+      runFlowIdentityPreflightImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/flow-preflight.json');
+        assert.equal(options.outDir, null);
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-22T00:00:00.000Z',
+          kind: 'flow',
+          status: 'passed',
+          decision: 'create_new',
+          confidence: 'medium',
+          input_path: '/tmp/flow-preflight.json',
+          out_dir: null,
+          target: {
+            id: null,
+            version: null,
+            identity_key: 'flow-key',
+            exchange_signature: [],
+            schema_validation: {
+              status: 'not_applicable',
+              validator: null,
+              issue_count: 0,
+              issues: [],
+            },
+          },
+          candidates: [],
+          findings: [
+            {
+              code: 'flow_no_duplicate_candidate',
+              severity: 'info',
+              message: 'new flow',
+            },
+          ],
+          blockers: [],
+          next_action: 'materialize_new_payload',
+          files: {
+            identity_decision: null,
+            candidates: null,
+          },
+        };
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /"decision": "create_new"/u);
+});
+
+test('executeCli maps flow identity-preflight blocker reports to exit code 1', async () => {
+  const result = await executeCli(
+    ['flow', 'identity-preflight', '--input', '/tmp/flow-preflight.json'],
+    {
+      ...makeDeps(),
+      runFlowIdentityPreflightImpl: async () => ({
+        schema_version: 1,
+        generated_at_utc: '2026-05-22T00:00:00.000Z',
+        kind: 'flow',
+        status: 'blocked',
+        decision: 'block_duplicate',
+        confidence: 'high',
+        input_path: '/tmp/flow-preflight.json',
+        out_dir: null,
+        target: {
+          id: null,
+          version: null,
+          identity_key: 'flow-key',
+          exchange_signature: [],
+          schema_validation: {
+            status: 'not_applicable',
+            validator: null,
+            issue_count: 0,
+            issues: [],
+          },
+        },
+        candidates: [],
+        findings: [],
+        blockers: [
+          {
+            code: 'flow_duplicate_candidate',
+            severity: 'blocker',
+            message: 'duplicate',
+          },
+        ],
+        next_action: 'stop_duplicate',
+        files: {
+          identity_decision: null,
+          candidates: null,
+        },
+      }),
+    },
+  );
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /"decision": "block_duplicate"/u);
 });
 
 test('executeCli executes flow list with explicit limit and offset', async () => {

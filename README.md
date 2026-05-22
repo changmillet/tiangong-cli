@@ -117,6 +117,40 @@ tiangong-lca process get --id <process-id> --version <version> --json
 tiangong-lca process list --state-code 100 --limit 20 --json
 ```
 
+## Identity Preflight
+
+Use identity preflight before generating new process or flow rows. The command compares one target against local candidate rows and emits a machine-readable `IdentityDecision` so automation can reuse, update, block, or route uncertain cases before payload generation.
+
+```bash
+tiangong-lca process identity-preflight --input ./process-preflight.json --out-dir ./process-preflight --json
+tiangong-lca flow identity-preflight --input ./flow-preflight.json --out-dir ./flow-preflight --json
+```
+
+Minimal input:
+
+```json
+{
+  "target": {
+    "name_en": "market for electricity, medium voltage",
+    "reference_flow_id": "flow-electricity",
+    "operation": "produce"
+  },
+  "candidates": [
+    {
+      "id": "existing-process",
+      "name_en": "market for electricity, medium voltage",
+      "reference_flow_id": "flow-electricity",
+      "operation": "produce"
+    }
+  ]
+}
+```
+
+Key outputs under `--out-dir`:
+
+- `outputs/identity-decision.json`
+- `outputs/identity-candidates.jsonl`
+
 ## Real DB Flow Review
 
 1. Search or otherwise collect exact flow refs.
@@ -193,6 +227,8 @@ Key `flow materialize-decisions` outputs:
 ## Other Common Commands
 
 ```bash
+tiangong-lca process identity-preflight --input ./process-preflight.json --out-dir /abs/path/to/process-preflight --json
+tiangong-lca flow identity-preflight --input ./flow-preflight.json --out-dir /abs/path/to/flow-preflight --json
 tiangong-lca process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
 tiangong-lca process resume-build --run-dir /abs/path/to/process-run --json
 tiangong-lca process publish-build --run-dir /abs/path/to/process-run --json
@@ -216,6 +252,8 @@ tiangong-lca doctor --json
 For `publish run`, relative `out_dir` values from either the request body or `--out-dir` are resolved against the request file directory, not the shell `cwd`. Use an absolute path when you want a fixed destination independent of the request file location.
 
 For `review process`, `--rows-file` accepts either raw process rows as JSON/JSONL or the full JSON report emitted by `tiangong-lca process list --json`, as long as it contains a `rows` array.
+
+For `process identity-preflight` and `flow identity-preflight`, canonical TIDAS wrappers are schema-checked when present. Loose target objects are accepted for early planning and produce `schema_validation.status: "not_applicable"` until materialization.
 
 For `process save-draft`, canonical process payloads are validated locally with `ProcessSchema` before any `--commit` write. Schema-invalid rows remain in `outputs/save-draft-rpc/failures.jsonl` instead of being persisted.
 

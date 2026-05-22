@@ -100,6 +100,14 @@ import {
   type ProcessVerifyRowsReport,
   type RunProcessVerifyRowsOptions,
 } from './lib/process-verify-rows.js';
+import {
+  runFlowIdentityPreflight,
+  runProcessIdentityPreflight,
+  type FlowIdentityPreflightReport,
+  type ProcessIdentityPreflightReport,
+  type RunFlowIdentityPreflightOptions,
+  type RunProcessIdentityPreflightOptions,
+} from './lib/identity-preflight.js';
 import { runPublish, type PublishReport, type RunPublishOptions } from './lib/publish.js';
 import {
   runProcessReview,
@@ -241,6 +249,9 @@ export type CliDeps = {
   runProcessVerifyRowsImpl?: (
     options: RunProcessVerifyRowsOptions,
   ) => Promise<ProcessVerifyRowsReport>;
+  runProcessIdentityPreflightImpl?: (
+    options: RunProcessIdentityPreflightOptions,
+  ) => Promise<ProcessIdentityPreflightReport>;
   runProcessReviewImpl?: (options: RunProcessReviewOptions) => Promise<ProcessReviewReport>;
   runFlowReviewImpl?: (options: RunFlowReviewOptions) => Promise<FlowReviewReport>;
   runLifecyclemodelReviewImpl?: (
@@ -277,6 +288,9 @@ export type CliDeps = {
   runFlowValidateProcessesImpl?: (
     options: RunFlowValidateProcessesOptions,
   ) => Promise<FlowValidateProcessesReport>;
+  runFlowIdentityPreflightImpl?: (
+    options: RunFlowIdentityPreflightOptions,
+  ) => Promise<FlowIdentityPreflightReport>;
   runDatasetValidateImpl?: (options: RunDatasetValidateOptions) => Promise<DatasetValidateReport>;
   runDatasetReferencesRewriteImpl?: (
     options: RunDatasetReferencesRewriteOptions,
@@ -312,9 +326,9 @@ Commands:
 Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
-  process    get | list | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
+  process    get | list | identity-preflight | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
   dataset    validate | references rewrite
-  flow       get | list | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
+  flow       get | list | identity-preflight | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
   publish    run
@@ -333,6 +347,7 @@ Examples:
   tiangong-lca search process --input ./request.json --dry-run
   tiangong-lca process get --id <process-id>
   tiangong-lca process list --state-code 100 --limit 20
+  tiangong-lca process identity-preflight --input ./process-preflight.json --out-dir ./process-preflight
   tiangong-lca process scope-statistics --out-dir /abs/path/to/process-scope --state-code 0 --state-code 100
   tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir /abs/path/to/process-dedup
   tiangong-lca process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
@@ -352,6 +367,7 @@ Examples:
   tiangong-lca lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run
   tiangong-lca flow get --id <flow-id> --version <version>
   tiangong-lca flow list --id <flow-id> --state-code 100 --limit 20
+  tiangong-lca flow identity-preflight --input ./flow-preflight.json --out-dir ./flow-preflight
   tiangong-lca flow fetch-rows --refs-file ./flow-refs.json --out-dir ./flow-fetch
   tiangong-lca flow materialize-decisions --decision-file ./approved-decisions.json --flow-rows-file ./review-input-rows.jsonl --out-dir ./flow-decisions
   tiangong-lca flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation
@@ -534,6 +550,7 @@ function renderFlowHelp(): string {
 Implemented Subcommands:
   get          Load one flow dataset by identifier through direct Supabase access
   list         Enumerate flow datasets through direct Supabase access with deterministic filters
+  identity-preflight Compare one target flow against local candidates before generation
   fetch-rows   Materialize real DB flow refs into local review-input rows and fetch artifacts
   materialize-decisions Materialize approved merge decisions into canonical-map, rewrite-plan, and seed artifacts
   remediate    Deterministically repair invalid local flow rows and emit artifact-first outputs
@@ -550,6 +567,7 @@ Examples:
   tiangong-lca flow --help
   tiangong-lca flow get --help
   tiangong-lca flow list --help
+  tiangong-lca flow identity-preflight --help
   tiangong-lca flow fetch-rows --help
   tiangong-lca flow materialize-decisions --help
   tiangong-lca flow remediate --help
@@ -561,6 +579,28 @@ Examples:
   tiangong-lca flow apply-process-flow-repairs --help
   tiangong-lca flow regen-product --help
   tiangong-lca flow validate-processes --help
+`.trim();
+}
+
+function renderFlowIdentityPreflightHelp(): string {
+  return `Usage:
+  tiangong-lca flow identity-preflight --input <file> [options]
+
+Options:
+  --input <file>   JSON preflight request with target flow and optional candidates
+  --out-dir <dir>  Optional artifact directory for identity decision outputs
+  --json           Print compact JSON
+  -h, --help
+
+Input contract:
+  {
+    "target": { "...": "flow target or canonical flowDataSet" },
+    "candidates": [{ "...": "existing flow row or canonical flowDataSet" }]
+  }
+
+Outputs written under --out-dir:
+  - outputs/identity-decision.json
+  - outputs/identity-candidates.jsonl
 `.trim();
 }
 
@@ -1244,6 +1284,28 @@ Outputs written under --out-dir:
 `.trim();
 }
 
+function renderProcessIdentityPreflightHelp(): string {
+  return `Usage:
+  tiangong-lca process identity-preflight --input <file> [options]
+
+Options:
+  --input <file>   JSON preflight request with target process and optional candidates
+  --out-dir <dir>  Optional artifact directory for identity decision outputs
+  --json           Print compact JSON
+  -h, --help
+
+Input contract:
+  {
+    "target": { "...": "process target or canonical processDataSet" },
+    "candidates": [{ "...": "existing process row or canonical processDataSet" }]
+  }
+
+Outputs written under --out-dir:
+  - outputs/identity-decision.json
+  - outputs/identity-candidates.jsonl
+`.trim();
+}
+
 function renderProcessDedupReviewHelp(): string {
   return `Usage:
   tiangong-lca process dedup-review --input <file> --out-dir <dir> [options]
@@ -1417,6 +1479,7 @@ function renderProcessHelp(): string {
 Implemented Subcommands:
   get          Load one process dataset by identifier through direct Supabase access
   list         List visible process rows through direct Supabase access
+  identity-preflight Compare one target process against local candidates before generation
   scope-statistics Count repeatable coverage statistics from visible or owner-filtered process snapshots
   dedup-review Review grouped duplicate process candidates and emit keep/delete evidence
   auto-build   Prepare a local process-from-flow run scaffold and artifact workspace
@@ -1431,6 +1494,7 @@ Examples:
   tiangong-lca process --help
   tiangong-lca process get --id <process-id>
   tiangong-lca process list --state-code 100 --limit 20 --help
+  tiangong-lca process identity-preflight --input ./process-preflight.json --help
   tiangong-lca process scope-statistics --out-dir ./process-scope --state-code 0 --state-code 100 --help
   tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir ./process-dedup --help
   tiangong-lca process auto-build --help
@@ -1792,6 +1856,40 @@ function parseDatasetReferencesRewriteFlags(args: string[]): {
     scope: typeof values.scope === 'string' ? values.scope : null,
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
     commit: Boolean(values.commit),
+  };
+}
+
+function parseIdentityPreflightFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
   };
 }
 
@@ -3840,6 +3938,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const processPublishBuildImpl = deps.runProcessPublishBuildImpl ?? runProcessPublishBuild;
     const processSaveDraftImpl = deps.runProcessSaveDraftImpl ?? runProcessSaveDraft;
     const processVerifyRowsImpl = deps.runProcessVerifyRowsImpl ?? runProcessVerifyRows;
+    const processIdentityPreflightImpl =
+      deps.runProcessIdentityPreflightImpl ?? runProcessIdentityPreflight;
     const processReviewImpl = deps.runProcessReviewImpl ?? runProcessReview;
     const flowReviewImpl = deps.runFlowReviewImpl ?? runFlowReview;
     const lifecyclemodelReviewImpl = deps.runLifecyclemodelReviewImpl ?? runLifecyclemodelReview;
@@ -3861,6 +3961,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       deps.runFlowApplyProcessFlowRepairsImpl ?? runFlowApplyProcessFlowRepairs;
     const flowRegenProductImpl = deps.runFlowRegenProductImpl ?? runFlowRegenProduct;
     const flowValidateProcessesImpl = deps.runFlowValidateProcessesImpl ?? runFlowValidateProcesses;
+    const flowIdentityPreflightImpl = deps.runFlowIdentityPreflightImpl ?? runFlowIdentityPreflight;
     const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
     const datasetReferencesRewriteImpl =
       deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
@@ -4242,6 +4343,28 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
+    if (command === 'process' && subcommand === 'identity-preflight') {
+      const processFlags = parseIdentityPreflightFlags(commandArgs);
+      if (processFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderProcessIdentityPreflightHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report = await processIdentityPreflightImpl({
+        inputPath: processFlags.inputPath,
+        outDir: processFlags.outDir,
+      });
+
+      return {
+        exitCode: report.status === 'passed' ? 0 : 1,
+        stdout: stringifyJson(report, processFlags.json),
+        stderr: '',
+      };
+    }
+
     if (command === 'process' && subcommand === 'scope-statistics') {
       const processFlags = parseProcessScopeStatisticsFlags(commandArgs);
       if (processFlags.help) {
@@ -4506,6 +4629,24 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
 
       return {
         exitCode: 0,
+        stdout: stringifyJson(report, flowFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'flow' && subcommand === 'identity-preflight') {
+      const flowFlags = parseIdentityPreflightFlags(commandArgs);
+      if (flowFlags.help) {
+        return { exitCode: 0, stdout: `${renderFlowIdentityPreflightHelp()}\n`, stderr: '' };
+      }
+
+      const report = await flowIdentityPreflightImpl({
+        inputPath: flowFlags.inputPath,
+        outDir: flowFlags.outDir,
+      });
+
+      return {
+        exitCode: report.status === 'passed' ? 0 : 1,
         stdout: stringifyJson(report, flowFlags.json),
         stderr: '',
       };

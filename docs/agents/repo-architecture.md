@@ -103,6 +103,7 @@ Recent process maintenance commands extend the same native CLI layer instead of 
 - `src/lib/process-dedup-review.ts`
 - `src/lib/process-refresh-references.ts`
 - `src/lib/process-verify-rows.ts`
+- `src/lib/identity-preflight.ts`
 - `src/lib/review-process.ts`
 
 These modules share one contract:
