@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import {
+  __testInternals,
   summarizeProcessPayloadValidation,
   validateProcessPayload,
 } from '../src/lib/process-payload-validation.js';
@@ -45,7 +46,7 @@ test('process payload validation summarizes ok and failure results with normaliz
         },
       }) as unknown as ReturnType<typeof originalSafeParse>) as typeof originalSafeParse;
 
-    const invalidResult = validateProcessPayload({});
+    const invalidResult = validateProcessPayload({}, undefined, null);
     assert.equal(invalidResult.ok, false);
     assert.equal(invalidResult.issue_count, 2);
     assert.deepEqual(invalidResult.issues, [
@@ -70,7 +71,7 @@ test('process payload validation summarizes ok and failure results with normaliz
         success: false,
         error: undefined,
       }) as unknown as ReturnType<typeof originalSafeParse>) as typeof originalSafeParse;
-    const emptyIssueResult = validateProcessPayload({});
+    const emptyIssueResult = validateProcessPayload({}, undefined, null);
     assert.equal(emptyIssueResult.ok, false);
     assert.equal(emptyIssueResult.issue_count, 0);
     assert.equal(
@@ -86,4 +87,48 @@ test('process payload validation summarizes ok and failure results with normaliz
   } finally {
     tidasSdk.ProcessSchema.safeParse = originalSafeParse;
   }
+});
+
+test('process payload validation falls back to deep SDK validation only after fast failure', () => {
+  const calls: boolean[] = [];
+  const schema = {
+    safeParse: () => ({
+      success: false as const,
+      error: {
+        issues: [{ path: ['fast'], message: 'fast issue', code: 'fast' }],
+      },
+    }),
+  };
+
+  const result = validateProcessPayload({}, schema, (_, config) => {
+    calls.push(config?.deepValidation ?? false);
+    return {
+      validateEnhanced: () =>
+        config?.deepValidation
+          ? {
+              success: false,
+              error: {
+                issues: [{ path: ['deep'], message: 'deep issue', code: 'deep' }],
+              },
+            }
+          : {
+              success: false,
+              error: {
+                issues: [{ path: ['shallow'], message: 'shallow issue', code: 'shallow' }],
+              },
+            },
+    };
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(calls, [false, true]);
+  assert.deepEqual(result.issues, [
+    {
+      path: 'deep',
+      message: 'deep issue',
+      code: 'deep',
+    },
+  ]);
+  assert.equal(__testInternals.getProcessFactory({}), null);
+  assert.equal(typeof __testInternals.getProcessFactory({ createProcess: () => ({}) }), 'function');
 });

@@ -15,28 +15,12 @@ import {
   type LifecyclemodelPublishMetadata,
 } from './lifecyclemodel-bundle-save.js';
 import { buildRunId, resolveRunLayout } from './run.js';
-
-type SafeParseIssue = {
-  code?: string;
-  message?: string;
-  path?: Array<string | number>;
-};
-
-type SafeParseResult =
-  | {
-      success: true;
-      data?: unknown;
-    }
-  | {
-      success: false;
-      error?: {
-        issues?: SafeParseIssue[];
-      };
-    };
-
-type SafeParseSchema = {
-  safeParse: (value: unknown) => SafeParseResult;
-};
+import {
+  normalizeIssuePath,
+  type SafeParseSchema,
+  type SdkValidationFactory,
+  validateSchemaWithDeepFallback,
+} from './tidas-sdk-validation.js';
 
 export type LifecyclemodelPayloadValidationIssue = {
   path: string;
@@ -115,13 +99,6 @@ export type RunLifecyclemodelSaveDraftOptions = {
 
 const VALIDATOR_NAME = '@tiangong-lca/tidas-sdk/LifeCycleModelSchema';
 
-function normalizeIssuePath(pathParts: Array<string | number> | undefined): string {
-  if (!Array.isArray(pathParts) || pathParts.length === 0) {
-    return '<root>';
-  }
-  return pathParts.map((part) => String(part)).join('.');
-}
-
 function getLifecyclemodelSchema(
   sdk: { LifeCycleModelSchema?: unknown } = tidasSdk,
 ): SafeParseSchema {
@@ -132,11 +109,24 @@ function getLifecyclemodelSchema(
   return schema;
 }
 
+function getLifecyclemodelFactory(
+  sdk: { createLifeCycleModel?: unknown } = tidasSdk,
+): SdkValidationFactory | null {
+  const createLifeCycleModel = sdk.createLifeCycleModel;
+  return typeof createLifeCycleModel === 'function'
+    ? (createLifeCycleModel as SdkValidationFactory)
+    : null;
+}
+
 export function validateLifecyclemodelPayload(
   payload: JsonObject,
-  schema: SafeParseSchema = getLifecyclemodelSchema(),
+  schema?: SafeParseSchema,
+  createEntity?: SdkValidationFactory | null,
 ): LifecyclemodelPayloadValidationResult {
-  const outcome = schema.safeParse(payload);
+  const activeSchema = schema ?? getLifecyclemodelSchema();
+  const activeCreateEntity =
+    createEntity === undefined && schema === undefined ? getLifecyclemodelFactory() : createEntity;
+  const outcome = validateSchemaWithDeepFallback(activeSchema, payload, activeCreateEntity);
   if (outcome.success) {
     return {
       ok: true,
@@ -146,7 +136,7 @@ export function validateLifecyclemodelPayload(
     };
   }
 
-  const issues = (outcome.error?.issues ?? []).map((issue) => ({
+  const issues = outcome.issues.map((issue) => ({
     path: normalizeIssuePath(issue.path),
     message: issue.message ?? 'Validation failed',
     code: issue.code ?? 'custom',
@@ -390,6 +380,7 @@ export async function runLifecyclemodelSaveDraft(
 
 export const __testInternals = {
   buildCandidate,
+  getLifecyclemodelFactory,
   getLifecyclemodelSchema,
   normalizeIssuePath,
   serializeError,

@@ -316,6 +316,40 @@ test('runLifecyclemodelSaveDraft records candidate failures and default output l
       __testInternals.summarizeValidation(VALIDATION_OK()),
       'local LifeCycleModelSchema validation passed',
     );
+    assert.equal(__testInternals.getLifecyclemodelFactory({}), null);
+    assert.equal(
+      typeof __testInternals.getLifecyclemodelFactory({ createLifeCycleModel: () => ({}) }),
+      'function',
+    );
+
+    const deepFallbackPayload = __testInternals.validateLifecyclemodelPayload(
+      {},
+      {
+        safeParse: () => ({
+          success: false,
+          error: { issues: [{ path: ['fast'], message: 'fast issue', code: 'fast' }] },
+        }),
+      },
+      (_, config) => ({
+        validateEnhanced: () =>
+          config?.deepValidation
+            ? {
+                success: false,
+                error: {
+                  issues: [{ path: ['deep'], message: 'deep issue', code: 'deep' }],
+                },
+              }
+            : {
+                success: false,
+                error: {
+                  issues: [{ path: ['shallow'], message: 'shallow issue', code: 'shallow' }],
+                },
+              },
+      }),
+    );
+    assert.deepEqual(deepFallbackPayload.issues, [
+      { path: 'deep', message: 'deep issue', code: 'deep' },
+    ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,7 +1,7 @@
 version: 1
 layout: repo
-lastReviewedAt: "2026-05-10"
-lastReviewedCommit: "ea4e5b546ffdd4d5b57d266a58a3d3d5d83c8e5b"
+lastReviewedAt: "2026-05-22"
+lastReviewedCommit: "1e1119bdc91b82e3e5f360ba53610fe07479faad"
 
 catalog:
   repos:
@@ -59,6 +59,7 @@ ownership:
           - src/lib/review-*.ts
           - src/lib/run.ts
           - src/lib/state-lock.ts
+          - src/lib/tidas-sdk-validation.ts
           - src/lib/tidas-sdk-package-validator.ts
           - src/lib/validation.ts
       ownerRepo: cli
@@ -195,6 +196,7 @@ routing:
         - docs/IMPLEMENTATION_GUIDE_CN.md
     tidas-sdk-validation:
       paths:
+        - src/lib/tidas-sdk-validation.ts
         - src/lib/tidas-sdk-package-validator.ts
         - src/lib/validation.ts
         - test/fixtures/tidas-sdk/**
@@ -378,6 +380,8 @@ rules:
         kind: command-logic
       - path: src/lib/state-lock.ts
         kind: artifact-runtime
+      - path: src/lib/tidas-sdk-validation.ts
+        kind: validation-runtime
       - path: src/lib/tidas-sdk-package-validator.ts
         kind: validation-runtime
       - path: src/lib/validation.ts

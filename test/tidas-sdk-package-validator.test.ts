@@ -66,6 +66,13 @@ test('createTidasSdkPackageValidator resolves complete schema exports and reject
   const resolved = __testInternals.resolveCategorySchemas(schemas);
   assert.ok(resolved instanceof Map);
   assert.equal(resolved?.size, 8);
+  assert.equal(resolved?.get('contacts')?.schema, schemas.ContactSchema);
+  assert.equal(resolved?.get('contacts')?.createEntity, null);
+  const resolvedWithFactory = __testInternals.resolveCategorySchemas({
+    ...schemas,
+    createContact: () => ({}),
+  });
+  assert.equal(typeof resolvedWithFactory?.get('contacts')?.createEntity, 'function');
   assert.equal(
     createTidasSdkPackageValidator(schemas, '@tiangong-lca/tidas-sdk')?.location,
     '@tiangong-lca/tidas-sdk',
@@ -822,6 +829,50 @@ test('collection helpers derive schema gaps, localized text issues, hierarchy is
     )[0]?.issue_code,
     'validation_error',
   );
+  assert.deepEqual(
+    __testInternals.collectSchemaIssues(
+      {
+        safeParse: () => ({
+          success: false,
+          error: {
+            issues: [{ code: 'fast', message: 'Fast issue', path: ['fast'] }],
+          },
+        }),
+      },
+      {},
+      'flows',
+      '/tmp/deep.json',
+      (_value: unknown, config?: { deepValidation?: boolean }) => ({
+        validateEnhanced: () =>
+          config?.deepValidation
+            ? {
+                success: false,
+                error: {
+                  issues: [{ code: 'deep', message: 'Deep issue', path: ['deep'] }],
+                },
+              }
+            : {
+                success: false,
+                error: {
+                  issues: [{ code: 'shallow', message: 'Shallow issue', path: ['shallow'] }],
+                },
+              },
+      }),
+    ),
+    [
+      {
+        issue_code: 'schema_error',
+        severity: 'error',
+        category: 'flows',
+        file_path: '/tmp/deep.json',
+        location: 'deep',
+        message: 'Schema Error at deep: Deep issue',
+        context: {
+          validator: 'deep',
+        },
+      },
+    ],
+  );
   assert.equal(
     __testInternals.collectSchemaIssues(
       {
@@ -914,6 +965,7 @@ test('categoryValidate logs pass and failure cases while deduping repeated schem
           };
         },
       },
+      null,
       true,
     );
 

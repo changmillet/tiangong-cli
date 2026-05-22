@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import {
   __testInternals,
   runDatasetValidate,
@@ -290,13 +291,39 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
   );
 
   const originalLifecyclemodelExport = __testInternals.SCHEMA_EXPORTS.lifecyclemodel;
+  const originalProcessFactoryExport = __testInternals.ENTITY_FACTORY_EXPORTS.process;
   try {
     __testInternals.SCHEMA_EXPORTS.lifecyclemodel = 'MissingSchemaForTest' as never;
     assert.throws(
       () => __testInternals.schemaForKind('lifecyclemodel', undefined),
       /MissingSchemaForTest is unavailable/u,
     );
+    __testInternals.ENTITY_FACTORY_EXPORTS.process = 'MissingFactoryForTest' as never;
+    assert.equal(__testInternals.schemaForKind('process', undefined).createEntity, null);
   } finally {
     __testInternals.SCHEMA_EXPORTS.lifecyclemodel = originalLifecyclemodelExport;
+    __testInternals.ENTITY_FACTORY_EXPORTS.process = originalProcessFactoryExport;
+  }
+});
+
+test('runDatasetValidate uses deep SDK fallback for default schema failures', async () => {
+  const originalSafeParse = tidasSdk.ProcessSchema.safeParse;
+  try {
+    tidasSdk.ProcessSchema.safeParse = (() => ({
+      success: false,
+      error: { issues: [{ path: ['fast'], message: 'fast issue', code: 'fast' }] },
+    })) as unknown as typeof originalSafeParse;
+
+    const report = await runDatasetValidate({
+      inputPath: 'memory',
+      rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+      type: 'process',
+    });
+
+    assert.equal(report.rows[0]?.status, 'invalid');
+    assert.equal(__testInternals.schemaForKind('process', undefined).createEntity !== null, true);
+    assert.equal((report.rows[0]?.issue_count ?? 0) > 0, true);
+  } finally {
+    tidasSdk.ProcessSchema.safeParse = originalSafeParse;
   }
 });

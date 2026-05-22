@@ -17,6 +17,10 @@ import {
   type FlowRecord,
   type JsonRecord,
 } from './flow-governance.js';
+import {
+  type SdkValidationEntity,
+  validateEntityWithDeepFallback,
+} from './tidas-sdk-validation.js';
 import { resolveRepoRootFrom } from './validation.js';
 
 const EMERGY_TEXT_KEYWORDS = [
@@ -306,11 +310,6 @@ export type FlowApplyProcessFlowRepairsReport = {
   files: ApplyStageFiles;
 };
 
-type ProcessSdkValidationEntity = {
-  validateEnhanced?: () => unknown;
-  validate?: () => unknown;
-};
-
 type ProcessSdkModule = {
   createProcess?: (
     data?: unknown,
@@ -319,7 +318,7 @@ type ProcessSdkModule = {
       throwOnError?: boolean;
       deepValidation?: boolean;
     },
-  ) => ProcessSdkValidationEntity;
+  ) => SdkValidationEntity;
   location?: string;
 };
 
@@ -1327,17 +1326,7 @@ function evaluateProcessSdkValidation(
   createProcess: NonNullable<ProcessSdkModule['createProcess']>,
 ): string | null {
   try {
-    const entity = createProcess(payload, {
-      mode: 'strict',
-      throwOnError: false,
-      deepValidation: true,
-    });
-    const validation =
-      typeof entity?.validateEnhanced === 'function'
-        ? entity.validateEnhanced()
-        : typeof entity?.validate === 'function'
-          ? entity.validate()
-          : null;
+    const validation = validateEntityWithDeepFallback(payload, createProcess);
 
     if (isRecord(validation) && validation.success === true) {
       return null;
