@@ -1,5 +1,11 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import {
+  type SafeParseIssue,
+  type SafeParseSchema,
+  type SdkValidationFactory,
+  validateSchemaWithDeepFallback,
+} from './tidas-sdk-validation.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -37,28 +43,6 @@ export type PackageValidationReport = {
   issues: ValidationIssue[];
 };
 
-type SafeParseIssue = {
-  code?: string;
-  message?: string;
-  path?: Array<string | number>;
-};
-
-type SafeParseResult =
-  | {
-      success: true;
-      data?: unknown;
-    }
-  | {
-      success: false;
-      error?: {
-        issues?: SafeParseIssue[];
-      };
-    };
-
-type SafeParseSchema = {
-  safeParse: (value: unknown) => SafeParseResult;
-};
-
 type SupportedCategory =
   | 'contacts'
   | 'flowproperties'
@@ -78,6 +62,14 @@ type TidasSdkPublicModule = {
   ProcessSchema?: SafeParseSchema;
   SourceSchema?: SafeParseSchema;
   UnitGroupSchema?: SafeParseSchema;
+  createContact?: SdkValidationFactory;
+  createFlowProperty?: SdkValidationFactory;
+  createFlow?: SdkValidationFactory;
+  createLCIAMethod?: SdkValidationFactory;
+  createLifeCycleModel?: SdkValidationFactory;
+  createProcess?: SdkValidationFactory;
+  createSource?: SdkValidationFactory;
+  createUnitGroup?: SdkValidationFactory;
 };
 
 const SUPPORTED_CATEGORIES: SupportedCategory[] = [
@@ -100,6 +92,17 @@ const CATEGORY_SCHEMA_EXPORTS: Record<SupportedCategory, keyof TidasSdkPublicMod
   processes: 'ProcessSchema',
   sources: 'SourceSchema',
   unitgroups: 'UnitGroupSchema',
+};
+
+const CATEGORY_FACTORY_EXPORTS: Record<SupportedCategory, keyof TidasSdkPublicModule> = {
+  contacts: 'createContact',
+  flowproperties: 'createFlowProperty',
+  flows: 'createFlow',
+  lciamethods: 'createLCIAMethod',
+  lifecyclemodels: 'createLifeCycleModel',
+  processes: 'createProcess',
+  sources: 'createSource',
+  unitgroups: 'createUnitGroup',
 };
 
 const CHINESE_CHARACTER_RE = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u;
@@ -678,14 +681,15 @@ function collectSchemaIssues(
   jsonItem: unknown,
   category: SupportedCategory,
   filePath: string,
+  createEntity: SdkValidationFactory | null = null,
 ): ValidationIssue[] {
   try {
-    const result = schema.safeParse(jsonItem);
+    const result = validateSchemaWithDeepFallback(schema, jsonItem, createEntity);
     if (result.success) {
       return [];
     }
 
-    const rawIssues = Array.isArray(result.error?.issues) ? result.error.issues : [];
+    const rawIssues = result.issues;
     if (rawIssues.length === 0) {
       return [createValidationErrorIssue(category, filePath, 'Schema validation failed')];
     }
@@ -700,6 +704,7 @@ function categoryValidate(
   jsonFilePath: string,
   category: SupportedCategory,
   schema: SafeParseSchema,
+  createEntity: SdkValidationFactory | null = null,
   emitLogs = true,
 ): CategoryValidationReport {
   const issues: ValidationIssue[] = [];
@@ -720,7 +725,7 @@ function categoryValidate(
     }
 
     const itemIssues = dedupeIssues([
-      ...collectSchemaIssues(schema, jsonItem, category, fullPath),
+      ...collectSchemaIssues(schema, jsonItem, category, fullPath, createEntity),
       ...collectFlowSchemaGapIssues(jsonItem, category, fullPath),
       ...collectLocalizedTextIssues(jsonItem, category, fullPath),
       ...collectClassificationIssues(jsonItem, category, fullPath),
@@ -756,8 +761,14 @@ function isSafeParseSchema(value: unknown): value is SafeParseSchema {
 
 function resolveCategorySchemas(
   moduleExports: TidasSdkPublicModule,
-): Map<SupportedCategory, SafeParseSchema> | null {
-  const schemas = new Map<SupportedCategory, SafeParseSchema>();
+): Map<
+  SupportedCategory,
+  { schema: SafeParseSchema; createEntity: SdkValidationFactory | null }
+> | null {
+  const schemas = new Map<
+    SupportedCategory,
+    { schema: SafeParseSchema; createEntity: SdkValidationFactory | null }
+  >();
 
   for (const category of SUPPORTED_CATEGORIES) {
     const exportName = CATEGORY_SCHEMA_EXPORTS[category];
@@ -765,7 +776,12 @@ function resolveCategorySchemas(
     if (!isSafeParseSchema(schema)) {
       return null;
     }
-    schemas.set(category, schema);
+    const factoryName = CATEGORY_FACTORY_EXPORTS[category];
+    const createEntity = moduleExports[factoryName];
+    schemas.set(category, {
+      schema,
+      createEntity: typeof createEntity === 'function' ? createEntity : null,
+    });
   }
 
   return schemas;
@@ -788,12 +804,20 @@ export function createTidasSdkPackageValidator(
     validatePackageDir(inputDir: string, emitLogs = false): PackageValidationReport {
       const categoryReports = SUPPORTED_CATEGORIES.flatMap((category) => {
         const categoryDir = path.join(inputDir, category);
-        const schema = schemas.get(category);
-        if (!schema || !existsSync(categoryDir)) {
+        const validator = schemas.get(category);
+        if (!validator || !existsSync(categoryDir)) {
           return [];
         }
 
-        return [categoryValidate(categoryDir, category, schema, emitLogs)];
+        return [
+          categoryValidate(
+            categoryDir,
+            category,
+            validator.schema,
+            validator.createEntity,
+            emitLogs,
+          ),
+        ];
       });
 
       return buildPackageReport(inputDir, categoryReports);
@@ -825,5 +849,6 @@ export const __testInternals = {
   collectClassificationIssues,
   collectSchemaIssues,
   categoryValidate,
+  CATEGORY_FACTORY_EXPORTS,
   resolveCategorySchemas,
 };

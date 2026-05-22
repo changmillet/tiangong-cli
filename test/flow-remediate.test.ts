@@ -869,18 +869,24 @@ test('flow remediation sdk helpers cover resolution and validation error branche
     (error: unknown) => error instanceof CliError && error.code === 'FLOW_REMEDIATE_SDK_NOT_FOUND',
   );
 
+  const successConfigs: boolean[] = [];
   const successValidation = __testInternals.validate_flow_payload(
     { flowDataSet: {} },
     {
       loadSdkModule: () => ({
         location: 'mock',
-        createFlow: () => ({
+        createFlow: (_data, config) => ({
+          validateEnhanced: () => {
+            successConfigs.push(config?.deepValidation ?? false);
+            return { success: true };
+          },
           validate: () => ({ success: true }),
         }),
       }),
     },
   );
   assert.deepEqual(successValidation, { success: true });
+  assert.deepEqual(successConfigs, [false]);
 
   assert.throws(
     () =>
@@ -909,24 +915,35 @@ test('flow remediation sdk helpers cover resolution and validation error branche
     (error: unknown) => error instanceof CliError && error.code === 'FLOW_REMEDIATE_SDK_INVALID',
   );
 
+  const failedConfigs: boolean[] = [];
   const failedValidation = __testInternals.validate_flow_payload(
     { flowDataSet: {} },
     {
       loadSdkModule: () => ({
         location: 'mock',
-        createFlow: () => ({
-          validate: () => ({
-            success: false,
-            error: {
-              issues: [{ path: ['flowDataSet'], message: 'broken', code: 'custom' }],
-            },
-          }),
+        createFlow: (_data, config) => ({
+          validateEnhanced: () => {
+            failedConfigs.push(config?.deepValidation ?? false);
+            return {
+              success: false,
+              error: {
+                issues: [
+                  {
+                    path: [config?.deepValidation ? 'deepFlowDataSet' : 'flowDataSet'],
+                    message: 'broken',
+                    code: 'custom',
+                  },
+                ],
+              },
+            };
+          },
         }),
       }),
     },
   );
   assert.equal(failedValidation.success, false);
-  assert.equal(failedValidation.issues[0]?.path, 'flowDataSet');
+  assert.deepEqual(failedConfigs, [false, true]);
+  assert.equal(failedValidation.issues[0]?.path, 'deepFlowDataSet');
 
   const thrownValidation = __testInternals.validate_flow_payload(
     { flowDataSet: {} },

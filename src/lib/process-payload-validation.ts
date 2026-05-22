@@ -1,28 +1,12 @@
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
+import {
+  normalizeIssuePath,
+  type SafeParseSchema,
+  type SdkValidationFactory,
+  validateSchemaWithDeepFallback,
+} from './tidas-sdk-validation.js';
 
 type JsonObject = Record<string, unknown>;
-
-type SafeParseIssue = {
-  code?: string;
-  message?: string;
-  path?: Array<string | number>;
-};
-
-type SafeParseResult =
-  | {
-      success: true;
-      data?: unknown;
-    }
-  | {
-      success: false;
-      error?: {
-        issues?: SafeParseIssue[];
-      };
-    };
-
-type SafeParseSchema = {
-  safeParse: (value: unknown) => SafeParseResult;
-};
 
 const PROCESS_SCHEMA_VALIDATOR = '@tiangong-lca/tidas-sdk/ProcessSchema';
 
@@ -54,11 +38,11 @@ function getProcessSchema(): SafeParseSchema {
   return schema;
 }
 
-function normalizeIssuePath(pathParts: Array<string | number> | undefined): string {
-  if (!Array.isArray(pathParts) || pathParts.length === 0) {
-    return '<root>';
-  }
-  return pathParts.map((part) => String(part)).join('.');
+function getProcessFactory(
+  sdk: { createProcess?: unknown } = tidasSdk,
+): SdkValidationFactory | null {
+  const createProcess = sdk.createProcess;
+  return typeof createProcess === 'function' ? (createProcess as SdkValidationFactory) : null;
 }
 
 export function summarizeProcessPayloadValidation(result: ProcessPayloadValidationResult): string {
@@ -73,9 +57,12 @@ export function summarizeProcessPayloadValidation(result: ProcessPayloadValidati
   return `local ProcessSchema validation failed with ${result.issue_count} issue(s)${preview ? ` (${preview})` : ''}`;
 }
 
-export function validateProcessPayload(payload: JsonObject): ProcessPayloadValidationResult {
-  const schema = getProcessSchema();
-  const outcome = schema.safeParse(payload);
+export function validateProcessPayload(
+  payload: JsonObject,
+  schema: SafeParseSchema = getProcessSchema(),
+  createEntity: SdkValidationFactory | null = getProcessFactory(),
+): ProcessPayloadValidationResult {
+  const outcome = validateSchemaWithDeepFallback(schema, payload, createEntity);
 
   if (outcome.success) {
     return {
@@ -86,7 +73,7 @@ export function validateProcessPayload(payload: JsonObject): ProcessPayloadValid
     };
   }
 
-  const issues = (outcome.error?.issues ?? []).map((issue) => ({
+  const issues = outcome.issues.map((issue) => ({
     path: normalizeIssuePath(issue.path),
     message: issue.message ?? 'Validation failed',
     code: issue.code ?? 'custom',
@@ -99,3 +86,7 @@ export function validateProcessPayload(payload: JsonObject): ProcessPayloadValid
     issues,
   };
 }
+
+export const __testInternals = {
+  getProcessFactory,
+};

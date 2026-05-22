@@ -11,6 +11,10 @@ import {
   normalizeText,
   type JsonRecord,
 } from './flow-governance.js';
+import {
+  type SdkValidationEntity,
+  validateEntityWithDeepFallback,
+} from './tidas-sdk-validation.js';
 
 const CONTACT_UUID = 'f4b4c314-8c4c-4c83-968f-5b3c7724f6a8';
 const CONTACT_VERSION = '01.00.000';
@@ -74,10 +78,6 @@ type FlowValidationResult =
       issues: FlowValidationIssue[];
     };
 
-type FlowSdkValidationEntity = {
-  validate?: () => unknown;
-};
-
 type FlowSdkModule = {
   createFlow?: (
     data?: unknown,
@@ -86,7 +86,7 @@ type FlowSdkModule = {
       throwOnError?: boolean;
       deepValidation?: boolean;
     },
-  ) => FlowSdkValidationEntity;
+  ) => SdkValidationEntity;
 };
 
 type FlowRemediationFiles = {
@@ -699,19 +699,17 @@ function validate_flow_payload(
   }
 
   try {
-    const entity = sdkModule.createFlow(payload, {
-      mode: 'strict',
-      throwOnError: false,
-      deepValidation: true,
-    });
-    if (!entity || typeof entity.validate !== 'function') {
-      throw new CliError('Resolved tidas-sdk flow entity does not expose validate().', {
-        code: 'FLOW_REMEDIATE_SDK_INVALID',
-        exitCode: 2,
-        details: sdkModule.location ?? null,
-      });
+    const result = validateEntityWithDeepFallback(payload, sdkModule.createFlow);
+    if (!result) {
+      throw new CliError(
+        'Resolved tidas-sdk flow entity does not expose validateEnhanced() or validate().',
+        {
+          code: 'FLOW_REMEDIATE_SDK_INVALID',
+          exitCode: 2,
+          details: sdkModule.location ?? null,
+        },
+      );
     }
-    const result = entity.validate();
     if (isRecord(result) && result.success === true) {
       return { success: true };
     }

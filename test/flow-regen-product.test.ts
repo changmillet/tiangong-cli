@@ -1301,18 +1301,28 @@ test('flow regen-product merge, file-writing, and validator helper utilities cov
       version: '01.00.000',
       exchanges: [],
     });
+    const successConfigs: boolean[] = [];
     assert.equal(
-      __testInternals.evaluateProcessSdkValidation(payload, () => ({
-        validateEnhanced: () => ({ success: true }),
+      __testInternals.evaluateProcessSdkValidation(payload, (_data, config) => ({
+        validateEnhanced: () => {
+          successConfigs.push(config?.deepValidation ?? false);
+          return { success: true };
+        },
       })),
       null,
     );
+    assert.deepEqual(successConfigs, [false]);
+    const failureConfigs: boolean[] = [];
     assert.equal(
-      __testInternals.evaluateProcessSdkValidation(payload, () => ({
-        validate: () => ({ success: false, reason: 'bad' }),
+      __testInternals.evaluateProcessSdkValidation(payload, (_data, config) => ({
+        validate: () => {
+          failureConfigs.push(config?.deepValidation ?? false);
+          return { success: false, reason: config?.deepValidation ? 'deep bad' : 'bad' };
+        },
       })),
-      '{"success":false,"reason":"bad"}',
+      '{"success":false,"reason":"deep bad"}',
     );
+    assert.deepEqual(failureConfigs, [false, true]);
     assert.equal(
       __testInternals.evaluateProcessSdkValidation(payload, () => ({})),
       'Validator returned no result.',

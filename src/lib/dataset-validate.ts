@@ -3,28 +3,12 @@ import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
 import { materializeDatasetRows, type DatasetKind, type DatasetRowInput } from './dataset-local.js';
-
-type SafeParseIssue = {
-  code?: string;
-  message?: string;
-  path?: Array<string | number>;
-};
-
-type SafeParseResult =
-  | {
-      success: true;
-      data?: unknown;
-    }
-  | {
-      success: false;
-      error?: {
-        issues?: SafeParseIssue[];
-      };
-    };
-
-type SafeParseSchema = {
-  safeParse: (value: unknown) => SafeParseResult;
-};
+import {
+  normalizeIssuePath,
+  type SafeParseSchema,
+  type SdkValidationFactory,
+  validateSchemaWithDeepFallback,
+} from './tidas-sdk-validation.js';
 
 type DatasetValidateType = 'auto' | DatasetKind;
 
@@ -81,6 +65,12 @@ const SCHEMA_EXPORTS: Record<DatasetKind, keyof typeof tidasSdk> = {
   lifecyclemodel: 'LifeCycleModelSchema' as keyof typeof tidasSdk,
 };
 
+const ENTITY_FACTORY_EXPORTS: Record<DatasetKind, keyof typeof tidasSdk> = {
+  flow: 'createFlow' as keyof typeof tidasSdk,
+  process: 'createProcess' as keyof typeof tidasSdk,
+  lifecyclemodel: 'createLifeCycleModel' as keyof typeof tidasSdk,
+};
+
 function normalizeType(value: string | null | undefined): DatasetValidateType {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
@@ -110,21 +100,15 @@ function normalizeType(value: string | null | undefined): DatasetValidateType {
   });
 }
 
-function normalizeIssuePath(pathParts: Array<string | number> | undefined): string {
-  if (!Array.isArray(pathParts) || pathParts.length === 0) {
-    return '<root>';
-  }
-  return pathParts.map((part) => String(part)).join('.');
-}
-
 function schemaForKind(
   kind: DatasetKind,
   schemas: Partial<Record<DatasetKind, SafeParseSchema>> | undefined,
-): { validator: string; schema: SafeParseSchema } {
+): { validator: string; schema: SafeParseSchema; createEntity: SdkValidationFactory | null } {
   if (schemas?.[kind]) {
     return {
       validator: 'injected',
       schema: schemas[kind],
+      createEntity: null,
     };
   }
 
@@ -142,9 +126,14 @@ function schemaForKind(
     });
   }
 
+  const factoryName = ENTITY_FACTORY_EXPORTS[kind];
+  const createEntity = (tidasSdk as Record<string, unknown>)[factoryName];
+
   return {
     validator: `@tiangong-lca/tidas-sdk/${String(exportName)}`,
     schema: candidate as SafeParseSchema,
+    createEntity:
+      typeof createEntity === 'function' ? (createEntity as SdkValidationFactory) : null,
   };
 }
 
@@ -177,8 +166,8 @@ function validateRow(
     return buildUnsupportedTypeReport(row);
   }
 
-  const { validator, schema } = schemaForKind(kind, schemas);
-  const outcome = schema.safeParse(row.payload);
+  const { validator, schema, createEntity } = schemaForKind(kind, schemas);
+  const outcome = validateSchemaWithDeepFallback(schema, row.payload, createEntity);
   if (outcome.success) {
     return {
       index: row.index,
@@ -192,7 +181,7 @@ function validateRow(
     };
   }
 
-  const issues = (outcome.error?.issues ?? []).map((issue) => ({
+  const issues = outcome.issues.map((issue) => ({
     path: normalizeIssuePath(issue.path),
     message: issue.message ?? 'Validation failed',
     code: issue.code ?? 'custom',
@@ -288,6 +277,7 @@ export async function runDatasetValidate(
 }
 
 export const __testInternals = {
+  ENTITY_FACTORY_EXPORTS,
   SCHEMA_EXPORTS,
   normalizeType,
   schemaForKind,
