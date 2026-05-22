@@ -101,7 +101,7 @@ Route those tasks to:
 - Package manager: `npm`
 - Node baseline: `>=24 <25`
 - Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only
-- Newly added process-maintenance commands such as `process identity-preflight`, `process scope-statistics`, `process dedup-review`, `process refresh-references`, and `process verify-rows` still belong to the native CLI command surface in `src/cli.ts` and `src/lib/process-*.ts` / shared CLI-native helpers.
+- Newly added process-maintenance commands such as `process identity-preflight`, `process build-plan`, `process scope-statistics`, `process dedup-review`, `process refresh-references`, and `process verify-rows` still belong to the native CLI command surface in `src/cli.ts` and `src/lib/process-*.ts` / shared CLI-native helpers.
 - `process save-draft` now has a local `ProcessSchema` validation gate before any commit path writes remote state.
 - Dataset-level local governance commands such as `dataset validate` and `dataset references rewrite` belong to the same native CLI command surface in `src/cli.ts` and `src/lib/dataset-*.ts`.
 - `lifecyclemodel save-draft` validates canonical lifecyclemodel payloads with `LifeCycleModelSchema` before any commit path writes remote state; `lifecyclemodel graph` remains a local artifact command.

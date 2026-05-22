@@ -151,6 +151,25 @@ Key outputs under `--out-dir`:
 - `outputs/identity-decision.json`
 - `outputs/identity-candidates.jsonl`
 
+## Build Plan Gate
+
+Use build-plan gates after identity preflight and before payload generation or publish handoff. These commands validate the minimum authoring contract for a process or flow build plan and write a standard `GateReport` for Foundry/skill orchestration.
+
+```bash
+tiangong-lca process build-plan validate --input ./process-build-plan.json --out-dir ./process-build-plan --json
+tiangong-lca process build-plan materialize --input ./process-build-plan.json --out-dir ./process-build-plan --json
+tiangong-lca flow build-plan validate --input ./flow-build-plan.json --out-dir ./flow-build-plan --json
+tiangong-lca flow build-plan materialize --input ./flow-build-plan.json --out-dir ./flow-build-plan --json
+```
+
+The minimum plan contract requires an automatic identity decision, EvidenceManifest sources and field bindings, name plan, and the relevant process reference-flow or flow-property fields. `--report-only` keeps exit code `0` while still reporting blockers.
+
+Key outputs under `--out-dir`:
+
+- `outputs/build-plan-gate-report.json`
+- `outputs/materialized-process.json`
+- `outputs/materialized-flow.json`
+
 ## Real DB Flow Review
 
 1. Search or otherwise collect exact flow refs.
@@ -229,6 +248,8 @@ Key `flow materialize-decisions` outputs:
 ```bash
 tiangong-lca process identity-preflight --input ./process-preflight.json --out-dir /abs/path/to/process-preflight --json
 tiangong-lca flow identity-preflight --input ./flow-preflight.json --out-dir /abs/path/to/flow-preflight --json
+tiangong-lca process build-plan validate --input ./process-build-plan.json --out-dir /abs/path/to/process-build-plan --json
+tiangong-lca flow build-plan validate --input ./flow-build-plan.json --out-dir /abs/path/to/flow-build-plan --json
 tiangong-lca process auto-build --input ./examples/process-auto-build.request.json --out-dir /abs/path/to/process-run --json
 tiangong-lca process resume-build --run-dir /abs/path/to/process-run --json
 tiangong-lca process publish-build --run-dir /abs/path/to/process-run --json
@@ -254,6 +275,8 @@ For `publish run`, relative `out_dir` values from either the request body or `--
 For `review process`, `--rows-file` accepts either raw process rows as JSON/JSONL or the full JSON report emitted by `tiangong-lca process list --json`, as long as it contains a `rows` array.
 
 For `process identity-preflight` and `flow identity-preflight`, canonical TIDAS wrappers are schema-checked when present. Loose target objects are accepted for early planning and produce `schema_validation.status: "not_applicable"` until materialization.
+
+For `process build-plan` and `flow build-plan`, canonical payloads embedded in the plan are schema-checked during `materialize`. Plan-only materialization writes a deterministic seed artifact and reports `schema_validation.status: "not_applicable"` until a canonical TIDAS payload is supplied.
 
 For `process save-draft`, canonical process payloads are validated locally with `ProcessSchema` before any `--commit` write. Schema-invalid rows remain in `outputs/save-draft-rpc/failures.jsonl` instead of being persisted.
 

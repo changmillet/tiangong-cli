@@ -60,8 +60,9 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /Planned Surface \(not implemented yet\):/u);
   assert.match(
     result.stdout,
-    /process\s+get \| list \| identity-preflight \| scope-statistics \| dedup-review \| auto-build/u,
+    /process\s+get \| list \| identity-preflight \| build-plan \| scope-statistics/u,
   );
+  assert.match(result.stdout, /flow\s+get \| list \| identity-preflight \| build-plan/u);
   assert.match(result.stdout, /process\s+auto-build/u);
   assert.match(result.stdout, /lifecyclemodel auto-build/u);
   assert.match(result.stdout, /lifecyclemodel auto-build \| validate-build \| publish-build/u);
@@ -172,6 +173,7 @@ test('executeCli returns help for publish and validation namespaces', async () =
   assert.match(flowHelp.stdout, /get/u);
   assert.match(flowHelp.stdout, /list/u);
   assert.match(flowHelp.stdout, /identity-preflight/u);
+  assert.match(flowHelp.stdout, /build-plan/u);
   assert.match(flowHelp.stdout, /fetch-rows/u);
   assert.match(flowHelp.stdout, /materialize-decisions/u);
   assert.match(flowHelp.stdout, /remediate/u);
@@ -282,6 +284,19 @@ test('executeCli returns help for publish and validation subcommands', async () 
   );
   assert.match(flowIdentityPreflightHelp.stdout, /identity-candidates\.jsonl/u);
   assert.doesNotMatch(flowIdentityPreflightHelp.stdout, /Planned command/u);
+
+  const flowBuildPlanHelp = await executeCli(['flow', 'build-plan', '--help'], makeDeps());
+  assert.equal(flowBuildPlanHelp.exitCode, 0);
+  assert.match(flowBuildPlanHelp.stdout, /tiangong-lca flow build-plan <validate\|materialize>/u);
+  assert.match(flowBuildPlanHelp.stdout, /build-plan-gate-report\.json/u);
+  assert.doesNotMatch(flowBuildPlanHelp.stdout, /Planned command/u);
+
+  const flowBuildPlanActionHelp = await executeCli(
+    ['flow', 'build-plan', 'validate', '--help'],
+    makeDeps(),
+  );
+  assert.equal(flowBuildPlanActionHelp.exitCode, 0);
+  assert.match(flowBuildPlanActionHelp.stdout, /--report-only/u);
 
   const flowFetchRowsHelp = await executeCli(['flow', 'fetch-rows', '--help'], makeDeps());
   assert.equal(flowFetchRowsHelp.exitCode, 0);
@@ -1381,6 +1396,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.match(processHelp.stdout, /get/u);
   assert.match(processHelp.stdout, /list/u);
   assert.match(processHelp.stdout, /identity-preflight/u);
+  assert.match(processHelp.stdout, /build-plan/u);
   assert.match(processHelp.stdout, /scope-statistics/u);
   assert.match(processHelp.stdout, /dedup-review/u);
   assert.match(processHelp.stdout, /auto-build/u);
@@ -1416,6 +1432,22 @@ test('executeCli returns help for the process namespace and implemented subcomma
   );
   assert.match(identityPreflightHelp.stdout, /identity-decision\.json/u);
   assert.doesNotMatch(identityPreflightHelp.stdout, /Planned command/u);
+
+  const processBuildPlanHelp = await executeCli(['process', 'build-plan', '--help'], makeDeps());
+  assert.equal(processBuildPlanHelp.exitCode, 0);
+  assert.match(
+    processBuildPlanHelp.stdout,
+    /tiangong-lca process build-plan <validate\|materialize>/u,
+  );
+  assert.match(processBuildPlanHelp.stdout, /build-plan-gate-report\.json/u);
+  assert.doesNotMatch(processBuildPlanHelp.stdout, /Planned command/u);
+
+  const processBuildPlanActionHelp = await executeCli(
+    ['process', 'build-plan', 'materialize', '--help'],
+    makeDeps(),
+  );
+  assert.equal(processBuildPlanActionHelp.exitCode, 0);
+  assert.match(processBuildPlanActionHelp.stdout, /materialized-process\.json/u);
 
   const scopeStatisticsHelp = await executeCli(
     ['process', 'scope-statistics', '--help'],
@@ -1936,6 +1968,249 @@ test('executeCli maps process identity-preflight success and argument errors', a
   );
   assert.equal(invalid.exitCode, 2);
   assert.match(invalid.stderr, /Unknown option/u);
+});
+
+test('executeCli executes process build-plan validate and materialize with injected implementations', async () => {
+  const baseReport = {
+    schema_version: 1 as const,
+    generated_at_utc: '2026-05-22T00:00:00.000Z',
+    kind: 'process' as const,
+    ruleset_id: 'process-authoring/strict',
+    ruleset_version: '1',
+    input_path: '/tmp/process-build-plan.json',
+    out_dir: '/tmp/process-build-plan',
+    report_only: false,
+    inputs: {
+      plan_schema_version: '1',
+      identity_decision: 'create_new' as const,
+    },
+    required_fields: {
+      required: ['target'],
+      satisfied: ['target'],
+      missing: [],
+    },
+    schema_validation: {
+      status: 'not_applicable' as const,
+      validator: null,
+      issue_count: 0,
+      issues: [],
+    },
+    findings: [],
+    blockers: [],
+    files: {
+      gate_report: null,
+      materialized_artifact: null,
+    },
+  };
+
+  const validate = await executeCli(
+    [
+      'process',
+      'build-plan',
+      'validate',
+      '--json',
+      '--input',
+      '/tmp/process-build-plan.json',
+      '--out-dir',
+      '/tmp/process-build-plan',
+    ],
+    {
+      ...makeDeps(),
+      runProcessBuildPlanValidateImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/process-build-plan.json');
+        assert.equal(options.outDir, '/tmp/process-build-plan');
+        assert.equal(options.reportOnly, false);
+        return {
+          ...baseReport,
+          action: 'validate',
+          status: 'passed',
+          next_action: 'materialize_payload',
+        };
+      },
+    },
+  );
+  assert.equal(validate.exitCode, 0);
+  assert.match(validate.stdout, /"next_action":"materialize_payload"/u);
+
+  const materialize = await executeCli(
+    [
+      'process',
+      'build-plan',
+      'materialize',
+      '--input',
+      '/tmp/process-build-plan.json',
+      '--report-only',
+    ],
+    {
+      ...makeDeps(),
+      runProcessBuildPlanMaterializeImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/process-build-plan.json');
+        assert.equal(options.outDir, null);
+        assert.equal(options.reportOnly, true);
+        return {
+          ...baseReport,
+          action: 'materialize',
+          status: 'blocked',
+          out_dir: null,
+          report_only: true,
+          blockers: [
+            {
+              code: 'build_plan_required_field_missing',
+              severity: 'blocker',
+              message: 'missing',
+            },
+          ],
+          next_action: 'fix_build_plan',
+        };
+      },
+    },
+  );
+  assert.equal(materialize.exitCode, 0);
+  assert.match(materialize.stdout, /"status": "blocked"/u);
+
+  const blockedValidate = await executeCli(
+    ['process', 'build-plan', 'validate', '--input', '/tmp/process-build-plan.json'],
+    {
+      ...makeDeps(),
+      runProcessBuildPlanValidateImpl: async () => ({
+        ...baseReport,
+        action: 'validate',
+        status: 'blocked',
+        blockers: [
+          {
+            code: 'identity_decision_not_automatic',
+            severity: 'blocker',
+            message: 'review needed',
+          },
+        ],
+        next_action: 'fix_build_plan',
+      }),
+    },
+  );
+  assert.equal(blockedValidate.exitCode, 1);
+
+  const missingAction = await executeCli(['process', 'build-plan'], makeDeps());
+  assert.equal(missingAction.exitCode, 0);
+  assert.match(missingAction.stdout, /tiangong-lca process build-plan/u);
+
+  const invalid = await executeCli(['process', 'build-plan', 'bad'], makeDeps());
+  assert.equal(invalid.exitCode, 2);
+  assert.match(invalid.stderr, /process build-plan action must be/u);
+
+  const invalidFlag = await executeCli(
+    ['process', 'build-plan', 'validate', '--input', '/tmp/process-build-plan.json', '--bad'],
+    makeDeps(),
+  );
+  assert.equal(invalidFlag.exitCode, 2);
+  assert.match(invalidFlag.stderr, /Unknown option/u);
+});
+
+test('executeCli executes flow build-plan and maps blockers to exit code 1', async () => {
+  const result = await executeCli(
+    ['flow', 'build-plan', 'validate', '--input', '/tmp/flow-build-plan.json'],
+    {
+      ...makeDeps(),
+      runFlowBuildPlanValidateImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/flow-build-plan.json');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-22T00:00:00.000Z',
+          kind: 'flow',
+          action: 'validate',
+          status: 'blocked',
+          ruleset_id: 'flow-authoring/strict',
+          ruleset_version: '1',
+          input_path: '/tmp/flow-build-plan.json',
+          out_dir: null,
+          report_only: false,
+          inputs: {
+            plan_schema_version: '1',
+            identity_decision: 'manual_review',
+          },
+          required_fields: {
+            required: ['target'],
+            satisfied: [],
+            missing: ['target'],
+          },
+          schema_validation: {
+            status: 'not_applicable',
+            validator: null,
+            issue_count: 0,
+            issues: [],
+          },
+          findings: [],
+          blockers: [
+            {
+              code: 'identity_decision_not_automatic',
+              severity: 'blocker',
+              message: 'review needed',
+            },
+          ],
+          next_action: 'fix_build_plan',
+          files: {
+            gate_report: null,
+            materialized_artifact: null,
+          },
+        };
+      },
+    },
+  );
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /"next_action": "fix_build_plan"/u);
+
+  const materialize = await executeCli(
+    ['flow', 'build-plan', 'materialize', '--input', '/tmp/flow-build-plan.json'],
+    {
+      ...makeDeps(),
+      runFlowBuildPlanMaterializeImpl: async (options) => {
+        assert.equal(options.inputPath, '/tmp/flow-build-plan.json');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-22T00:00:00.000Z',
+          kind: 'flow',
+          action: 'materialize',
+          status: 'passed',
+          ruleset_id: 'flow-authoring/strict',
+          ruleset_version: '1',
+          input_path: '/tmp/flow-build-plan.json',
+          out_dir: null,
+          report_only: false,
+          inputs: {
+            plan_schema_version: '1',
+            identity_decision: 'create_new',
+          },
+          required_fields: {
+            required: ['target'],
+            satisfied: ['target'],
+            missing: [],
+          },
+          schema_validation: {
+            status: 'not_applicable',
+            validator: null,
+            issue_count: 0,
+            issues: [],
+          },
+          findings: [],
+          blockers: [],
+          next_action: 'use_materialized_artifact',
+          files: {
+            gate_report: null,
+            materialized_artifact: null,
+          },
+        };
+      },
+    },
+  );
+  assert.equal(materialize.exitCode, 0);
+  assert.match(materialize.stdout, /"action": "materialize"/u);
+
+  const invalid = await executeCli(['flow', 'build-plan', 'bad'], makeDeps());
+  assert.equal(invalid.exitCode, 2);
+  assert.match(invalid.stderr, /flow build-plan action must be/u);
+
+  const missingAction = await executeCli(['flow', 'build-plan'], makeDeps());
+  assert.equal(missingAction.exitCode, 0);
+  assert.match(missingAction.stdout, /tiangong-lca flow build-plan/u);
 });
 
 test('executeCli executes flow get with injected implementation', async () => {

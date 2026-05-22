@@ -101,6 +101,18 @@ import {
   type RunProcessVerifyRowsOptions,
 } from './lib/process-verify-rows.js';
 import {
+  runFlowBuildPlanMaterialize,
+  runFlowBuildPlanValidate,
+  runProcessBuildPlanMaterialize,
+  runProcessBuildPlanValidate,
+  type FlowBuildPlanGateReport,
+  type ProcessBuildPlanGateReport,
+  type RunFlowBuildPlanMaterializeOptions,
+  type RunFlowBuildPlanValidateOptions,
+  type RunProcessBuildPlanMaterializeOptions,
+  type RunProcessBuildPlanValidateOptions,
+} from './lib/process-flow-build-plan.js';
+import {
   runFlowIdentityPreflight,
   runProcessIdentityPreflight,
   type FlowIdentityPreflightReport,
@@ -252,6 +264,12 @@ export type CliDeps = {
   runProcessIdentityPreflightImpl?: (
     options: RunProcessIdentityPreflightOptions,
   ) => Promise<ProcessIdentityPreflightReport>;
+  runProcessBuildPlanValidateImpl?: (
+    options: RunProcessBuildPlanValidateOptions,
+  ) => Promise<ProcessBuildPlanGateReport>;
+  runProcessBuildPlanMaterializeImpl?: (
+    options: RunProcessBuildPlanMaterializeOptions,
+  ) => Promise<ProcessBuildPlanGateReport>;
   runProcessReviewImpl?: (options: RunProcessReviewOptions) => Promise<ProcessReviewReport>;
   runFlowReviewImpl?: (options: RunFlowReviewOptions) => Promise<FlowReviewReport>;
   runLifecyclemodelReviewImpl?: (
@@ -291,6 +309,12 @@ export type CliDeps = {
   runFlowIdentityPreflightImpl?: (
     options: RunFlowIdentityPreflightOptions,
   ) => Promise<FlowIdentityPreflightReport>;
+  runFlowBuildPlanValidateImpl?: (
+    options: RunFlowBuildPlanValidateOptions,
+  ) => Promise<FlowBuildPlanGateReport>;
+  runFlowBuildPlanMaterializeImpl?: (
+    options: RunFlowBuildPlanMaterializeOptions,
+  ) => Promise<FlowBuildPlanGateReport>;
   runDatasetValidateImpl?: (options: RunDatasetValidateOptions) => Promise<DatasetValidateReport>;
   runDatasetReferencesRewriteImpl?: (
     options: RunDatasetReferencesRewriteOptions,
@@ -326,9 +350,9 @@ Commands:
 Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
-  process    get | list | identity-preflight | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
+  process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
   dataset    validate | references rewrite
-  flow       get | list | identity-preflight | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
+  flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
   publish    run
@@ -348,6 +372,7 @@ Examples:
   tiangong-lca process get --id <process-id>
   tiangong-lca process list --state-code 100 --limit 20
   tiangong-lca process identity-preflight --input ./process-preflight.json --out-dir ./process-preflight
+  tiangong-lca process build-plan validate --input ./process-build-plan.json --out-dir ./process-build-plan
   tiangong-lca process scope-statistics --out-dir /abs/path/to/process-scope --state-code 0 --state-code 100
   tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir /abs/path/to/process-dedup
   tiangong-lca process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
@@ -368,6 +393,7 @@ Examples:
   tiangong-lca flow get --id <flow-id> --version <version>
   tiangong-lca flow list --id <flow-id> --state-code 100 --limit 20
   tiangong-lca flow identity-preflight --input ./flow-preflight.json --out-dir ./flow-preflight
+  tiangong-lca flow build-plan validate --input ./flow-build-plan.json --out-dir ./flow-build-plan
   tiangong-lca flow fetch-rows --refs-file ./flow-refs.json --out-dir ./flow-fetch
   tiangong-lca flow materialize-decisions --decision-file ./approved-decisions.json --flow-rows-file ./review-input-rows.jsonl --out-dir ./flow-decisions
   tiangong-lca flow remediate --input-file ./invalid-flows.jsonl --out-dir ./flow-remediation
@@ -551,6 +577,7 @@ Implemented Subcommands:
   get          Load one flow dataset by identifier through direct Supabase access
   list         Enumerate flow datasets through direct Supabase access with deterministic filters
   identity-preflight Compare one target flow against local candidates before generation
+  build-plan  Validate or materialize a flow build plan into gate artifacts
   fetch-rows   Materialize real DB flow refs into local review-input rows and fetch artifacts
   materialize-decisions Materialize approved merge decisions into canonical-map, rewrite-plan, and seed artifacts
   remediate    Deterministically repair invalid local flow rows and emit artifact-first outputs
@@ -568,6 +595,7 @@ Examples:
   tiangong-lca flow get --help
   tiangong-lca flow list --help
   tiangong-lca flow identity-preflight --help
+  tiangong-lca flow build-plan validate --help
   tiangong-lca flow fetch-rows --help
   tiangong-lca flow materialize-decisions --help
   tiangong-lca flow remediate --help
@@ -579,6 +607,23 @@ Examples:
   tiangong-lca flow apply-process-flow-repairs --help
   tiangong-lca flow regen-product --help
   tiangong-lca flow validate-processes --help
+`.trim();
+}
+
+function renderFlowBuildPlanHelp(): string {
+  return `Usage:
+  tiangong-lca flow build-plan <validate|materialize> --input <file> [options]
+
+Options:
+  --input <file>     JSON flow build plan
+  --out-dir <dir>    Optional artifact directory for gate outputs
+  --report-only      Print blocker reports with exit code 0
+  --json             Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/build-plan-gate-report.json
+  - outputs/materialized-flow.json
 `.trim();
 }
 
@@ -1480,6 +1525,7 @@ Implemented Subcommands:
   get          Load one process dataset by identifier through direct Supabase access
   list         List visible process rows through direct Supabase access
   identity-preflight Compare one target process against local candidates before generation
+  build-plan  Validate or materialize a process build plan into gate artifacts
   scope-statistics Count repeatable coverage statistics from visible or owner-filtered process snapshots
   dedup-review Review grouped duplicate process candidates and emit keep/delete evidence
   auto-build   Prepare a local process-from-flow run scaffold and artifact workspace
@@ -1495,6 +1541,7 @@ Examples:
   tiangong-lca process get --id <process-id>
   tiangong-lca process list --state-code 100 --limit 20 --help
   tiangong-lca process identity-preflight --input ./process-preflight.json --help
+  tiangong-lca process build-plan validate --input ./process-build-plan.json --help
   tiangong-lca process scope-statistics --out-dir ./process-scope --state-code 0 --state-code 100 --help
   tiangong-lca process dedup-review --input ./duplicate-groups.json --out-dir ./process-dedup --help
   tiangong-lca process auto-build --help
@@ -1504,6 +1551,23 @@ Examples:
   tiangong-lca process batch-build --input ./batch-request.json --help
   tiangong-lca process refresh-references --out-dir ./process-refresh --help
   tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir ./process-verify --help
+`.trim();
+}
+
+function renderProcessBuildPlanHelp(): string {
+  return `Usage:
+  tiangong-lca process build-plan <validate|materialize> --input <file> [options]
+
+Options:
+  --input <file>     JSON process build plan
+  --out-dir <dir>    Optional artifact directory for gate outputs
+  --report-only      Print blocker reports with exit code 0
+  --json             Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/build-plan-gate-report.json
+  - outputs/materialized-process.json
 `.trim();
 }
 
@@ -1890,6 +1954,43 @@ function parseIdentityPreflightFlags(args: string[]): {
     json: Boolean(values.json),
     inputPath: typeof values.input === 'string' ? values.input : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseBuildPlanFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string | null;
+  reportOnly: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'report-only': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    reportOnly: Boolean(values['report-only']),
   };
 }
 
@@ -3940,6 +4041,10 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const processVerifyRowsImpl = deps.runProcessVerifyRowsImpl ?? runProcessVerifyRows;
     const processIdentityPreflightImpl =
       deps.runProcessIdentityPreflightImpl ?? runProcessIdentityPreflight;
+    const processBuildPlanValidateImpl =
+      deps.runProcessBuildPlanValidateImpl ?? runProcessBuildPlanValidate;
+    const processBuildPlanMaterializeImpl =
+      deps.runProcessBuildPlanMaterializeImpl ?? runProcessBuildPlanMaterialize;
     const processReviewImpl = deps.runProcessReviewImpl ?? runProcessReview;
     const flowReviewImpl = deps.runFlowReviewImpl ?? runFlowReview;
     const lifecyclemodelReviewImpl = deps.runLifecyclemodelReviewImpl ?? runLifecyclemodelReview;
@@ -3962,6 +4067,9 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const flowRegenProductImpl = deps.runFlowRegenProductImpl ?? runFlowRegenProduct;
     const flowValidateProcessesImpl = deps.runFlowValidateProcessesImpl ?? runFlowValidateProcesses;
     const flowIdentityPreflightImpl = deps.runFlowIdentityPreflightImpl ?? runFlowIdentityPreflight;
+    const flowBuildPlanValidateImpl = deps.runFlowBuildPlanValidateImpl ?? runFlowBuildPlanValidate;
+    const flowBuildPlanMaterializeImpl =
+      deps.runFlowBuildPlanMaterializeImpl ?? runFlowBuildPlanMaterialize;
     const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
     const datasetReferencesRewriteImpl =
       deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
@@ -4365,6 +4473,50 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
+    if (command === 'process' && subcommand === 'build-plan') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return {
+          exitCode: 0,
+          stdout: `${renderProcessBuildPlanHelp()}\n`,
+          stderr: '',
+        };
+      }
+      if (action !== 'validate' && action !== 'materialize') {
+        throw new CliError("process build-plan action must be 'validate' or 'materialize'.", {
+          code: 'INVALID_ARGS',
+          exitCode: 2,
+        });
+      }
+      const processFlags = parseBuildPlanFlags(commandArgs.slice(1));
+      if (processFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderProcessBuildPlanHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report =
+        action === 'validate'
+          ? await processBuildPlanValidateImpl({
+              inputPath: processFlags.inputPath,
+              outDir: processFlags.outDir,
+              reportOnly: processFlags.reportOnly,
+            })
+          : await processBuildPlanMaterializeImpl({
+              inputPath: processFlags.inputPath,
+              outDir: processFlags.outDir,
+              reportOnly: processFlags.reportOnly,
+            });
+
+      return {
+        exitCode: report.status === 'blocked' && !processFlags.reportOnly ? 1 : 0,
+        stdout: stringifyJson(report, processFlags.json),
+        stderr: '',
+      };
+    }
+
     if (command === 'process' && subcommand === 'scope-statistics') {
       const processFlags = parseProcessScopeStatisticsFlags(commandArgs);
       if (processFlags.help) {
@@ -4647,6 +4799,42 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
 
       return {
         exitCode: report.status === 'passed' ? 0 : 1,
+        stdout: stringifyJson(report, flowFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'flow' && subcommand === 'build-plan') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderFlowBuildPlanHelp()}\n`, stderr: '' };
+      }
+      if (action !== 'validate' && action !== 'materialize') {
+        throw new CliError("flow build-plan action must be 'validate' or 'materialize'.", {
+          code: 'INVALID_ARGS',
+          exitCode: 2,
+        });
+      }
+      const flowFlags = parseBuildPlanFlags(commandArgs.slice(1));
+      if (flowFlags.help) {
+        return { exitCode: 0, stdout: `${renderFlowBuildPlanHelp()}\n`, stderr: '' };
+      }
+
+      const report =
+        action === 'validate'
+          ? await flowBuildPlanValidateImpl({
+              inputPath: flowFlags.inputPath,
+              outDir: flowFlags.outDir,
+              reportOnly: flowFlags.reportOnly,
+            })
+          : await flowBuildPlanMaterializeImpl({
+              inputPath: flowFlags.inputPath,
+              outDir: flowFlags.outDir,
+              reportOnly: flowFlags.reportOnly,
+            });
+
+      return {
+        exitCode: report.status === 'blocked' && !flowFlags.reportOnly ? 1 : 0,
         stdout: stringifyJson(report, flowFlags.json),
         stderr: '',
       };

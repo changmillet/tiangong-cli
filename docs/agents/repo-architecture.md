@@ -104,11 +104,13 @@ Recent process maintenance commands extend the same native CLI layer instead of 
 - `src/lib/process-refresh-references.ts`
 - `src/lib/process-verify-rows.ts`
 - `src/lib/identity-preflight.ts`
+- `src/lib/process-flow-build-plan.ts`
 - `src/lib/review-process.ts`
 
 These modules share one contract:
 
 - `src/cli.ts` owns subcommand registration, help, and exit semantics
+- `process/flow build-plan` validates minimum authoring contracts and writes standard gate artifacts before downstream materialization or publish handoff
 - `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes
 - maintenance and review commands still emit artifact-first local outputs and remain covered by the strict `src/**/*.ts` coverage gate
 
