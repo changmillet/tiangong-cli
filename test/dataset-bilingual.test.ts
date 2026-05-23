@@ -466,7 +466,7 @@ test('dataset bilingual covers local-only extraction, apply blockers, and flow r
     });
     assert.equal(flowValidateReport.status, 'completed');
     assert.equal(flowValidateReport.review_gate.status, 'completed');
-    assert.match(flowValidateReport.review_gate.flow_report_file ?? '', /review\/flow/u);
+    assert.match(flowValidateReport.review_gate.flow_report_file ?? '', /review[\\/]flow/u);
 
     const localValidateReport = await runDatasetBilingualValidate({
       inputPath,
