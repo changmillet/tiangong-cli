@@ -105,6 +105,12 @@ test('runProcessSaveDraft produces dry-run artifacts from a rows file', async ()
       version: '01.01.000',
       json: makeCanonicalProcess('proc-row-3'),
     },
+    {
+      status: 'resolved_remote_process',
+      process_id: 'proc-row-4',
+      resolved_version: '01.01.000',
+      process: makeCanonicalProcess('proc-row-4'),
+    },
   ]);
 
   try {
@@ -119,8 +125,8 @@ test('runProcessSaveDraft produces dry-run artifacts from a rows file', async ()
     assert.equal(report.input_kind, 'rows_file');
     assert.equal(report.status, 'completed');
     assert.deepEqual(report.counts, {
-      selected: 3,
-      prepared: 3,
+      selected: 4,
+      prepared: 4,
       executed: 0,
       failed: 0,
     });
@@ -130,9 +136,9 @@ test('runProcessSaveDraft produces dry-run artifacts from a rows file', async ()
       (readJsonl(report.files.progress_jsonl) as Array<{ status: string }>).map(
         (row) => row.status,
       ),
-      ['prepared', 'prepared', 'prepared'],
+      ['prepared', 'prepared', 'prepared', 'prepared'],
     );
-    assert.equal(readJsonl(report.files.selected_processes).length, 3);
+    assert.equal(readJsonl(report.files.selected_processes).length, 4);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
