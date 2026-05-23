@@ -18,8 +18,8 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: 1e1119bdc91b82e3e5f360ba53610fe07479faad
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: f4394a5e2b336c1b1c60a806d239b009f205fc73
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -88,6 +88,9 @@ related:
 - `tiangong-lca flow regen-product`
 - `tiangong-lca flow validate-processes`
 - `tiangong-lca publish run`
+
+review / dedup / publish 的规则 gate 元数据由 `src/lib/runtime-rulesets.ts` 统一维护，新增或修改阻断规则时需要同步稳定 ruleset id、methodology rule id、severity 与 blocker 语义，并保持 artifact 输出可被 Foundry / UI 直接消费。
+
 - `tiangong-lca validation run`
 - `tiangong-lca admin embedding-run`
 

@@ -1,10 +1,15 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { writeJsonArtifact, writeTextArtifact } from './artifacts.js';
+import { writeJsonArtifact, writeJsonLinesArtifact, writeTextArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
 import { readJsonInput } from './io.js';
 import { invokeLlm, readLlmRuntimeEnv, type LlmRuntimeEnv } from './llm.js';
+import {
+  getRuntimeRuleset,
+  isRuntimeRuleBlocker,
+  resolveRuntimeRuleId,
+} from './runtime-rulesets.js';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -98,6 +103,30 @@ type ProcessReviewTotals = {
   energy_excluded: number;
 };
 
+type ProcessReviewFinding = {
+  process_file: string;
+  severity: 'info' | 'warning' | 'blocker';
+  code: string;
+  methodology_rule_id: string | null;
+  message: string;
+  source: 'rule';
+  evidence?: JsonRecord;
+};
+
+type ProcessRulesetGate = {
+  status: 'passed' | 'needs_review' | 'blocked';
+  ruleset_id: 'process-authoring/strict';
+  ruleset_version: '1';
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
+  counts: {
+    findings: number;
+    blockers: number;
+  };
+  blockers: ProcessReviewFinding[];
+  next_action: 'continue' | 'review_findings' | 'fix_blockers';
+};
+
 type ProcessSummaryForLlm = {
   process_file: string;
   base_names: string[];
@@ -142,6 +171,7 @@ export type ProcessReviewSummary = {
   logic_version: string;
   process_count: number;
   totals: ProcessReviewTotals;
+  ruleset_gate?: ProcessRulesetGate;
   llm: ProcessReviewLlmResult;
 };
 
@@ -156,11 +186,20 @@ export type ProcessReviewReport = {
   input_mode: 'rows_file' | 'run_root';
   effective_processes_dir: string;
   logic_version: string;
+  ruleset_id?: 'process-authoring/strict';
+  ruleset_version?: '1';
+  ruleset_source_version?: string;
+  ruleset_rule_ids?: string[];
   process_count: number;
   totals: ProcessReviewTotals;
+  rule_finding_count?: number;
+  blocker_count?: number;
+  ruleset_gate?: ProcessRulesetGate;
   files: {
     review_input_summary: string;
     materialization_summary: string | null;
+    rule_findings?: string;
+    ruleset_gate?: string;
     review_zh: string;
     review_en: string;
     timing: string;
@@ -416,6 +455,117 @@ function unitIssueCheck(exchange: JsonRecord, uoms: string[], blob: string): Uni
   }
 
   return [];
+}
+
+function hasNumericAmount(exchange: JsonRecord): boolean {
+  for (const key of ['meanAmount', 'resultingAmount']) {
+    const value = exchange[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return true;
+    }
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function createProcessReviewFinding(options: {
+  processFile: string;
+  severity: ProcessReviewFinding['severity'];
+  code: string;
+  message: string;
+  evidence?: JsonRecord;
+}): ProcessReviewFinding {
+  const methodologyRuleId = resolveRuntimeRuleId('process-authoring/strict', options.code);
+  return {
+    process_file: options.processFile,
+    severity: options.severity,
+    code: options.code,
+    methodology_rule_id: methodologyRuleId,
+    message: options.message,
+    source: 'rule',
+    ...(options.evidence ? { evidence: options.evidence } : {}),
+  };
+}
+
+function reviewFindingsForBase(processFile: string, base: BaseInfoCheck): ProcessReviewFinding[] {
+  const findings: ProcessReviewFinding[] = [];
+  if (!base.name_zh_en_ok) {
+    findings.push(
+      createProcessReviewFinding({
+        processFile,
+        severity: 'blocker',
+        code: 'process_missing_bilingual_base_name',
+        message: 'Process baseName must include usable Chinese and English entries.',
+        evidence: { base_names: base.base_names },
+      }),
+    );
+  }
+  if (!base.functional_unit_ok) {
+    findings.push(
+      createProcessReviewFinding({
+        processFile,
+        severity: 'blocker',
+        code: 'process_missing_functional_unit',
+        message: 'Process quantitative reference functionalUnitOrOther is missing.',
+      }),
+    );
+  }
+  for (const [ok, code, message] of [
+    [
+      base.system_boundary_ok,
+      'process_missing_system_boundary',
+      'Process system boundary or typeOfDataSet context is missing.',
+    ],
+    [base.time_ok, 'process_missing_time', 'Process time coverage is missing.'],
+    [base.geo_ok, 'process_missing_geography', 'Process geography is missing.'],
+    [base.tech_ok, 'process_missing_technology', 'Process technology description is missing.'],
+    [
+      base.admin_ok,
+      'process_missing_admin_metadata',
+      'Process administrative metadata is missing.',
+    ],
+  ] as const) {
+    if (!ok) {
+      findings.push(
+        createProcessReviewFinding({
+          processFile,
+          severity: 'warning',
+          code,
+          message,
+        }),
+      );
+    }
+  }
+  return findings;
+}
+
+function processRulesetGate(findings: ProcessReviewFinding[]): ProcessRulesetGate {
+  const ruleset = getRuntimeRuleset('process-authoring/strict');
+  const blockers = findings.filter(
+    (finding) =>
+      finding.severity === 'blocker' || isRuntimeRuleBlocker(finding.methodology_rule_id),
+  );
+  const status = blockers.length > 0 ? 'blocked' : findings.length > 0 ? 'needs_review' : 'passed';
+  return {
+    status,
+    ruleset_id: ruleset.id,
+    ruleset_version: ruleset.version,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
+    counts: {
+      findings: findings.length,
+      blockers: blockers.length,
+    },
+    blockers,
+    next_action:
+      status === 'blocked'
+        ? 'fix_blockers'
+        : status === 'needs_review'
+          ? 'review_findings'
+          : 'continue',
+  };
 }
 
 function baseInfoCheck(processPayload: JsonRecord): BaseInfoCheck {
@@ -1011,6 +1161,7 @@ export async function runProcessReview(
   const baseRows: Array<[string, BaseInfoCheck]> = [];
   const rows: ProcessReviewRow[] = [];
   const unitIssues: UnitIssue[] = [];
+  const ruleFindings: ProcessReviewFinding[] = [];
   const processSummariesForLlm: ProcessSummaryForLlm[] = [];
 
   let totalRaw = 0;
@@ -1030,6 +1181,7 @@ export async function runProcessReview(
     const base = baseInfoCheck(processPayload);
     const fileName = path.basename(filePath);
     baseRows.push([fileName, base]);
+    ruleFindings.push(...reviewFindingsForBase(fileName, base));
 
     let rawInput = 0;
     let product = 0;
@@ -1039,6 +1191,20 @@ export async function runProcessReview(
 
     exchanges.forEach((exchange) => {
       const classified = classifyExchange(exchange);
+      if (!hasNumericAmount(exchange)) {
+        ruleFindings.push(
+          createProcessReviewFinding({
+            processFile: fileName,
+            severity: 'blocker',
+            code: 'process_missing_exchange_amount',
+            message: 'Process exchange is missing both numeric meanAmount and resultingAmount.',
+            evidence: {
+              exchange_internal_id: String(exchange['@dataSetInternalID'] ?? ''),
+              direction: String(exchange.exchangeDirection ?? ''),
+            },
+          }),
+        );
+      }
       const amount = toNumber(exchange.meanAmount ?? exchange.resultingAmount);
       if (classified.classification === 'raw_material_input') {
         rawInput += amount;
@@ -1051,7 +1217,19 @@ export async function runProcessReview(
       } else if (classified.classification === 'energy_input') {
         energyExcluded += amount;
       }
-      unitIssues.push(...unitIssueCheck(exchange, classified.uoms, classified.blob));
+      const currentUnitIssues = unitIssueCheck(exchange, classified.uoms, classified.blob);
+      unitIssues.push(...currentUnitIssues);
+      currentUnitIssues.forEach((issue) => {
+        ruleFindings.push(
+          createProcessReviewFinding({
+            processFile: fileName,
+            severity: 'warning',
+            code: 'process_exchange_unit_semantic_mismatch',
+            message: 'Exchange unit tag conflicts with flow description semantics.',
+            evidence: { ...issue },
+          }),
+        );
+      });
     });
 
     const balanceOut = product + byproduct + waste;
@@ -1068,6 +1246,25 @@ export async function runProcessReview(
       delta,
       relative_deviation: relativeDeviation,
     });
+
+    if (relativeDeviation !== null && relativeDeviation > 0.05) {
+      ruleFindings.push(
+        createProcessReviewFinding({
+          processFile: fileName,
+          severity: relativeDeviation > 0.1 ? 'blocker' : 'warning',
+          code: 'process_material_balance_deviation',
+          message:
+            'Material balance deviation exceeds the review threshold for raw inputs versus product/by-product/waste outputs.',
+          evidence: {
+            raw_input: rawInput,
+            product,
+            byproduct,
+            waste,
+            relative_deviation: relativeDeviation,
+          },
+        }),
+      );
+    }
 
     totalRaw += rawInput;
     totalProduct += product;
@@ -1130,17 +1327,27 @@ export async function runProcessReview(
     fetchImpl,
     outDir,
   });
+  const rulesetGate = processRulesetGate(ruleFindings);
 
   const summary: ProcessReviewSummary = {
     run_id: runId,
     logic_version: logicVersion,
     process_count: processFiles.length,
     totals,
+    ruleset_gate: rulesetGate,
     llm: llmResult,
   };
   const reviewInputSummaryPath = writeJsonArtifact(
     path.join(outDir, 'review-input-summary.json'),
     resolvedInput.reviewInputSummary,
+  );
+  const ruleFindingsPath = writeJsonLinesArtifact(
+    path.join(outDir, 'process-review-rule-findings.jsonl'),
+    ruleFindings,
+  );
+  const rulesetGatePath = writeJsonArtifact(
+    path.join(outDir, 'process-review-ruleset-gate.json'),
+    rulesetGate,
   );
 
   const reviewZhPath = writeTextArtifact(
@@ -1194,11 +1401,20 @@ export async function runProcessReview(
     input_mode: resolvedInput.inputMode,
     effective_processes_dir: resolvedInput.effectiveProcessesDir,
     logic_version: logicVersion,
+    ruleset_id: rulesetGate.ruleset_id,
+    ruleset_version: rulesetGate.ruleset_version,
+    ruleset_source_version: rulesetGate.ruleset_source_version,
+    ruleset_rule_ids: rulesetGate.ruleset_rule_ids,
     process_count: processFiles.length,
     totals,
+    rule_finding_count: ruleFindings.length,
+    blocker_count: rulesetGate.counts.blockers,
+    ruleset_gate: rulesetGate,
     files: {
       review_input_summary: reviewInputSummaryPath,
       materialization_summary: resolvedInput.materializationSummaryPath,
+      rule_findings: ruleFindingsPath,
+      ruleset_gate: rulesetGatePath,
       review_zh: reviewZhPath,
       review_en: reviewEnPath,
       timing: timingPath,
@@ -1224,6 +1440,10 @@ export const __testInternals = {
   extractBaseNames,
   classifyExchange,
   unitIssueCheck,
+  hasNumericAmount,
+  createProcessReviewFinding,
+  reviewFindingsForBase,
+  processRulesetGate,
   baseInfoCheck,
   unwrapProcessPayload,
   buildPrompt,

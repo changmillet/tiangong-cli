@@ -14,6 +14,7 @@ import {
 } from './process-payload-validation.js';
 import { syncStateAwareProcessRecord } from './process-save-draft.js';
 import { buildRunId, resolveRunLayout } from './run.js';
+import { getRuntimeRuleset } from './runtime-rulesets.js';
 import {
   hasSupabaseRestRuntime,
   syncSupabaseJsonOrderedRecord,
@@ -26,7 +27,7 @@ type JsonObject = Record<string, unknown>;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_RETRY_DELAY_SECONDS = 2.0;
 const DEFAULT_DATASET_VERSION = '01.01.000';
-const PUBLISH_VERIFICATION_RULESET_ID = 'publish-run/strict';
+const PUBLISH_VERIFICATION_RULESET_ID = 'publish-run/default';
 const PUBLISH_VERIFICATION_RULESET_VERSION = '1';
 
 function isRecord(value: unknown): value is JsonObject {
@@ -274,6 +275,8 @@ export type PublishVerificationReport = {
   status: 'passed' | 'blocked';
   ruleset_id: string;
   ruleset_version: string;
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
   commit: boolean;
   findings: PublishVerificationFinding[];
   blockers: PublishVerificationFinding[];
@@ -1036,6 +1039,7 @@ function build_publish_verification_report(options: {
   sources: PublishDatasetReport[];
   processBuildRuns: PublishProcessBuildRunReport[];
 }): PublishVerificationReport {
+  const ruleset = getRuntimeRuleset('publish-run/default');
   const datasetFindings = [
     ...options.lifecyclemodels,
     ...options.processes,
@@ -1057,6 +1061,8 @@ function build_publish_verification_report(options: {
     status: blockers.length > 0 ? 'blocked' : 'passed',
     ruleset_id: PUBLISH_VERIFICATION_RULESET_ID,
     ruleset_version: PUBLISH_VERIFICATION_RULESET_VERSION,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
     commit: options.commit,
     findings: blockers,
     blockers,

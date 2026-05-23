@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: a9d1104a9e28f6675bf942639f03db450daf9e0a
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: f4394a5e2b336c1b1c60a806d239b009f205fc73
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -106,6 +106,7 @@ Recent process maintenance commands extend the same native CLI layer instead of 
 - `src/lib/identity-preflight.ts`
 - `src/lib/process-flow-build-plan.ts`
 - `src/lib/review-process.ts`
+- `src/lib/runtime-rulesets.ts`
 
 These modules share one contract:
 
@@ -114,6 +115,7 @@ These modules share one contract:
 - `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes
 - `flow publish-version` and `process publish-build` validate canonical payloads with `FlowSchema` / `ProcessSchema` before publish planning or handoff artifacts proceed
 - `publish run` writes a deterministic `verification-report.json` next to the final publish report so downstream automation can read blockers without parsing execution details
+- `runtime-rulesets` maps CLI-local review, dedup, and publish findings to stable methodology rule ids so Foundry and UI handoffs can consume one ruleset profile contract
 - maintenance and review commands still emit artifact-first local outputs and remain covered by the strict `src/**/*.ts` coverage gate
 
 ### Dataset and lifecyclemodel governance commands

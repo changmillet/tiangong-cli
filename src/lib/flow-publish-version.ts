@@ -22,6 +22,7 @@ import {
   type JsonRecord,
 } from './flow-governance.js';
 import type { FetchLike, ResponseLike } from './http.js';
+import { getRuntimeRuleset, resolveRuntimeRuleId } from './runtime-rulesets.js';
 import {
   createSupabaseDataClient,
   requireSupabaseRestRuntime,
@@ -84,6 +85,7 @@ type FlowPublishFiles = {
 type FlowPublishGateFinding = {
   code: string;
   severity: 'blocker';
+  methodology_rule_id: string | null;
   message: string;
   path: string;
   dataset_index: number;
@@ -95,8 +97,10 @@ export type FlowPublishVersionGateReport = {
   schema_version: 1;
   generated_at_utc: string;
   status: 'passed' | 'blocked';
-  ruleset_id: 'flow-publish/strict';
+  ruleset_id: 'flow-publish/default';
   ruleset_version: '1';
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
   validator: string;
   counts: {
     total: number;
@@ -403,6 +407,7 @@ function build_flow_publish_gate_report(
     validateFlowPayloadImpl?: (payload: JsonRecord) => FlowPayloadValidationResult;
   },
 ): FlowPublishVersionGateReport {
+  const ruleset = getRuntimeRuleset('flow-publish/default');
   const validate = options.validateFlowPayloadImpl ?? validateFlowPayload;
   const flows = rows.map((row, index) => validate_publish_flow_row(row, index, validate));
   const invalid = flows.filter((flow) => !flow.ok).length;
@@ -410,6 +415,7 @@ function build_flow_publish_gate_report(
     flow.issues.map((issue) => ({
       code: issue.code,
       severity: 'blocker' as const,
+      methodology_rule_id: resolveRuntimeRuleId(ruleset.id, issue.code),
       message: issue.message,
       path: issue.path,
       dataset_index: flow.index,
@@ -422,8 +428,10 @@ function build_flow_publish_gate_report(
     schema_version: 1,
     generated_at_utc: options.now.toISOString(),
     status: invalid > 0 ? 'blocked' : 'passed',
-    ruleset_id: 'flow-publish/strict',
-    ruleset_version: '1',
+    ruleset_id: ruleset.id,
+    ruleset_version: ruleset.version,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
     validator: FLOW_SCHEMA_VALIDATOR,
     counts: {
       total: flows.length,

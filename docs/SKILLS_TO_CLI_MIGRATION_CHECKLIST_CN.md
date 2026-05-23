@@ -18,7 +18,7 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-05-23
-lastReviewedCommit: d696979d51c221da3dbea5b62a7d8edc8ed8bf60
+lastReviewedCommit: f4394a5e2b336c1b1c60a806d239b009f205fc73
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -43,6 +43,7 @@ related:
 - 关于 `@supabase/supabase-js`、`@tiangong-lca/tidas-sdk` 直接依赖收口的当前执行状态，以 `docs/TEMP_ISSUE_55_DIRECT_DEPS_TODO_CN.md` 为准
 - 如果两份文档冲突，以后者代表当前待办和当前结论
 - 2026-05-13 复核：新增 `dataset validate`、`dataset references rewrite`、`lifecyclemodel save-draft` 和 `lifecyclemodel graph` 仍属于既有 CLI-native 迁移方向，不重新引入 Python、POSIX shell 或 MCP runtime 前提
+- 2026-05-23 复核：review / dedup / publish ruleset metadata 继续落在 TypeScript CLI 内部，不新增 Python、POSIX shell 或 MCP runtime 前提
 
 这份文档记录的是：
 

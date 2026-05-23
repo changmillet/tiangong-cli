@@ -185,7 +185,7 @@ test('runFlowPublishVersion writes dry-run artifacts for insert, update, and fai
       },
       flow_gate: {
         status: 'passed',
-        ruleset_id: 'flow-publish/strict',
+        ruleset_id: 'flow-publish/default',
         ruleset_version: '1',
         counts: {
           total: 4,
@@ -601,7 +601,7 @@ test('runFlowPublishVersion blocks FlowSchema validation failures before remote 
     assert.equal(report.status, 'completed_flow_publish_version_with_failures');
     assert.deepEqual(report.flow_gate, {
       status: 'blocked',
-      ruleset_id: 'flow-publish/strict',
+      ruleset_id: 'flow-publish/default',
       ruleset_version: '1',
       counts: {
         total: 1,
@@ -948,8 +948,17 @@ test('flow publish-version helper internals cover validation, parsing, concurren
         schema_version: 1,
         generated_at_utc: '2026-03-30T16:00:00.000Z',
         status: 'blocked',
-        ruleset_id: 'flow-publish/strict',
+        ruleset_id: 'flow-publish/default',
         ruleset_version: '1',
+        ruleset_source_version: '2026.05.23',
+        ruleset_rule_ids: [
+          'tidas.flow.name.base-name.technical',
+          'tidas.flow.type.required',
+          'tidas.flow.reference-property-unit.required',
+          'tidas.flow.classification.elementary.valid',
+          'tidas.flow.flow-property.mean-value.positive',
+          'tidas.flow.evidence.field-bindings.required',
+        ],
         validator: 'test-flow-validator',
         counts: {
           total: 1,
@@ -977,8 +986,17 @@ test('flow publish-version helper internals cover validation, parsing, concurren
         schema_version: 1,
         generated_at_utc: '2026-03-30T16:00:00.000Z',
         status: 'passed',
-        ruleset_id: 'flow-publish/strict',
+        ruleset_id: 'flow-publish/default',
         ruleset_version: '1',
+        ruleset_source_version: '2026.05.23',
+        ruleset_rule_ids: [
+          'tidas.flow.name.base-name.technical',
+          'tidas.flow.type.required',
+          'tidas.flow.reference-property-unit.required',
+          'tidas.flow.classification.elementary.valid',
+          'tidas.flow.flow-property.mean-value.positive',
+          'tidas.flow.evidence.field-bindings.required',
+        ],
         validator: 'test-flow-validator',
         counts: {
           total: 1,

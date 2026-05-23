@@ -369,7 +369,7 @@ test('runPublish produces a dry-run report and artifacts from bundle and direct 
     assert.equal(report.relations.status, 'prepared_local_relation_manifest');
     assert.equal(report.relations.relations.length, 2);
     assert.equal(report.verification.status, 'passed');
-    assert.equal(report.verification.ruleset_id, 'publish-run/strict');
+    assert.equal(report.verification.ruleset_id, 'publish-run/default');
     assert.equal(existsSync(report.files.verification_report), true);
     assert.deepEqual(
       JSON.parse(readFileSync(report.files.verification_report, 'utf8')),

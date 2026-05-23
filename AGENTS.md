@@ -32,8 +32,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: a9d1104a9e28f6675bf942639f03db450daf9e0a
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: f4394a5e2b336c1b1c60a806d239b009f205fc73
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -108,6 +108,7 @@ Route those tasks to:
 - `flow publish-version` validates canonical flow payloads with `FlowSchema` before remote visibility planning or writes, and emits `flow-publish-version-gate-report.json` as the blocking ruleset artifact.
 - `process publish-build` validates canonical process payloads with `ProcessSchema` before publish handoff artifacts are written, and emits `reports/process-publish-schema-gate.json`.
 - `publish run` emits `verification-report.json` next to `publish-report.json`; this is the deterministic publish ruleset summary for failed/deferred/executed outcomes.
+- `src/lib/runtime-rulesets.ts` is the CLI-local runtime activation layer for stable ruleset ids, methodology rule ids, severity, and blocker semantics used by review, dedup, and publish gate artifacts.
 - The canonical minimum validation command is `npm run lint`
 - The authoritative full gate is `npm run prepush:gate`
 - Release tagging is guarded in `.github/workflows/tag-release-from-merge.yml` so only the upstream repository can execute the merge-tag flow.

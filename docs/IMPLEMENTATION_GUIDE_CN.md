@@ -16,8 +16,8 @@ checkPaths:
   - README.md
   - src/**
   - test/**
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: 1e1119bdc91b82e3e5f360ba53610fe07479faad
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: f4394a5e2b336c1b1c60a806d239b009f205fc73
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -229,6 +229,7 @@ tiangong-lca
 - `lifecyclemodel orchestrate` 的 `process_builder` request schema 已删除旧 builder 控制项，只保留 CLI-native 本地构建字段，并在归一化阶段拒绝额外键；不再保留任何 Python fallback 配置面
 - 已实现的 `review process` 保留本地 artifact-first review contract，把规则核查、报告输出和可选 LLM 语义审核统一收口到 CLI；语义审核只使用 `TIANGONG_LCA_REVIEW_LLM_*`，不再透出 `OPENAI_*`
 - 已实现的 `review flow` 保留本地 artifact-first governance review contract，把 flow 摘要、相似对、规则 findings、可选 LLM findings 和双语 markdown 报告统一收口到 CLI；语义审核同样只使用 `TIANGONG_LCA_REVIEW_LLM_*`
+- review / dedup / publish 相关 gate 现在统一通过 `src/lib/runtime-rulesets.ts` 映射稳定 ruleset id、methodology rule id、severity 与 blocker 语义，供 Foundry / UI / publish handoff 不解析本地实现细节也能识别阻断原因
 - `review flow` 当前明确不支持 `--with-reference-context`，也还没有接入本地 registry enrichment；这部分仍需后续迁移切片单独落地
 - 已实现的 `flow get` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持 `id` + 可选 `version/user_id/state_code` 读取；若精确版本 miss，则回退到最新可见版本；若出现多个同版本可见候选，则直接报 ambiguous
 - 已实现的 `flow list` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持稳定 `id/state_code/type_of_dataset` 过滤、显式 `order=id.asc,version.asc` 默认值，以及 `--all --page-size` 的 offset 分页

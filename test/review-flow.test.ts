@@ -184,6 +184,10 @@ test('runFlowReview materializes rows-file input and writes artifact-first revie
     assert.equal(report.methodology_rule_source, 'built_in');
     assert.equal(report.with_reference_context, false);
     assert.equal(report.reference_context_mode, 'disabled');
+    assert.equal(report.ruleset_id, 'flow-authoring/strict');
+    assert.equal(report.ruleset_version, '1');
+    assert.equal(report.ruleset_gate?.status, 'blocked');
+    assert.ok((report.blocker_count ?? 0) > 0);
     assert.equal(report.llm.enabled, false);
     assert.equal(report.llm.reason, 'disabled');
     assert.ok(report.rule_finding_count > 0);
@@ -192,6 +196,7 @@ test('runFlowReview materializes rows-file input and writes artifact-first revie
     assert.ok(existsSync(report.files.review_input_summary));
     assert.ok(existsSync(report.files.materialization_summary ?? ''));
     assert.ok(existsSync(report.files.rule_findings));
+    assert.ok(existsSync(report.files.ruleset_gate ?? ''));
     assert.ok(existsSync(report.files.findings));
     assert.ok(existsSync(report.files.flow_summaries));
     assert.ok(existsSync(report.files.similarity_pairs));
@@ -203,6 +208,13 @@ test('runFlowReview materializes rows-file input and writes artifact-first revie
 
     const summary = JSON.parse(readFileSync(report.files.summary, 'utf8')) as JsonRecord;
     assert.equal(summary.flow_count, 2);
+    assert.ok(
+      Number(
+        ((summary.methodology_rule_counts as JsonRecord) ?? {})[
+          'tidas.flow.reference-property-unit.required'
+        ],
+      ) > 0,
+    );
     assert.equal((summary.llm as JsonRecord).enabled, false);
     const materializationSummary = JSON.parse(
       readFileSync(report.files.materialization_summary ?? '', 'utf8'),
@@ -892,6 +904,18 @@ test('review-flow direct helpers cover rare fallback branches', () => {
   assert.ok(noUuidRuleIds.includes('missing_classification_leaf'));
   assert.ok(noUuidRuleIds.includes('invalid_flow_property_reference'));
   assert.ok(noUuidRuleIds.includes('missing_quantitative_reference'));
+  assert.deepEqual(
+    __testInternals.methodologyRuleCounts([
+      {
+        flow_uuid: 'flow-llm',
+        base_version: '',
+        severity: 'warning',
+        source: 'llm',
+      },
+    ]),
+    {},
+  );
+  assert.equal(__testInternals.flowRulesetGate([]).status, 'passed');
 
   const warningRule = __testInternals.createRuleFinding(
     'flow-2',

@@ -19,6 +19,7 @@ import {
   type RunFlowPublishVersionOptions,
 } from './flow-publish-version.js';
 import type { FetchLike } from './http.js';
+import { getRuntimeRuleset } from './runtime-rulesets.js';
 import {
   hasSupabaseRestRuntime,
   syncSupabaseJsonOrderedRecord,
@@ -958,6 +959,7 @@ function build_compat_report(options: {
   targetUserId: string | null;
   files: FlowReviewedPublishFiles;
 }): FlowPublishVersionReport {
+  const ruleset = getRuntimeRuleset('flow-publish/default');
   let status: FlowPublishVersionReport['status'];
   if (options.mode === 'dry_run') {
     status = 'prepared_flow_publish_version';
@@ -982,8 +984,8 @@ function build_compat_report(options: {
     },
     flow_gate: {
       status: 'passed',
-      ruleset_id: 'flow-publish/strict',
-      ruleset_version: '1',
+      ruleset_id: ruleset.id,
+      ruleset_version: ruleset.version,
       counts: {
         total: options.preparedRows,
         valid: options.preparedRows,

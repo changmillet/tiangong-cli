@@ -422,7 +422,7 @@ test('runFlowReviewedPublishData delegates commit publish to flow publish-versio
           },
           flow_gate: {
             status: 'passed',
-            ruleset_id: 'flow-publish/strict',
+            ruleset_id: 'flow-publish/default',
             ruleset_version: '1',
             counts: {
               total: 2,
