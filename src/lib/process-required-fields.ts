@@ -28,10 +28,10 @@ export type ProcessRequiredFieldIssue = {
 
 export type ProcessRequiredFieldCompletion = {
   field_path: string;
-  source: 'existing' | 'evidence' | 'reference_flow_amount';
+  source: 'existing' | 'evidence' | 'reference_flow_amount' | 'placeholder_repair';
   value: Array<{ '#text': string; '@xml:lang': string }>;
-  amount: string;
-  unit: string;
+  amount: string | null;
+  unit: string | null;
   reference_exchange_internal_id: string | null;
   basis: string;
 };
@@ -184,6 +184,114 @@ export function collectProcessRequiredFieldIssues(
       path: ANNUAL_SUPPLY_FIELD,
     },
   ];
+}
+
+function issuePath(pathSegments: Array<string | number>): string {
+  return pathSegments.length > 0 ? pathSegments.map(String).join('.') : '<root>';
+}
+
+function collectPlaceholderIssuesFromValue(
+  value: unknown,
+  pathSegments: Array<string | number>,
+  issues: ProcessRequiredFieldIssue[],
+): void {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized.includes('placeholder.example') ||
+      normalized.includes('pending confirmation') ||
+      /00000000-0000-0000-0000-0000000000[0-9a-f]{2}/u.test(normalized)
+    ) {
+      issues.push({
+        code: 'process_placeholder_content',
+        message:
+          'Process payload contains placeholder or pending-confirmation content that must be replaced before save or publish.',
+        path: issuePath(pathSegments),
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectPlaceholderIssuesFromValue(item, [...pathSegments, index], issues),
+    );
+    return;
+  }
+
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      collectPlaceholderIssuesFromValue(child, [...pathSegments, key], issues);
+    }
+  }
+}
+
+export function collectProcessPlaceholderIssues(payload: JsonObject): ProcessRequiredFieldIssue[] {
+  const root = datasetRoot(payload, 'process');
+  const issues: ProcessRequiredFieldIssue[] = [];
+  collectPlaceholderIssuesFromValue(root, ['processDataSet'], issues);
+  return issues;
+}
+
+function hasPlaceholderContent(value: unknown): boolean {
+  const issues: ProcessRequiredFieldIssue[] = [];
+  collectPlaceholderIssuesFromValue(value, [], issues);
+  return issues.length > 0;
+}
+
+function removePlaceholderField(
+  parent: JsonObject,
+  key: string,
+  fieldPath: string,
+  completions: ProcessRequiredFieldCompletion[],
+): void {
+  if (!hasPlaceholderContent(parent[key])) {
+    return;
+  }
+  delete parent[key];
+  completions.push({
+    field_path: fieldPath,
+    source: 'placeholder_repair',
+    value: [],
+    amount: null,
+    unit: null,
+    reference_exchange_internal_id: null,
+    basis:
+      'Removed placeholder review metadata because the dataset is marked Not reviewed and no completed review evidence is present.',
+  });
+}
+
+function repairPlaceholderReviewMetadata(root: JsonObject): ProcessRequiredFieldCompletion[] {
+  const modelling = isRecord(root.modellingAndValidation) ? root.modellingAndValidation : {};
+  const validation = isRecord(modelling.validation) ? modelling.validation : null;
+  if (!validation) {
+    return [];
+  }
+
+  const completions: ProcessRequiredFieldCompletion[] = [];
+  const validationPath = 'processDataSet.modellingAndValidation.validation';
+  for (const key of [
+    'reviewDetails',
+    'common:reviewDetails',
+    'common:referenceToCompleteReviewReport',
+    'common:referenceToNameOfReviewerAndInstitution',
+  ]) {
+    removePlaceholderField(validation, key, `${validationPath}.${key}`, completions);
+  }
+
+  if (isRecord(validation.review)) {
+    const reviewPath = `${validationPath}.review`;
+    for (const key of [
+      'reviewDetails',
+      'common:reviewDetails',
+      'common:referenceToCompleteReviewReport',
+      'common:referenceToNameOfReviewerAndInstitution',
+    ]) {
+      removePlaceholderField(validation.review, key, `${reviewPath}.${key}`, completions);
+    }
+  }
+
+  return completions;
 }
 
 function processRootForMutation(payload: JsonObject): JsonObject {
@@ -614,8 +722,12 @@ function completeProcessRow(
     };
   }
 
+  const root = processRootForMutation(payload);
+  const placeholderCompletions = repairPlaceholderReviewMetadata(root);
   const existingIssues = collectProcessRequiredFieldIssues(payload);
-  if (existingIssues.length === 0) {
+  const placeholderIssues = collectProcessPlaceholderIssues(payload);
+
+  if (existingIssues.length === 0 && placeholderIssues.length === 0) {
     return {
       row: clonedRow,
       report: {
@@ -623,14 +735,28 @@ function completeProcessRow(
         id: row.id,
         version: row.version,
         type: row.kind,
-        status: 'existing',
+        status: placeholderCompletions.length > 0 ? 'completed' : 'existing',
         issues: [],
-        completions: [],
+        completions: placeholderCompletions,
       },
     };
   }
 
-  const root = processRootForMutation(payload);
+  if (placeholderIssues.length > 0) {
+    return {
+      row: clonedRow,
+      report: {
+        index: row.index,
+        id: row.id,
+        version: row.version,
+        type: row.kind,
+        status: 'blocked',
+        issues: [...existingIssues, ...placeholderIssues],
+        completions: placeholderCompletions,
+      },
+    };
+  }
+
   const evidenceValue = findAnnualSupplyEvidenceValue(clonedRow, payload, context);
   if (evidenceValue) {
     const dataSources = ensureDataSources(root);
@@ -653,7 +779,7 @@ function completeProcessRow(
         type: row.kind,
         status: 'completed',
         issues: [],
-        completions: [completion],
+        completions: [...placeholderCompletions, completion],
       },
     };
   }
@@ -680,7 +806,7 @@ function completeProcessRow(
             path: 'processDataSet.exchanges.exchange',
           },
         ],
-        completions: [],
+        completions: placeholderCompletions,
       },
     };
   }
@@ -710,7 +836,7 @@ function completeProcessRow(
       type: row.kind,
       status: 'completed',
       issues: [],
-      completions: [completion],
+      completions: [...placeholderCompletions, completion],
     },
   };
 }
@@ -814,6 +940,7 @@ export const __testInternals = {
   buildFlowUnitIndex,
   inferUnitFromReferenceExchange,
   inferSpecificUnitFromFlowPayload,
+  issuePath,
   isAnnualSupplyEvidencePath,
   isValidAnnualSupplyVolume,
   normalizeAnnualSupplyEvidenceValue,

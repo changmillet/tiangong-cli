@@ -9,7 +9,10 @@ import {
   type SdkValidationFactory,
   validateSchemaWithDeepFallback,
 } from './tidas-sdk-validation.js';
-import { collectProcessRequiredFieldIssues } from './process-required-fields.js';
+import {
+  collectProcessPlaceholderIssues,
+  collectProcessRequiredFieldIssues,
+} from './process-required-fields.js';
 
 type DatasetValidateType = 'auto' | DatasetKind;
 
@@ -171,7 +174,8 @@ function validateRow(
   const outcome = validateSchemaWithDeepFallback(schema, row.payload, createEntity);
   const requiredFieldIssues =
     kind === 'process' ? collectProcessRequiredFieldIssues(row.payload) : [];
-  if (outcome.success && requiredFieldIssues.length === 0) {
+  const placeholderIssues = kind === 'process' ? collectProcessPlaceholderIssues(row.payload) : [];
+  if (outcome.success && requiredFieldIssues.length === 0 && placeholderIssues.length === 0) {
     return {
       index: row.index,
       id: row.id,
@@ -191,6 +195,7 @@ function validateRow(
       code: issue.code ?? 'custom',
     })),
     ...requiredFieldIssues,
+    ...placeholderIssues,
   ];
 
   return {

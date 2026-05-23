@@ -5,7 +5,10 @@ import {
   type SdkValidationFactory,
   validateSchemaWithDeepFallback,
 } from './tidas-sdk-validation.js';
-import { collectProcessRequiredFieldIssues } from './process-required-fields.js';
+import {
+  collectProcessPlaceholderIssues,
+  collectProcessRequiredFieldIssues,
+} from './process-required-fields.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -66,8 +69,9 @@ export function validateProcessPayload(
 ): ProcessPayloadValidationResult {
   const outcome = validateSchemaWithDeepFallback(schema, payload, createEntity);
   const requiredFieldIssues = collectProcessRequiredFieldIssues(payload);
+  const placeholderIssues = collectProcessPlaceholderIssues(payload);
 
-  if (outcome.success && requiredFieldIssues.length === 0) {
+  if (outcome.success && requiredFieldIssues.length === 0 && placeholderIssues.length === 0) {
     return {
       ok: true,
       validator: PROCESS_SCHEMA_VALIDATOR,
@@ -83,6 +87,7 @@ export function validateProcessPayload(
       code: issue.code ?? 'custom',
     })),
     ...requiredFieldIssues,
+    ...placeholderIssues,
   ];
 
   return {

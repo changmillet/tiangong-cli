@@ -178,3 +178,40 @@ test('process payload validation enforces annual supply authoring fields beyond 
     },
   ]);
 });
+
+test('process payload validation rejects placeholder authoring content', () => {
+  const result = validateProcessPayload(
+    validProcessPayload({
+      processDataSet: {
+        modellingAndValidation: {
+          dataSourcesTreatmentAndRepresentativeness: {
+            annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+          },
+          validation: {
+            'common:referenceToCompleteReviewReport': {
+              '@uri': 'https://placeholder.example/review-report',
+            },
+          },
+        },
+      },
+    }),
+    {
+      safeParse: () => ({
+        success: true as const,
+        data: {},
+      }),
+    },
+    null,
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(result.issue_count, 1);
+  assert.deepEqual(result.issues, [
+    {
+      path: 'processDataSet.modellingAndValidation.validation.common:referenceToCompleteReviewReport.@uri',
+      message:
+        'Process payload contains placeholder or pending-confirmation content that must be replaced before save or publish.',
+      code: 'process_placeholder_content',
+    },
+  ]);
+});

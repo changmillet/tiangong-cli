@@ -118,6 +118,45 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
   }
 });
 
+test('runDatasetValidate treats process placeholders as invalid authoring content', async () => {
+  const report = await runDatasetValidate({
+    inputPath: 'memory',
+    type: 'process',
+    rawInput: [
+      {
+        id: 'proc-placeholder',
+        json_ordered: validProcessPayload({
+          processDataSet: {
+            modellingAndValidation: {
+              dataSourcesTreatmentAndRepresentativeness: {
+                annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+              },
+              validation: {
+                reviewDetails: {
+                  '#text': 'Review summary pending confirmation.',
+                  '@xml:lang': 'en',
+                },
+              },
+            },
+          },
+        }),
+      },
+    ],
+    schemas,
+  });
+
+  assert.equal(report.status, 'completed_with_failures');
+  assert.equal(report.counts.invalid, 1);
+  assert.deepEqual(report.rows[0]?.issues, [
+    {
+      path: 'processDataSet.modellingAndValidation.validation.reviewDetails.#text',
+      message:
+        'Process payload contains placeholder or pending-confirmation content that must be replaced before save or publish.',
+      code: 'process_placeholder_content',
+    },
+  ]);
+});
+
 test('dataset local helpers cover input parsing, wrappers, identities, and errors', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-local-'));
   const jsonPath = path.join(dir, 'rows.json');

@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   __testInternals,
+  collectProcessPlaceholderIssues,
   collectProcessRequiredFieldIssues,
   runProcessRequiredFieldsComplete,
 } from '../src/lib/process-required-fields.js';
@@ -281,10 +282,177 @@ test('process required field issue collector detects missing and invalid annual 
   );
 });
 
+test('process placeholder issue collector blocks unfinished authoring placeholders', () => {
+  assert.deepEqual(
+    collectProcessPlaceholderIssues({
+      processDataSet: {
+        modellingAndValidation: {
+          validation: {
+            'common:reviewDetails': {
+              '#text': 'Review summary pending confirmation.',
+              '@xml:lang': 'en',
+            },
+            'common:referenceToCompleteReviewReport': {
+              '@uri': 'https://placeholder.example/review-report',
+              '@refObjectId': '00000000-0000-0000-0000-000000000003',
+            },
+          },
+        },
+      },
+    }).map((issue) => issue.path),
+    [
+      'processDataSet.modellingAndValidation.validation.common:reviewDetails.#text',
+      'processDataSet.modellingAndValidation.validation.common:referenceToCompleteReviewReport.@uri',
+      'processDataSet.modellingAndValidation.validation.common:referenceToCompleteReviewReport.@refObjectId',
+    ],
+  );
+
+  assert.deepEqual(
+    collectProcessPlaceholderIssues({
+      processDataSet: {
+        modellingAndValidation: {
+          validation: {
+            review: {
+              '@type': 'Not reviewed',
+            },
+          },
+        },
+      },
+    }),
+    [],
+  );
+});
+
+test('runProcessRequiredFieldsComplete removes placeholder review metadata', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-required-fields-placeholders-'));
+  const inputPath = path.join(dir, 'processes.jsonl');
+  const outPath = path.join(dir, 'completed.jsonl');
+  const outDir = path.join(dir, 'artifacts');
+  writeJsonl(inputPath, [
+    processRow({
+      json_ordered: {
+        processDataSet: {
+          processInformation: {
+            quantitativeReference: {
+              referenceToReferenceFlow: '5',
+            },
+          },
+          exchanges: {
+            exchange: [
+              {
+                '@dataSetInternalID': '5',
+                exchangeDirection: 'Output',
+                meanAmount: '3.6',
+              },
+            ],
+          },
+          modellingAndValidation: {
+            validation: {
+              review: {
+                'common:reviewDetails': {
+                  '#text': 'Review details pending confirmation.',
+                  '@xml:lang': 'en',
+                },
+              },
+              'common:reviewDetails': {
+                '#text': 'Review summary pending confirmation.',
+                '@xml:lang': 'en',
+              },
+              'common:referenceToCompleteReviewReport': {
+                '@uri': 'https://placeholder.example/review-report',
+              },
+            },
+            dataSourcesTreatmentAndRepresentativeness: {
+              annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  try {
+    const report = await runProcessRequiredFieldsComplete({
+      inputPath,
+      outPath,
+      outDir,
+      now: new Date('2026-05-23T00:00:00.000Z'),
+    });
+
+    assert.equal(report.status, 'completed');
+    assert.equal(report.rows[0]?.status, 'completed');
+    assert.deepEqual(
+      report.rows[0]?.completions.map((completion) => completion.source),
+      ['placeholder_repair', 'placeholder_repair', 'placeholder_repair'],
+    );
+    const validation = (
+      readJsonl(outPath)[0] as {
+        json_ordered: {
+          processDataSet: {
+            modellingAndValidation: {
+              validation: Record<string, unknown>;
+            };
+          };
+        };
+      }
+    ).json_ordered.processDataSet.modellingAndValidation.validation;
+    assert.equal((validation.review as Record<string, unknown>)['common:reviewDetails'], undefined);
+    assert.equal(validation['common:reviewDetails'], undefined);
+    assert.equal(validation['common:referenceToCompleteReviewReport'], undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runProcessRequiredFieldsComplete blocks unresolved placeholder content', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-required-fields-unresolved-'));
+  const inputPath = path.join(dir, 'processes.jsonl');
+  const outPath = path.join(dir, 'completed.jsonl');
+  writeJsonl(inputPath, [
+    processRow({
+      json_ordered: {
+        processDataSet: {
+          processInformation: {
+            dataSetInformation: {
+              'common:generalComment': {
+                '#text': 'Technology pending confirmation.',
+                '@xml:lang': 'en',
+              },
+            },
+          },
+          modellingAndValidation: {
+            dataSourcesTreatmentAndRepresentativeness: {
+              annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  try {
+    const report = await runProcessRequiredFieldsComplete({
+      inputPath,
+      outPath,
+    });
+
+    assert.equal(report.status, 'completed_with_blockers');
+    assert.equal(report.rows[0]?.status, 'blocked');
+    assert.deepEqual(
+      report.rows[0]?.issues.map((issue) => issue.code),
+      ['process_placeholder_content'],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('process required field internals cover evidence normalization and helper fallbacks', () => {
   assert.equal(__testInternals.textValue('   '), null);
   assert.equal(__testInternals.textValue(12), '12');
   assert.equal(__testInternals.textValue(false), null);
+  assert.equal(__testInternals.issuePath([]), '<root>');
+  assert.equal(__testInternals.issuePath(['a', 0, 'b']), 'a.0.b');
   assert.equal(__testInternals.valueAtPath({ a: { b: 1 } }, 'a.b'), 1);
   assert.equal(__testInternals.valueAtPath({ a: 1 }, 'a.b'), undefined);
 
