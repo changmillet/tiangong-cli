@@ -14,7 +14,15 @@ import path from 'node:path';
 import test from 'node:test';
 import { runProcessAutoBuild } from '../src/lib/process-auto-build.js';
 import { __testInternals, runProcessPublishBuild } from '../src/lib/process-publish-build.js';
+import type { ProcessPayloadValidationResult } from '../src/lib/process-payload-validation.js';
 import { resolveTidasSdkPath } from './helpers/tidas-sdk-path.js';
+
+const VALIDATION_OK = (): ProcessPayloadValidationResult => ({
+  ok: true,
+  validator: 'test-validator',
+  issue_count: 0,
+  issues: [],
+});
 
 function writeJson(filePath: string, value: unknown): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -137,6 +145,7 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
       runDir: autoReport.run_root,
       now: new Date('2026-03-29T03:00:00Z'),
       cwd: '/tmp/process-publish-build-runid',
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(publishReport.status, 'prepared_local_process_publish_bundle');
@@ -161,6 +170,7 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
     assert.equal(existsSync(publishReport.files.publish_bundle), true);
     assert.equal(existsSync(publishReport.files.publish_request), true);
     assert.equal(existsSync(publishReport.files.publish_intent), true);
+    assert.equal(existsSync(publishReport.files.process_schema_gate), true);
     assert.equal(existsSync(publishReport.files.report), true);
 
     const updatedState = readJson<Record<string, unknown>>(publishReport.files.state);
@@ -184,6 +194,16 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
       processes: 2,
       sources: 1,
       relations: 0,
+    });
+    assert.deepEqual(publishBundle.process_schema_gate, {
+      status: 'passed',
+      validator: '@tiangong-lca/tidas-sdk/ProcessSchema',
+      counts: {
+        total: 2,
+        valid: 2,
+        invalid: 0,
+      },
+      report_path: publishReport.files.process_schema_gate,
     });
     assert.equal((publishBundle.processes as unknown[]).length, 2);
     assert.equal((publishBundle.sources as unknown[]).length, 1);
@@ -235,6 +255,14 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
     const extra = handoff.extra as Record<string, unknown>;
     assert.equal(extra.status, publishReport.status);
     assert.equal(extra.request_id, autoReport.request_id);
+    assert.deepEqual(extra.process_schema_gate, {
+      status: 'passed',
+      counts: {
+        total: 2,
+        valid: 2,
+        invalid: 0,
+      },
+    });
 
     assert.equal(
       (publishReport.next_actions[2] ?? '').includes(
@@ -270,6 +298,7 @@ test('runProcessPublishBuild supports run-dir mode, falls back to state datasets
       runDir: autoReport.run_root,
       now: new Date('2026-03-29T04:00:00Z'),
       cwd: '/tmp/process-publish-build-rundir',
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(publishReport.run_id, autoReport.run_id);
@@ -332,6 +361,7 @@ test('runProcessPublishBuild recreates a missing invocation index for older runs
       runDir: autoReport.run_root,
       now: new Date('2026-03-29T04:30:00Z'),
       cwd: '/tmp/process-publish-build-no-invocations',
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     const invocationIndex = readJson<{
@@ -549,6 +579,37 @@ test('runProcessPublishBuild rejects invalid inputs and corrupted publish-build 
   } finally {
     rmSync(zeroProcessesDir, { recursive: true, force: true });
   }
+
+  const invalidSchemaDir = mkdtempSync(
+    path.join(os.tmpdir(), 'tg-cli-process-publish-build-schema-gate-'),
+  );
+  try {
+    const { report: autoReport } = await createPreparedRun(invalidSchemaDir);
+    const state = readJson<Record<string, unknown>>(autoReport.files.state);
+    state.process_datasets = [makeCanonicalProcess('not-a-uuid')];
+    state.source_datasets = [];
+    writeJson(autoReport.files.state, state);
+    await assert.rejects(
+      () => runProcessPublishBuild({ runDir: autoReport.run_root }),
+      /schema gate failed/u,
+    );
+    const layout = __testInternals.buildLayout(autoReport.run_root, autoReport.run_id);
+    const gate = readJson<{
+      status: string;
+      counts: { total: number; valid: number; invalid: number };
+      processes: Array<{ ok: boolean; issue_count: number }>;
+    }>(layout.processSchemaGatePath);
+    assert.equal(gate.status, 'blocked');
+    assert.deepEqual(gate.counts, {
+      total: 1,
+      valid: 0,
+      invalid: 1,
+    });
+    assert.equal(gate.processes[0]?.ok, false);
+    assert.equal(gate.processes[0]?.issue_count > 0, true);
+  } finally {
+    rmSync(invalidSchemaDir, { recursive: true, force: true });
+  }
 });
 
 test('process publish-build internals cover fallback layout and report helpers', () => {
@@ -712,4 +773,32 @@ test('process publish-build internals cover fallback layout and report helpers',
     __testInternals.buildLayout(sampleRunDir, 'run-123'),
   );
   assert.match(nextActions[3] ?? '', /future: wire publish executors/u);
+
+  const sparseGate = __testInternals.buildProcessSchemaGateReport([{}], {
+    now: new Date('2026-03-29T07:00:00Z'),
+    validateProcessPayloadImpl: VALIDATION_OK,
+  });
+  assert.equal(sparseGate.processes[0]?.id, null);
+  assert.equal(sparseGate.processes[0]?.version, null);
+  assert.equal(sparseGate.status, 'passed');
+
+  assert.throws(
+    () =>
+      __testInternals.assertProcessSchemaGatePassed(
+        {
+          schema_version: 1,
+          generated_at_utc: '2026-03-29T07:01:00.000Z',
+          status: 'blocked',
+          validator: 'test-validator',
+          counts: {
+            total: 1,
+            valid: 0,
+            invalid: 1,
+          },
+          processes: [],
+        },
+        __testInternals.buildLayout(sampleRunDir, 'run-123'),
+      ),
+    /schema gate failed/u,
+  );
 });

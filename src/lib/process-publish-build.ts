@@ -2,6 +2,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { readJsonArtifact, writeJsonArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
+import {
+  summarizeProcessPayloadValidation,
+  validateProcessPayload,
+  type ProcessPayloadValidationResult,
+} from './process-payload-validation.js';
 import { normalizePublishRequest } from './publish.js';
 import { withStateFileLock } from './state-lock.js';
 
@@ -26,7 +31,28 @@ export type ProcessPublishBuildLayout = {
   publishBundlePath: string;
   publishRequestPath: string;
   publishIntentPath: string;
+  processSchemaGatePath: string;
   reportPath: string;
+};
+
+export type ProcessPublishSchemaGateReport = {
+  schema_version: 1;
+  generated_at_utc: string;
+  status: 'passed' | 'blocked';
+  validator: string;
+  counts: {
+    total: number;
+    valid: number;
+    invalid: number;
+  };
+  processes: Array<{
+    index: number;
+    id: string | null;
+    version: string | null;
+    ok: boolean;
+    issue_count: number;
+    issues: ProcessPayloadValidationResult['issues'];
+  }>;
 };
 
 export type ProcessPublishBuildReport = {
@@ -67,6 +93,7 @@ export type ProcessPublishBuildReport = {
     publish_bundle: string;
     publish_request: string;
     publish_intent: string;
+    process_schema_gate: string;
     report: string;
   };
   next_actions: string[];
@@ -77,6 +104,7 @@ export type RunProcessPublishBuildOptions = {
   runDir?: string | null;
   now?: Date;
   cwd?: string;
+  validateProcessPayloadImpl?: (payload: JsonRecord) => ProcessPayloadValidationResult;
 };
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -140,6 +168,7 @@ function buildLayout(runRoot: string, runId: string): ProcessPublishBuildLayout 
     publishBundlePath: path.join(runRoot, 'stage_outputs', '10_publish', 'publish-bundle.json'),
     publishRequestPath: path.join(runRoot, 'stage_outputs', '10_publish', 'publish-request.json'),
     publishIntentPath: path.join(runRoot, 'stage_outputs', '10_publish', 'publish-intent.json'),
+    processSchemaGatePath: path.join(runRoot, 'reports', 'process-publish-schema-gate.json'),
     reportPath: path.join(runRoot, 'reports', 'process-publish-build-report.json'),
   };
 }
@@ -439,6 +468,7 @@ function buildPublishBundle(
   sources: JsonRecord[],
   counts: ProcessPublishBuildReport['counts'],
   datasetOrigins: ProcessPublishBuildReport['dataset_origins'],
+  schemaGate: ProcessPublishSchemaGateReport,
   now: Date,
 ): JsonRecord {
   return {
@@ -449,6 +479,12 @@ function buildPublishBundle(
     status: 'prepared_local_process_publish_bundle',
     counts,
     dataset_origins: datasetOrigins,
+    process_schema_gate: {
+      status: schemaGate.status,
+      validator: schemaGate.validator,
+      counts: schemaGate.counts,
+      report_path: layout.processSchemaGatePath,
+    },
     source_run: {
       build_status: nonEmptyString(state.build_status),
       next_stage: nonEmptyString(state.next_stage),
@@ -513,6 +549,7 @@ function buildAgentHandoffSummary(
   layout: ProcessPublishBuildLayout,
   state: JsonRecord,
   counts: ProcessPublishBuildReport['counts'],
+  schemaGate: ProcessPublishSchemaGateReport,
   now: Date,
 ): JsonRecord {
   return {
@@ -535,6 +572,7 @@ function buildAgentHandoffSummary(
       publish_bundle: layout.publishBundlePath,
       publish_request: layout.publishRequestPath,
       publish_intent: layout.publishIntentPath,
+      process_schema_gate: layout.processSchemaGatePath,
       process_update_report: null,
       flow_auto_build_manifest: null,
       publish_summary: null,
@@ -545,6 +583,10 @@ function buildAgentHandoffSummary(
     extra: {
       status: 'prepared_local_process_publish_bundle',
       request_id: nonEmptyString(state.request_id),
+      process_schema_gate: {
+        status: schemaGate.status,
+        counts: schemaGate.counts,
+      },
     },
   };
 }
@@ -576,10 +618,97 @@ function buildReport(
       publish_bundle: layout.publishBundlePath,
       publish_request: layout.publishRequestPath,
       publish_intent: layout.publishIntentPath,
+      process_schema_gate: layout.processSchemaGatePath,
       report: layout.reportPath,
     },
     next_actions: buildNextActions(layout),
   };
+}
+
+function extractProcessSummary(process: JsonRecord): { id: string | null; version: string | null } {
+  const root = isRecord(process.processDataSet) ? process.processDataSet : process;
+  const processInformation = isRecord(root.processInformation) ? root.processInformation : {};
+  const dataSetInformation = isRecord(processInformation.dataSetInformation)
+    ? processInformation.dataSetInformation
+    : {};
+  const administrativeInformation = isRecord(root.administrativeInformation)
+    ? root.administrativeInformation
+    : {};
+  const publicationAndOwnership = isRecord(administrativeInformation.publicationAndOwnership)
+    ? administrativeInformation.publicationAndOwnership
+    : {};
+
+  return {
+    id: nonEmptyString(dataSetInformation['common:UUID']),
+    version: nonEmptyString(publicationAndOwnership['common:dataSetVersion']),
+  };
+}
+
+function buildProcessSchemaGateReport(
+  processes: JsonRecord[],
+  options: {
+    now: Date;
+    validateProcessPayloadImpl?: (payload: JsonRecord) => ProcessPayloadValidationResult;
+  },
+): ProcessPublishSchemaGateReport {
+  const validate = options.validateProcessPayloadImpl ?? validateProcessPayload;
+  const processResults = processes.map((process, index) => {
+    const result = validate(process);
+    const summary = extractProcessSummary(process);
+    return {
+      index,
+      id: summary.id,
+      version: summary.version,
+      ok: result.ok,
+      issue_count: result.issue_count,
+      issues: result.issues,
+    };
+  });
+  const invalid = processResults.filter((process) => !process.ok).length;
+
+  return {
+    schema_version: 1,
+    generated_at_utc: options.now.toISOString(),
+    status: invalid > 0 ? 'blocked' : 'passed',
+    validator: '@tiangong-lca/tidas-sdk/ProcessSchema',
+    counts: {
+      total: processResults.length,
+      valid: processResults.length - invalid,
+      invalid,
+    },
+    processes: processResults,
+  };
+}
+
+function assertProcessSchemaGatePassed(
+  gate: ProcessPublishSchemaGateReport,
+  layout: ProcessPublishBuildLayout,
+): void {
+  if (gate.status === 'passed') {
+    return;
+  }
+
+  const firstInvalid = gate.processes.find((process) => !process.ok);
+  const detail = firstInvalid
+    ? ` First invalid process index ${firstInvalid.index}: ${summarizeProcessPayloadValidation({
+        ok: false,
+        validator: gate.validator,
+        issue_count: firstInvalid.issue_count,
+        issues: firstInvalid.issues,
+      })}`
+    : '';
+
+  throw new CliError(
+    `process publish-build schema gate failed with ${gate.counts.invalid} invalid process dataset(s).${detail}`,
+    {
+      code: 'PROCESS_PUBLISH_SCHEMA_GATE_FAILED',
+      exitCode: 2,
+      details: {
+        gate_report: layout.processSchemaGatePath,
+        counts: gate.counts,
+      },
+    },
+  );
 }
 
 export async function runProcessPublishBuild(
@@ -618,6 +747,12 @@ export async function runProcessPublishBuild(
         processes: datasets.processOrigin,
         sources: datasets.sourceOrigin,
       };
+      const schemaGate = buildProcessSchemaGateReport(datasets.processes, {
+        now,
+        validateProcessPayloadImpl: options.validateProcessPayloadImpl,
+      });
+      writeJsonArtifact(layout.processSchemaGatePath, schemaGate);
+      assertProcessSchemaGatePassed(schemaGate, layout);
       const publishBundle = buildPublishBundle(
         layout,
         state,
@@ -626,6 +761,7 @@ export async function runProcessPublishBuild(
         datasets.sources,
         counts,
         datasetOrigins,
+        schemaGate,
         now,
       );
       const publishRequest = buildPublishRequest();
@@ -636,7 +772,13 @@ export async function runProcessPublishBuild(
       const publishIntent = buildPublishIntent(layout, counts);
       const updatedState = buildUpdatedState(state, layout, counts, datasetOrigins, now);
       const updatedInvocationIndex = buildInvocationIndex(layout, invocationIndex, options, now);
-      const handoffSummary = buildAgentHandoffSummary(layout, updatedState, counts, now);
+      const handoffSummary = buildAgentHandoffSummary(
+        layout,
+        updatedState,
+        counts,
+        schemaGate,
+        now,
+      );
       const report = buildReport(
         layout,
         updatedState,
@@ -675,6 +817,8 @@ export const __testInternals = {
   collectCanonicalDatasets,
   buildPublishRequest,
   buildPublishIntent,
+  buildProcessSchemaGateReport,
+  assertProcessSchemaGatePassed,
   buildUpdatedState,
   buildInvocationIndex,
   buildNextActions,

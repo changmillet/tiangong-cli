@@ -5,11 +5,19 @@ import path from 'node:path';
 import test from 'node:test';
 import { collectPublishInputs, normalizePublishRequest, runPublish } from '../src/lib/publish.js';
 import type { FetchLike } from '../src/lib/http.js';
+import type { ProcessPayloadValidationResult } from '../src/lib/process-payload-validation.js';
 import {
   buildSupabaseTestEnv,
   isSupabaseAuthTokenUrl,
   makeSupabaseAuthResponse,
 } from './helpers/supabase-auth.js';
+
+const VALIDATION_OK = (): ProcessPayloadValidationResult => ({
+  ok: true,
+  validator: 'test-validator',
+  issue_count: 0,
+  issues: [],
+});
 
 function writeJson(filePath: string, value: unknown): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
@@ -425,6 +433,7 @@ test('runPublish executes available commit executors and records failures', asyn
         process_build_runs: () => ({ published: true }),
       },
       now: new Date('2026-03-28T00:00:00Z'),
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.commit, true);
@@ -467,6 +476,7 @@ test('runPublish honors commit override, defers missing executors, and rejects i
       inputPath: requestPath,
       commit: true,
       now: new Date('2026-03-28T00:00:00Z'),
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.commit, true);
@@ -479,6 +489,44 @@ test('runPublish honors commit override, defers missing executors, and rejects i
         }),
       /missing run_id/u,
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runPublish blocks canonical process payloads that fail ProcessSchema before executors', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-publish-process-schema-gate-'));
+  const requestPath = path.join(dir, 'request.json');
+  let executorCalls = 0;
+
+  writeJson(requestPath, {
+    inputs: {
+      processes: [makeCanonicalProcess('not-a-uuid')],
+    },
+    publish: {
+      commit: true,
+    },
+  });
+
+  try {
+    const report = await runPublish({
+      inputPath: requestPath,
+      executors: {
+        processes: () => {
+          executorCalls += 1;
+          return { inserted: true };
+        },
+      },
+      now: new Date('2026-03-28T00:00:00Z'),
+    });
+
+    assert.equal(report.status, 'completed_with_failures');
+    assert.equal(report.counts.failed, 1);
+    assert.equal(report.counts.executed, 0);
+    assert.equal(executorCalls, 0);
+    assert.equal(report.processes[0].status, 'failed');
+    assert.equal(report.processes[0].validation?.ok, false);
+    assert.match(report.processes[0].error?.message ?? '', /ProcessSchema validation failed/u);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -552,6 +600,7 @@ test('runPublish uses state-aware process draft writes and generic source update
         });
       }),
       now: new Date('2026-03-28T00:00:00Z'),
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.processes[0].status, 'executed');
@@ -833,6 +882,7 @@ test('runPublish fails truthfully when a visible process row cannot use the draf
         });
       }),
       now: new Date('2026-03-28T00:00:00Z'),
+      validateProcessPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.status, 'completed_with_failures');
