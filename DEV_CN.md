@@ -191,7 +191,7 @@ TIANGONG_LCA_UNSTRUCTURED_RETURN_TXT=true
 | `search flow \| process \| lifecyclemodel` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `admin embedding-run` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `process get \| list` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
-| `process identity-preflight` | 无 |
+| `process identity-preflight` | 默认无；若启用 `--remote-candidates` 或输入 `remote_candidate_search.enabled=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `process auto-build \| resume-build \| publish-build \| batch-build` | 无 |
 | `dataset validate` | 无 |
 | `dataset references rewrite` | 本地 rewrite 默认无；若 `--commit` 写入 patched rows，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
@@ -204,7 +204,7 @@ TIANGONG_LCA_UNSTRUCTURED_RETURN_TXT=true
 | `review lifecyclemodel` | 无 |
 | `flow get` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `flow list` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
-| `flow identity-preflight` | 无 |
+| `flow identity-preflight` | 默认无；若启用 `--remote-candidates` 或输入 `remote_candidate_search.enabled=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `flow remediate` | 无 |
 | `flow publish-version` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `flow publish-reviewed-data` | 本地 dry-run 默认无；若 `--commit` 发布 prepared flow/process rows，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
@@ -293,12 +293,12 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 
 `tiangong-lca process identity-preflight` 现在承担 process 生成前的本地身份预检切片，负责：
 
-- 读取一个 target process 和本地候选 process 列表
+- 读取一个 target process、本地候选 process 列表，以及显式开启的 `process_hybrid_search` 远程候选
 - 对 canonical TIDAS wrapper 执行 `ProcessSchema` 校验；早期 loose target 只进入 `not_applicable` schema 状态
 - 基于 `id`、version、`state_code`、名称、地理/时间/技术边界、参考 flow 和 exchange signature 给出 reuse / update_same_row / version_bump / create_new / block_duplicate / manual_review 决策
 - 输出 `identity-decision.json` 和 `identity-candidates.jsonl`
 
-这个命令当前只负责 artifact-first 的本地 gate，不负责远端候选检索、远端写入或自动替调用方决定 publish。
+这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。
 
 `tiangong-lca process save-draft` 现在已经承担当前账号 draft process 的 state-aware 写入切片，负责：
 
@@ -497,12 +497,12 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 
 `tiangong-lca flow identity-preflight` 现在承担 flow 生成前的本地身份预检切片，负责：
 
-- 读取一个 target flow 和本地候选 flow 列表
+- 读取一个 target flow、本地候选 flow 列表，以及显式开启的 `flow_hybrid_search` 远程候选
 - 对 canonical TIDAS wrapper 执行 `FlowSchema` 校验；早期 loose target 只进入 `not_applicable` schema 状态
 - 基于 `id`、version、`state_code`、名称/同义词、类型、CAS、flow property、参考单位、分类和地理字段给出 reuse / update_same_row / version_bump / create_new / block_duplicate / manual_review 决策
 - 输出 `identity-decision.json` 和 `identity-candidates.jsonl`
 
-这个命令当前只负责 artifact-first 的本地 gate，不负责远端候选检索、远端写入或自动替调用方决定 publish。
+这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。
 
 `tiangong-lca flow remediate` 现在已经承担 flow governance 的第一个 CLI remediation 切片，负责：
 

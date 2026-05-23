@@ -1869,6 +1869,11 @@ test('executeCli executes process identity-preflight with injected implementatio
       '/tmp/candidates-a.jsonl',
       '--candidate-input',
       '/tmp/candidate-dir',
+      '--remote-candidates',
+      '--remote-query',
+      'grid electricity',
+      '--remote-limit',
+      '3',
       '--out-dir',
       '/tmp/process-preflight',
     ],
@@ -1881,6 +1886,9 @@ test('executeCli executes process identity-preflight with injected implementatio
           '/tmp/candidates-a.jsonl',
           '/tmp/candidate-dir',
         ]);
+        assert.equal(options.remoteCandidateSearch, true);
+        assert.equal(options.remoteQuery, 'grid electricity');
+        assert.equal(options.remoteLimit, 3);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',
@@ -1995,6 +2003,20 @@ test('executeCli maps process identity-preflight success and argument errors', a
   );
   assert.equal(invalid.exitCode, 2);
   assert.match(invalid.stderr, /Unknown option/u);
+
+  const invalidRemoteLimit = await executeCli(
+    [
+      'process',
+      'identity-preflight',
+      '--input',
+      '/tmp/process-preflight.json',
+      '--remote-limit',
+      '0',
+    ],
+    makeDeps(),
+  );
+  assert.equal(invalidRemoteLimit.exitCode, 2);
+  assert.match(invalidRemoteLimit.stderr, /positive integer/u);
 });
 
 test('executeCli executes process build-plan validate and materialize with injected implementations', async () => {
@@ -2422,12 +2444,25 @@ test('executeCli parses non-all flow list pagination flags', async () => {
 
 test('executeCli executes flow identity-preflight with injected implementation', async () => {
   const result = await executeCli(
-    ['flow', 'identity-preflight', '--input', '/tmp/flow-preflight.json'],
+    [
+      'flow',
+      'identity-preflight',
+      '--input',
+      '/tmp/flow-preflight.json',
+      '--remote-candidates',
+      '--remote-query',
+      'electricity flow',
+      '--remote-limit',
+      '2',
+    ],
     {
       ...makeDeps(),
       runFlowIdentityPreflightImpl: async (options) => {
         assert.equal(options.inputPath, '/tmp/flow-preflight.json');
         assert.equal(options.outDir, null);
+        assert.equal(options.remoteCandidateSearch, true);
+        assert.equal(options.remoteQuery, 'electricity flow');
+        assert.equal(options.remoteLimit, 2);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',

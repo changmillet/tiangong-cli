@@ -758,6 +758,12 @@ Options:
   --input <file>   JSON preflight request with target flow and optional candidates
   --candidate-input <path>
                    Optional JSON/JSONL file or directory of candidate flow rows; repeatable
+  --remote-candidates
+                   Also fetch candidate rows from flow_hybrid_search
+  --remote-query <text>
+                   Override the remote search query; defaults to target identity text
+  --remote-limit <n>
+                   Limit remote candidate rows after fetch
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -1465,6 +1471,12 @@ Options:
   --input <file>   JSON preflight request with target process and optional candidates
   --candidate-input <path>
                    Optional JSON/JSONL file or directory of candidate process rows; repeatable
+  --remote-candidates
+                   Also fetch candidate rows from process_hybrid_search
+  --remote-query <text>
+                   Override the remote search query; defaults to target identity text
+  --remote-limit <n>
+                   Limit remote candidate rows after fetch
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -2210,6 +2222,9 @@ function parseIdentityPreflightFlags(args: string[]): {
   inputPath: string;
   outDir: string | null;
   candidateInputPaths: string[];
+  remoteCandidateSearch: boolean;
+  remoteQuery: string | null;
+  remoteLimit: number | null;
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -2222,6 +2237,9 @@ function parseIdentityPreflightFlags(args: string[]): {
         json: { type: 'boolean' },
         input: { type: 'string' },
         'candidate-input': { type: 'string', multiple: true },
+        'remote-candidates': { type: 'boolean' },
+        'remote-query': { type: 'string' },
+        'remote-limit': { type: 'string' },
         'out-dir': { type: 'string' },
       },
     }));
@@ -2233,6 +2251,19 @@ function parseIdentityPreflightFlags(args: string[]): {
   }
 
   const candidateInputValue = values['candidate-input'];
+  const parseRemoteLimit = (value: unknown): number | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new CliError('Expected --remote-limit to be a positive integer.', {
+        code: 'INVALID_IDENTITY_PREFLIGHT_REMOTE_LIMIT',
+        exitCode: 2,
+      });
+    }
+    return parsed;
+  };
   return {
     help: Boolean(values.help),
     json: Boolean(values.json),
@@ -2241,6 +2272,9 @@ function parseIdentityPreflightFlags(args: string[]): {
     candidateInputPaths: Array.isArray(candidateInputValue)
       ? candidateInputValue.filter((entry): entry is string => typeof entry === 'string')
       : [],
+    remoteCandidateSearch: Boolean(values['remote-candidates']),
+    remoteQuery: typeof values['remote-query'] === 'string' ? values['remote-query'] : null,
+    remoteLimit: parseRemoteLimit(values['remote-limit']),
   };
 }
 
@@ -4869,6 +4903,11 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         inputPath: processFlags.inputPath,
         outDir: processFlags.outDir,
         candidateInputPaths: processFlags.candidateInputPaths,
+        remoteCandidateSearch: processFlags.remoteCandidateSearch,
+        remoteQuery: processFlags.remoteQuery,
+        remoteLimit: processFlags.remoteLimit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
       });
 
       return {
@@ -5226,6 +5265,11 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         inputPath: flowFlags.inputPath,
         outDir: flowFlags.outDir,
         candidateInputPaths: flowFlags.candidateInputPaths,
+        remoteCandidateSearch: flowFlags.remoteCandidateSearch,
+        remoteQuery: flowFlags.remoteQuery,
+        remoteLimit: flowFlags.remoteLimit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
       });
 
       return {

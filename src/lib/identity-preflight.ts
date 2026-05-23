@@ -2,7 +2,10 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
+import { readRuntimeEnv } from './env.js';
 import { CliError } from './errors.js';
+import type { FetchLike } from './http.js';
+import { postJson } from './http.js';
 import {
   datasetIdentity,
   detectDatasetKind,
@@ -13,6 +16,8 @@ import {
   type JsonObject,
 } from './dataset-local.js';
 import { readJsonInput } from './io.js';
+import { deriveSupabaseFunctionsBaseUrl, requireSupabaseRestRuntime } from './supabase-client.js';
+import { resolveSupabaseUserSession } from './supabase-session.js';
 import {
   normalizeIssuePath,
   type SafeParseSchema,
@@ -74,9 +79,12 @@ export type IdentityPreflightCandidateReport = {
 
 export type IdentityPreflightCandidateSourceReport = {
   path: string;
-  kind: 'embedded_request' | 'file' | 'directory';
+  kind: 'embedded_request' | 'file' | 'directory' | 'remote_search';
   row_count: number;
   scanned_files: string[];
+  endpoint?: string;
+  query?: string;
+  filter?: JsonObject | null;
 };
 
 export type IdentityPreflightReport = {
@@ -118,6 +126,13 @@ export type RunIdentityPreflightOptions = {
   outDir?: string | null;
   rawInput?: unknown;
   candidateInputPaths?: string[];
+  remoteCandidateSearch?: boolean;
+  remoteQuery?: string | null;
+  remoteFilter?: JsonObject | null;
+  remoteLimit?: number | null;
+  env?: NodeJS.ProcessEnv;
+  fetchImpl?: FetchLike;
+  timeoutMs?: number;
   now?: Date;
   schemas?: Partial<Record<IdentityPreflightKind, SafeParseSchema>>;
 };
@@ -131,11 +146,24 @@ type NormalizedInput = {
   target: JsonObject;
   candidates: JsonObject[];
   candidateInputPaths: string[];
+  remoteCandidateSearch: RemoteCandidateSearchConfig;
 };
 
 type CandidateEvaluation = {
   report: IdentityPreflightCandidateReport;
   findings: IdentityPreflightFinding[];
+};
+
+type RemoteCandidateSearchConfig = {
+  enabled: boolean;
+  query: string | null;
+  filter: JsonObject | null;
+  limit: number | null;
+};
+
+type RemoteCandidateRead = {
+  rows: JsonObject[];
+  source: IdentityPreflightCandidateSourceReport;
 };
 
 const SCHEMA_EXPORTS: Record<IdentityPreflightKind, keyof typeof tidasSdk> = {
@@ -197,6 +225,48 @@ function normalizePathList(value: unknown, label: string): string[] {
   });
 }
 
+function normalizePositiveInteger(value: unknown, label: string): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new CliError(`Expected ${label} to be a positive integer.`, {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_LIMIT',
+      exitCode: 2,
+    });
+  }
+  return parsed;
+}
+
+function normalizeRemoteCandidateSearch(value: unknown): RemoteCandidateSearchConfig {
+  if (value === undefined || value === null) {
+    return { enabled: false, query: null, filter: null, limit: null };
+  }
+  if (typeof value === 'boolean') {
+    return { enabled: value, query: null, filter: null, limit: null };
+  }
+  if (!isRecord(value)) {
+    throw new CliError('remote_candidate_search must be a boolean or object.', {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_SEARCH',
+      exitCode: 2,
+    });
+  }
+
+  const enabled = value.enabled === undefined ? true : Boolean(value.enabled);
+  const query = textValue(value.query) ?? textValue(value.search_query);
+  const filter =
+    value.filter === undefined || value.filter === null
+      ? null
+      : normalizeToRecord(value.filter, 'remote_candidate_search.filter');
+  return {
+    enabled,
+    query,
+    filter,
+    limit: normalizePositiveInteger(value.limit, 'remote_candidate_search.limit'),
+  };
+}
+
 function pickKindTarget(input: JsonObject, kind: IdentityPreflightKind): unknown {
   if (input.target !== undefined) {
     return input.target;
@@ -233,6 +303,9 @@ function normalizePreflightInput(rawInput: unknown, kind: IdentityPreflightKind)
       ...normalizePathList(input.candidate_files, 'candidate_files'),
       ...normalizePathList(input.candidateFiles, 'candidateFiles'),
     ],
+    remoteCandidateSearch: normalizeRemoteCandidateSearch(
+      input.remote_candidate_search ?? input.remoteCandidateSearch ?? input.remote_candidates,
+    ),
   };
 }
 
@@ -289,6 +362,126 @@ function readCandidateSource(candidatePath: string): {
       kind,
       row_count: rows.length,
       scanned_files: files,
+    },
+  };
+}
+
+function mergeRemoteCandidateSearchConfig(
+  inputConfig: RemoteCandidateSearchConfig,
+  options: RunIdentityPreflightOptions,
+): RemoteCandidateSearchConfig {
+  return {
+    enabled: options.remoteCandidateSearch ?? inputConfig.enabled,
+    query: options.remoteQuery?.trim() || inputConfig.query,
+    filter: options.remoteFilter ?? inputConfig.filter,
+    limit: options.remoteLimit ?? inputConfig.limit,
+  };
+}
+
+function remoteSearchEndpoint(kind: IdentityPreflightKind): string {
+  return kind === 'process' ? 'process_hybrid_search' : 'flow_hybrid_search';
+}
+
+function defaultRemoteQuery(profile: IdentityProfile): string | null {
+  return (
+    profile.names[0] ??
+    Object.values(profile.fields)
+      .flat()
+      .find((value): value is string => typeof value === 'string' && value.trim().length > 0) ??
+    (profile.identity_key ? profile.identity_key : null)
+  );
+}
+
+function remoteSearchFilter(
+  kind: IdentityPreflightKind,
+  profile: IdentityProfile,
+  explicitFilter: JsonObject | null,
+): JsonObject | null {
+  const filter: JsonObject = explicitFilter ? { ...explicitFilter } : {};
+  if (kind === 'flow' && filter.flowType === undefined) {
+    const flowType = Array.isArray(profile.fields.type_of_dataset)
+      ? profile.fields.type_of_dataset[0]
+      : profile.fields.type_of_dataset;
+    if (flowType) {
+      filter.flowType = flowType;
+    }
+  }
+  return Object.keys(filter).length > 0 ? filter : null;
+}
+
+function rowsFromRemoteSearchResponse(value: unknown): JsonObject[] {
+  const rows = isRecord(value)
+    ? (value.data ?? value.rows ?? value.results ?? value.candidates ?? [])
+    : value;
+  if (rows === undefined || rows === null) {
+    return [];
+  }
+  return normalizeRows(rows, 'remote search candidates');
+}
+
+async function readRemoteCandidateSource(
+  kind: IdentityPreflightKind,
+  targetProfile: IdentityProfile,
+  config: RemoteCandidateSearchConfig,
+  options: RunIdentityPreflightOptions,
+): Promise<RemoteCandidateRead | null> {
+  if (!config.enabled) {
+    return null;
+  }
+
+  const query = config.query ?? defaultRemoteQuery(targetProfile);
+  if (!query) {
+    throw new CliError('Remote identity candidate search requires a query.', {
+      code: 'IDENTITY_PREFLIGHT_REMOTE_QUERY_REQUIRED',
+      exitCode: 2,
+    });
+  }
+
+  const runtimeEnv = readRuntimeEnv(options.env ?? process.env);
+  const runtime = requireSupabaseRestRuntime(options.env ?? process.env);
+  const fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
+  const timeoutMs = options.timeoutMs ?? 10_000;
+  const endpoint = remoteSearchEndpoint(kind);
+  const url = `${deriveSupabaseFunctionsBaseUrl(runtime.apiBaseUrl)}/${endpoint}`;
+  const session = await resolveSupabaseUserSession({
+    runtime,
+    fetchImpl,
+    timeoutMs,
+    now: options.now,
+  });
+  const filter = remoteSearchFilter(kind, targetProfile, config.filter);
+  const body: JsonObject = {
+    query,
+    ...(filter ? { filter } : {}),
+    ...(config.limit ? { limit: config.limit } : {}),
+  };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${session.accessToken}`,
+    'Content-Type': 'application/json',
+  };
+  if (runtimeEnv.region) {
+    headers['x-region'] = runtimeEnv.region;
+  }
+
+  const response = await postJson({
+    url,
+    headers,
+    body,
+    timeoutMs,
+    fetchImpl,
+  });
+  const rows = rowsFromRemoteSearchResponse(response);
+  const limitedRows = config.limit ? rows.slice(0, config.limit) : rows;
+  return {
+    rows: limitedRows,
+    source: {
+      path: url,
+      kind: 'remote_search',
+      row_count: limitedRows.length,
+      scanned_files: [],
+      endpoint,
+      query,
+      filter,
     },
   };
 }
@@ -1063,10 +1256,21 @@ export async function runIdentityPreflight(
     options.rawInput ?? readJsonInput(inputPath),
     kind,
   );
+  const targetProfile = profileForKind(normalizedInput.target, kind);
+  const remoteCandidateSearch = mergeRemoteCandidateSearchConfig(
+    normalizedInput.remoteCandidateSearch,
+    options,
+  );
   const candidateSourceReads = [
     ...normalizedInput.candidateInputPaths,
     ...(options.candidateInputPaths ?? []),
   ].map(readCandidateSource);
+  const remoteCandidateRead = await readRemoteCandidateSource(
+    kind,
+    targetProfile,
+    remoteCandidateSearch,
+    options,
+  );
   const candidateSources: IdentityPreflightCandidateSourceReport[] = [
     ...(normalizedInput.candidates.length > 0
       ? [
@@ -1079,12 +1283,13 @@ export async function runIdentityPreflight(
         ]
       : []),
     ...candidateSourceReads.map((entry) => entry.source),
+    ...(remoteCandidateRead ? [remoteCandidateRead.source] : []),
   ];
   const candidates = [
     ...normalizedInput.candidates,
     ...candidateSourceReads.flatMap((entry) => entry.rows),
+    ...(remoteCandidateRead?.rows ?? []),
   ];
-  const targetProfile = profileForKind(normalizedInput.target, kind);
   const validation = validateTargetSchema(normalizedInput.target, kind, options.schemas);
   const evaluations = candidates.map((candidate, index) =>
     candidateEvaluation(targetProfile, profileForKind(candidate, kind), kind, index),
@@ -1148,4 +1353,8 @@ export const __testInternals = {
   candidateEvaluation,
   chooseDecision,
   readCandidateSource,
+  defaultRemoteQuery,
+  normalizeRemoteCandidateSearch,
+  remoteSearchFilter,
+  rowsFromRemoteSearchResponse,
 };

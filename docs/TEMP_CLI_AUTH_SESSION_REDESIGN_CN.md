@@ -232,6 +232,8 @@ TIANGONG_LCA_FORCE_REAUTH=false
 - `flow list`
 - `flow publish-version`
 - `flow publish-reviewed-data --commit`
+- `process identity-preflight --remote-candidates`
+- `flow identity-preflight --remote-candidates`
 - `lifecyclemodel build-resulting-process`（当 request 开启 remote lookup）
 - 其他所有 direct Supabase 读写 helper
 
@@ -241,6 +243,7 @@ TIANGONG_LCA_FORCE_REAUTH=false
 
 - `doctor`
 - 本地 build / review / validation / artifact 命令
+- 未启用 remote candidate search 的 `process identity-preflight` / `flow identity-preflight`
 - 任何不访问 remote 的命令
 
 ## 5. Session cache 设计
