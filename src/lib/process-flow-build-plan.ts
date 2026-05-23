@@ -553,7 +553,10 @@ function buildAnnualSupply(plan: JsonObject, referenceExchange: JsonObject): Jso
     return multiLangFromValue(explicit, String(explicit));
   }
 
-  const amount = textToken(referenceExchange.meanAmount) as string;
+  const amount =
+    textToken(referenceExchange.meanAmount) ??
+    textToken(referenceExchange.resultingAmount) ??
+    '1.0';
   const unit =
     firstToken(plan, [
       'quantitative_reference_plan.reference_unit',
@@ -1390,5 +1393,6 @@ export const __testInternals = {
   validateMaterializedSchema,
   buildCanonicalFlowPayload,
   buildCanonicalProcessPayload,
+  buildAnnualSupply,
   multiLangFromValue,
 };

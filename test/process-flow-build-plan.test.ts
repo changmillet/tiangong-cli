@@ -815,6 +815,37 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
     ],
   );
 
+  const resultingAmountProcess = __testInternals.buildCanonicalProcessPayload(
+    processPlan({
+      quantitative_reference_plan: {
+        reference_flow_id: 'resulting-flow',
+        resulting_amount: '4.2',
+        reference_unit: 'kg',
+      },
+    }),
+    '/tmp/resulting-amount-process-plan.json',
+  ) as Record<string, unknown>;
+  assert.deepEqual(
+    (
+      (
+        (resultingAmountProcess.processDataSet as Record<string, unknown>)
+          .modellingAndValidation as Record<string, unknown>
+      ).dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>
+    ).annualSupplyOrProductionVolume,
+    [
+      { '#text': '4.2 kg/year', '@xml:lang': 'en' },
+      { '#text': '4.2 kg/年', '@xml:lang': 'zh' },
+    ],
+  );
+  assert.deepEqual(__testInternals.buildAnnualSupply({}, { resultingAmount: '5.5' }), [
+    { '#text': '5.5 unit/year', '@xml:lang': 'en' },
+    { '#text': '5.5 unit/年', '@xml:lang': 'zh' },
+  ]);
+  assert.deepEqual(__testInternals.buildAnnualSupply({}, {}), [
+    { '#text': '1.0 unit/year', '@xml:lang': 'en' },
+    { '#text': '1.0 unit/年', '@xml:lang': 'zh' },
+  ]);
+
   __testInternals.buildCanonicalProcessPayload(
     processPlan({
       evidence_manifest: {
