@@ -647,8 +647,18 @@ test('identity preflight reads file candidate sources and rejects invalid source
       /Candidate input not found/u,
     );
 
+    const unsupportedPath = path.join(workDir, 'unsupported.txt');
+    writeFileSync(unsupportedPath, 'not a candidate payload', 'utf8');
     assert.throws(
-      () => __testInternals.readCandidateSource(os.devNull),
+      () => __testInternals.readCandidateSource(unsupportedPath),
+      /Candidate input must be a JSON\/JSONL file or directory/u,
+    );
+    assert.throws(
+      () =>
+        __testInternals.collectCandidateFilesFromStats(unsupportedPath, {
+          isFile: () => false,
+          isDirectory: () => false,
+        }),
       /Candidate input must be a JSON\/JSONL file or directory/u,
     );
 

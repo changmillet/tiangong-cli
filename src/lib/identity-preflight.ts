@@ -309,24 +309,31 @@ function normalizePreflightInput(rawInput: unknown, kind: IdentityPreflightKind)
   };
 }
 
-function collectCandidateFiles(candidatePath: string): string[] {
-  const resolved = path.resolve(candidatePath);
-  if (!existsSync(resolved)) {
-    throw new CliError(`Candidate input not found: ${resolved}`, {
-      code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_NOT_FOUND',
-      exitCode: 2,
-    });
-  }
+interface CandidateInputStats {
+  isFile(): boolean;
+  isDirectory(): boolean;
+}
 
-  const stats = statSync(resolved);
+function isCandidateDatasetFile(filePath: string): boolean {
+  return /\.(?:json|jsonl)$/iu.test(path.basename(filePath));
+}
+
+function throwUnsupportedCandidateInput(resolved: string): never {
+  throw new CliError(`Candidate input must be a JSON/JSONL file or directory: ${resolved}`, {
+    code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_UNSUPPORTED',
+    exitCode: 2,
+  });
+}
+
+function collectCandidateFilesFromStats(resolved: string, stats: CandidateInputStats): string[] {
   if (stats.isFile()) {
+    if (!isCandidateDatasetFile(resolved)) {
+      throwUnsupportedCandidateInput(resolved);
+    }
     return [resolved];
   }
   if (!stats.isDirectory()) {
-    throw new CliError(`Candidate input must be a JSON/JSONL file or directory: ${resolved}`, {
-      code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_UNSUPPORTED',
-      exitCode: 2,
-    });
+    throwUnsupportedCandidateInput(resolved);
   }
 
   const files: string[] = [];
@@ -338,13 +345,26 @@ function collectCandidateFiles(candidatePath: string): string[] {
       const entryPath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         visit(entryPath);
-      } else if (entry.isFile() && /\.(?:json|jsonl)$/iu.test(entry.name)) {
+      } else if (entry.isFile() && isCandidateDatasetFile(entry.name)) {
         files.push(entryPath);
       }
     }
   };
   visit(resolved);
   return files.sort((left, right) => left.localeCompare(right));
+}
+
+function collectCandidateFiles(candidatePath: string): string[] {
+  const resolved = path.resolve(candidatePath);
+  if (!existsSync(resolved)) {
+    throw new CliError(`Candidate input not found: ${resolved}`, {
+      code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_NOT_FOUND',
+      exitCode: 2,
+    });
+  }
+
+  const stats = statSync(resolved);
+  return collectCandidateFilesFromStats(resolved, stats);
 }
 
 function readCandidateSource(candidatePath: string): {
@@ -1352,6 +1372,7 @@ export const __testInternals = {
   flowProfile,
   candidateEvaluation,
   chooseDecision,
+  collectCandidateFilesFromStats,
   readCandidateSource,
   defaultRemoteQuery,
   normalizeRemoteCandidateSearch,
