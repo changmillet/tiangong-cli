@@ -18,7 +18,7 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-05-23
-lastReviewedCommit: 1a50c4cea46836bd5321bdd493871ca3bea0f572
+lastReviewedCommit: 1fd3160579d664922904024eb46c80dd7b4342f5
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml

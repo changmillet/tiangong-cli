@@ -79,6 +79,7 @@ export type ProcessAutoBuildLayout = RunLayout & {
   sourcePolicyPath: string;
   flowSummaryPath: string;
   inputManifestPath: string;
+  buildPlanPath: string;
   assemblyPlanPath: string;
   lineageManifestPath: string;
   invocationIndexPath: string;
@@ -115,6 +116,7 @@ export type ProcessAutoBuildReport = {
     source_policy: string;
     flow_summary: string;
     input_manifest: string;
+    build_plan: string;
     assembly_plan: string;
     lineage_manifest: string;
     invocation_index: string;
@@ -608,6 +610,7 @@ function buildLayout(runRoot: string, runId: string): ProcessAutoBuildLayout {
     sourcePolicyPath: path.join(runRoot, 'request', 'source-policy.json'),
     flowSummaryPath: path.join(runRoot, 'manifests', 'flow-summary.json'),
     inputManifestPath: path.join(runRoot, 'input', 'input_manifest.json'),
+    buildPlanPath: path.join(runRoot, 'manifests', 'process-build-plan.json'),
     assemblyPlanPath: path.join(runRoot, 'manifests', 'assembly-plan.json'),
     lineageManifestPath: path.join(runRoot, 'manifests', 'lineage-manifest.json'),
     invocationIndexPath: path.join(runRoot, 'manifests', 'invocation-index.json'),
@@ -687,6 +690,143 @@ function buildAssemblyPlan(runRoot: string): JsonRecord {
         : null,
       output_abs: path.join(runRoot, stage.output),
     })),
+  };
+}
+
+function flowReferencePropertySummary(flowDataset: JsonRecord): {
+  reference_property: string;
+  reference_property_id: string | null;
+  reference_unit: string | null;
+} {
+  const flowInformation = isRecord(flowDataset.flowInformation) ? flowDataset.flowInformation : {};
+  const quantitativeReference = isRecord(flowInformation.quantitativeReference)
+    ? flowInformation.quantitativeReference
+    : {};
+  const referenceId = nonEmptyString(quantitativeReference.referenceToReferenceFlowProperty);
+  const flowProperties = isRecord(flowDataset.flowProperties) ? flowDataset.flowProperties : {};
+  const propertyRows = Array.isArray(flowProperties.flowProperty)
+    ? flowProperties.flowProperty
+    : flowProperties.flowProperty
+      ? [flowProperties.flowProperty]
+      : [];
+  const referenceProperty = propertyRows.find(
+    (entry) =>
+      isRecord(entry) && nonEmptyString(entry['@dataSetInternalID']) === (referenceId ?? '0'),
+  );
+  const propertyRef =
+    isRecord(referenceProperty) && isRecord(referenceProperty.referenceToFlowPropertyDataSet)
+      ? referenceProperty.referenceToFlowPropertyDataSet
+      : {};
+  const shortDescription = isRecord(propertyRef['common:shortDescription'])
+    ? propertyRef['common:shortDescription']
+    : {};
+  const propertyText =
+    extractText(shortDescription) ?? extractText(propertyRef['common:shortDescription']);
+
+  return {
+    reference_property: propertyText ?? 'Reference flow property',
+    reference_property_id: nonEmptyString(propertyRef['@refObjectId']),
+    reference_unit: null,
+  };
+}
+
+function buildInitialProcessBuildPlan(
+  normalized: NormalizedProcessAutoBuildRequest,
+  flowArtifactPath: string,
+): JsonRecord {
+  const flowProperty = flowReferencePropertySummary(normalized.flow_dataset);
+  const referenceFlowId =
+    normalized.flow_summary.uuid ??
+    nonEmptyString(normalized.flow_dataset['@id']) ??
+    sanitizeRunToken(normalized.flow_summary.base_name ?? normalized.run_id, 'reference-flow');
+  const referenceFlowVersion = normalized.flow_summary.version ?? '00.00.000';
+  const baseName = normalized.flow_summary.base_name
+    ? `${normalized.operation === 'treat' ? 'Treatment of' : 'Production of'} ${normalized.flow_summary.base_name}`
+    : `${normalized.operation === 'treat' ? 'Treatment' : 'Production'} process from reference flow`;
+
+  return {
+    schema_version: 1,
+    kind: 'process',
+    ruleset: {
+      id: 'process-authoring/strict',
+      version: '1',
+    },
+    target: {
+      geography: 'GLO',
+      technology_route:
+        normalized.operation === 'treat'
+          ? 'Treatment route to be evidenced during process auto-build'
+          : 'Production route to be evidenced during process auto-build',
+      classification_path: [
+        'Technosphere',
+        normalized.operation === 'treat' ? 'Treatment' : 'Production',
+        flowProperty.reference_property,
+        normalized.flow_summary.base_name ?? 'Reference flow',
+      ],
+    },
+    identity_decision: {
+      decision: 'create_new',
+      rationale:
+        'Initial process auto-build scaffold; identity preflight must be rerun with remote/local candidates before write.',
+    },
+    evidence_manifest: {
+      sources: [
+        {
+          id: `flow:${referenceFlowId}`,
+          type: 'input_flow_dataset',
+          path: flowArtifactPath,
+          title: normalized.flow_summary.base_name ?? referenceFlowId,
+          version: referenceFlowVersion,
+        },
+        ...normalized.source_inputs.map((source) => ({
+          id: source.source_id,
+          type: source.type,
+          path: source.artifact_path,
+          title: source.artifact_file_name,
+          intended_roles: source.intended_roles,
+        })),
+      ],
+      field_bindings: [
+        { field_path: 'target', source_id: `flow:${referenceFlowId}` },
+        { field_path: 'identity_decision.decision', source_id: `flow:${referenceFlowId}` },
+        { field_path: 'name_plan.base_name', source_id: `flow:${referenceFlowId}` },
+        { field_path: 'target.geography', source_id: `flow:${referenceFlowId}` },
+        { field_path: 'target.technology_route', source_id: `flow:${referenceFlowId}` },
+        {
+          field_path: 'quantitative_reference_plan.reference_flow_id',
+          source_id: `flow:${referenceFlowId}`,
+        },
+      ],
+    },
+    name_plan: {
+      base_name: baseName,
+      treatment_standards_routes:
+        normalized.operation === 'treat' ? 'treatment route' : 'production route',
+      mix_and_location_types: 'global average',
+      functional_unit_flow_properties:
+        flowProperty.reference_unit ?? flowProperty.reference_property,
+    },
+    quantitative_reference_plan: {
+      reference_flow_id: referenceFlowId,
+      reference_flow_version: referenceFlowVersion,
+      reference_flow_name: normalized.flow_summary.base_name ?? referenceFlowId,
+      reference_flow_internal_id: '1',
+      mean_amount: '1.0',
+      resulting_amount: '1.0',
+      reference_unit: flowProperty.reference_unit ?? flowProperty.reference_property,
+    },
+    flow_property_plan: flowProperty,
+    exchange_plan: {
+      exchanges: [],
+    },
+    materialization_readiness: {
+      status: 'scaffold_only',
+      next_required_steps: [
+        'run process identity-preflight with local and remote candidates',
+        'replace scaffold geography, technology, classification, exchange values, and annual volume with evidence-backed values',
+        'run process build-plan validate/materialize before save-draft or publish-build',
+      ],
+    },
   };
 }
 
@@ -832,6 +972,7 @@ function buildAgentHandoffSummary(
       request_snapshot: layout.requestSnapshotPath,
       normalized_request: layout.normalizedRequestPath,
       assembly_plan: layout.assemblyPlanPath,
+      build_plan: layout.buildPlanPath,
       flow_copy: flowArtifactPath,
     },
     next_actions: buildNextActions(layout),
@@ -874,6 +1015,7 @@ function buildReport(
       source_policy: layout.sourcePolicyPath,
       flow_summary: layout.flowSummaryPath,
       input_manifest: layout.inputManifestPath,
+      build_plan: layout.buildPlanPath,
       assembly_plan: layout.assemblyPlanPath,
       lineage_manifest: layout.lineageManifestPath,
       invocation_index: layout.invocationIndexPath,
@@ -969,7 +1111,12 @@ export async function runProcessAutoBuild(
     flow_path: normalized.flow_file,
     flow_artifact_path: flowArtifactPath,
     operation: normalized.operation,
+    build_plan_path: layout.buildPlanPath,
   });
+  writeJsonArtifact(
+    layout.buildPlanPath,
+    buildInitialProcessBuildPlan(normalized, flowArtifactPath),
+  );
   writeJsonArtifact(layout.assemblyPlanPath, buildAssemblyPlan(layout.runRoot));
   writeJsonArtifact(layout.lineageManifestPath, buildLineageManifest(normalized));
   writeJsonArtifact(
@@ -1015,6 +1162,7 @@ export const __testInternals = {
   buildProcessAutoBuildRunId,
   buildLayout,
   buildAssemblyPlan,
+  buildInitialProcessBuildPlan,
   buildLineageManifest,
   buildInvocationIndex,
   buildInitialState,

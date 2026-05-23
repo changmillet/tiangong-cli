@@ -157,7 +157,7 @@ Key outputs under `--out-dir`:
 
 ## Build Plan Gate
 
-Use build-plan gates after identity preflight and before payload generation or publish handoff. These commands validate the minimum authoring contract for a process or flow build plan and write a standard `GateReport` for Foundry/skill orchestration.
+Use build-plan gates after identity preflight and before publish handoff. These commands validate the minimum authoring contract for a process or flow build plan, write a standard `GateReport` for Foundry/skill orchestration, and materialize deterministic canonical TIDAS payloads when no explicit payload is embedded in the plan.
 
 ```bash
 tiangong-lca process build-plan validate --input ./process-build-plan.json --out-dir ./process-build-plan --json
@@ -166,7 +166,7 @@ tiangong-lca flow build-plan validate --input ./flow-build-plan.json --out-dir .
 tiangong-lca flow build-plan materialize --input ./flow-build-plan.json --out-dir ./flow-build-plan --json
 ```
 
-The minimum plan contract requires an automatic identity decision, EvidenceManifest sources and field bindings, name plan, and the relevant process reference-flow or flow-property fields. `--report-only` keeps exit code `0` while still reporting blockers.
+The minimum plan contract requires an automatic identity decision, EvidenceManifest sources and field bindings, name plan, and the relevant process reference-flow or flow-property fields. Process materialization carries name, quantitative reference, exchange, source evidence, modelling, administrative, and annual supply/production fields from the plan into `processDataSet`; when annual volume is not explicit, it falls back to reference-flow `meanAmount` and then `resultingAmount`. Flow materialization carries name, flow type, reference property, source evidence, administrative, and classification fields into `flowDataSet`. `--report-only` keeps exit code `0` while still reporting blockers.
 
 Key outputs under `--out-dir`:
 
@@ -282,7 +282,7 @@ For `review process`, `--rows-file` accepts either raw process rows as JSON/JSON
 
 For `process identity-preflight` and `flow identity-preflight`, canonical TIDAS wrappers are schema-checked when present. Loose target objects are accepted for early planning and produce `schema_validation.status: "not_applicable"` until materialization. Candidate rows can be embedded in the request or loaded from repeatable `--candidate-input` local files/directories; `identity-candidate-sources.json` records the scanned files and row counts.
 
-For `process build-plan` and `flow build-plan`, canonical payloads embedded in the plan are schema-checked during `materialize`. Plan-only materialization writes a deterministic seed artifact and reports `schema_validation.status: "not_applicable"` until a canonical TIDAS payload is supplied.
+For `process build-plan` and `flow build-plan`, canonical payloads embedded in the plan are schema-checked during `materialize`. Plan-only materialization now creates deterministic canonical `processDataSet` / `flowDataSet` wrappers from the build plan and validates them with the TIDAS SDK before reporting `passed`.
 
 For `process save-draft`, canonical process payloads are validated locally with `ProcessSchema` before any `--commit` write. Schema-invalid rows remain in `outputs/save-draft-rpc/failures.jsonl` instead of being persisted.
 

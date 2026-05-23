@@ -738,7 +738,7 @@ function renderFlowBuildPlanHelp(): string {
   tiangong-lca flow build-plan <validate|materialize> --input <file> [options]
 
 Options:
-  --input <file>     JSON flow build plan
+  --input <file>     JSON flow build plan; materialize writes a canonical flowDataSet
   --out-dir <dir>    Optional artifact directory for gate outputs
   --report-only      Print blocker reports with exit code 0
   --json             Print compact JSON
@@ -1717,7 +1717,7 @@ function renderProcessBuildPlanHelp(): string {
   tiangong-lca process build-plan <validate|materialize> --input <file> [options]
 
 Options:
-  --input <file>     JSON process build plan
+  --input <file>     JSON process build plan; materialize writes a canonical processDataSet
   --out-dir <dir>    Optional artifact directory for gate outputs
   --report-only      Print blocker reports with exit code 0
   --json             Print compact JSON

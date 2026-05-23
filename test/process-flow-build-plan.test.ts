@@ -140,7 +140,7 @@ test('process build-plan validate passes and writes a gate report', async () => 
   }
 });
 
-test('flow build-plan materialize writes a deterministic seed artifact without a canonical payload', async () => {
+test('flow build-plan materialize writes a deterministic canonical flow payload', async () => {
   const outDir = mkdtempSync(path.join(os.tmpdir(), 'flow-build-plan-'));
   try {
     const report = await runFlowBuildPlanMaterialize({
@@ -156,7 +156,7 @@ test('flow build-plan materialize writes a deterministic seed artifact without a
     assert.equal(report.kind, 'flow');
     assert.equal(report.action, 'materialize');
     assert.equal(report.next_action, 'use_materialized_artifact');
-    assert.equal(report.schema_validation.status, 'not_applicable');
+    assert.equal(report.schema_validation.status, 'passed');
     assert.equal(
       report.files.materialized_artifact,
       path.join(outDir, 'outputs', 'materialized-flow.json'),
@@ -164,10 +164,125 @@ test('flow build-plan materialize writes a deterministic seed artifact without a
 
     const materialized = JSON.parse(
       readFileSync(path.join(outDir, 'outputs', 'materialized-flow.json'), 'utf8'),
-    ) as { kind: string; source_build_plan: string; name_plan: { baseName: string } };
-    assert.equal(materialized.kind, 'flow');
-    assert.equal(materialized.source_build_plan, '/tmp/flow-build-plan.json');
-    assert.equal(materialized.name_plan.baseName, 'Fluoroethylene carbonate');
+    ) as {
+      flowDataSet: {
+        flowInformation: {
+          dataSetInformation: { name: { baseName: Array<{ '#text': string }> } };
+        };
+        modellingAndValidation: { LCIMethod: { typeOfDataSet: string } };
+        flowProperties: {
+          flowProperty: { referenceToFlowPropertyDataSet: { '@refObjectId': string } };
+        };
+      };
+    };
+    assert.equal(
+      materialized.flowDataSet.flowInformation.dataSetInformation.name.baseName[0]?.['#text'],
+      'Fluoroethylene carbonate',
+    );
+    assert.equal(
+      materialized.flowDataSet.modellingAndValidation.LCIMethod.typeOfDataSet,
+      'Product flow',
+    );
+    assert.equal(
+      materialized.flowDataSet.flowProperties.flowProperty.referenceToFlowPropertyDataSet[
+        '@refObjectId'
+      ],
+      '93a60a56-a3c8-11da-a746-0800200b9a66',
+    );
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
+});
+
+test('process build-plan materialize builds canonical payloads from name, qref, exchanges, and source evidence', async () => {
+  const outDir = mkdtempSync(path.join(os.tmpdir(), 'process-build-plan-canonical-'));
+  try {
+    const report = await runProcessBuildPlanMaterialize({
+      inputPath: '/tmp/process-build-plan.json',
+      outDir,
+      rawInput: processPlan({
+        target: {
+          id: '012fc8f6-9a30-4d98-9b03-34ddec3a6f10',
+          version: '01.01.002',
+          geography: 'CN-HB',
+          technology_route: 'electricity production mix',
+          reference_year: '2025',
+          classification_path: ['Energy', 'Electricity', 'Grid mix', 'Hubei'],
+        },
+        name_plan: {
+          base_name: [
+            { '#text': 'Electricity, medium voltage, production mix, Hubei', '@xml:lang': 'en' },
+            { '#text': '电力，中压，生产组合，湖北', '@xml:lang': 'zh' },
+          ],
+          treatment_standards_routes: 'production mix',
+          mix_and_location_types: 'CN-HB',
+          functional_unit_flow_properties: 'MJ',
+        },
+        quantitative_reference_plan: {
+          reference_flow_id: 'd92a1a12-2545-49e2-a585-55c259997756',
+          reference_flow_version: '20.20.002',
+          reference_flow_name: 'Electricity, medium voltage',
+          reference_flow_internal_id: '5',
+          mean_amount: '3.6',
+          reference_unit: 'MJ',
+        },
+        exchange_plan: {
+          exchanges: [
+            {
+              internal_id: '6',
+              flow_id: '11111111-1111-4111-8111-111111111111',
+              version: '01.00.000',
+              direction: 'Input',
+              mean_amount: '0.42',
+            },
+          ],
+        },
+      }),
+      now,
+    });
+
+    assert.equal(report.status, 'passed');
+    assert.equal(report.schema_validation.status, 'passed');
+
+    const materialized = JSON.parse(
+      readFileSync(path.join(outDir, 'outputs', 'materialized-process.json'), 'utf8'),
+    ) as {
+      processDataSet: {
+        processInformation: { quantitativeReference: { referenceToReferenceFlow: string } };
+        modellingAndValidation: {
+          dataSourcesTreatmentAndRepresentativeness: {
+            annualSupplyOrProductionVolume: Array<{ '#text': string; '@xml:lang': string }>;
+          };
+        };
+        exchanges: {
+          exchange: Array<{
+            '@dataSetInternalID': string;
+            meanAmount: string;
+            referenceToFlowDataSet: Record<string, unknown>;
+          }>;
+        };
+      };
+    };
+    assert.equal(
+      materialized.processDataSet.processInformation.quantitativeReference.referenceToReferenceFlow,
+      '5',
+    );
+    assert.equal(materialized.processDataSet.exchanges.exchange[0]?.['@dataSetInternalID'], '5');
+    assert.equal(materialized.processDataSet.exchanges.exchange[1]?.meanAmount, '0.42');
+    assert.deepEqual(
+      materialized.processDataSet.exchanges.exchange[1]?.referenceToFlowDataSet[
+        'common:shortDescription'
+      ],
+      { '#text': 'Exchange flow 6', '@xml:lang': 'en' },
+    );
+    assert.deepEqual(
+      materialized.processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness
+        .annualSupplyOrProductionVolume,
+      [
+        { '#text': '3.6 MJ/year', '@xml:lang': 'en' },
+        { '#text': '3.6 MJ/年', '@xml:lang': 'zh' },
+      ],
+    );
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }
@@ -401,6 +516,13 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
   assert.equal(defaultedSchemaIssue.issues[0]?.message, 'Validation failed');
   assert.equal(defaultedSchemaIssue.issues[0]?.code, 'custom');
 
+  const notApplicableSchema = __testInternals.validateMaterializedSchema(
+    { build_plan_seed: true },
+    'flow',
+    undefined,
+  );
+  assert.equal(notApplicableSchema.status, 'not_applicable');
+
   const blockedDecision = __testInternals.evaluateBuildPlan(
     processPlan({
       identity_decision: {
@@ -423,16 +545,298 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
   assert.ok(defaultRuleset.blockers.some((finding) => finding.code === 'evidence_sources_missing'));
 
   const emptySeed = __testInternals.materializePlan({}, 'flow', '/tmp/empty-flow-plan.json');
-  assert.deepEqual(emptySeed, {
-    schema_version: 1,
-    kind: 'flow',
-    source_build_plan: '/tmp/empty-flow-plan.json',
-    target: {},
-    identity_decision: {},
-    evidence_manifest: {},
-    name_plan: {},
-    quantitative_reference_plan: {},
-    flow_property_plan: {},
-    exchange_plan: {},
+  assert.equal(
+    ((emptySeed.flowDataSet as Record<string, unknown>).flowInformation as Record<string, unknown>)
+      ? true
+      : false,
+    true,
+  );
+
+  const flowWithOptionalFields = __testInternals.buildCanonicalFlowPayload(
+    flowPlan({
+      target: {
+        flow_type: 'Elementary flow',
+        geography: 'CN',
+        CASNumber: '50-00-0',
+      },
+      namePlan: {
+        baseName: { en: 'Formaldehyde', zh: '甲醛' },
+        treatmentStandardsRoutes: { '#text': 'emission', '@xml:lang': 'en' },
+        mixAndLocationTypes: ['air'],
+      },
+      flowPropertyPlan: {
+        referenceProperty: 'volume',
+        referenceUnit: 'm3',
+        meanValue: 'not-numeric',
+      },
+      administrativeInformation: {
+        owner: {
+          id: 'owner-1',
+          name: 'Owner',
+        },
+      },
+    }),
+    '/tmp/flow-plan.json',
+  ) as Record<string, unknown>;
+  const flowDataSet = flowWithOptionalFields.flowDataSet as Record<string, unknown>;
+  const flowInfo = flowDataSet.flowInformation as Record<string, unknown>;
+  const flowDataInfo = flowInfo.dataSetInformation as Record<string, unknown>;
+  assert.equal(flowDataInfo.CASNumber, '50-00-0');
+  assert.equal(
+    (
+      (flowDataSet.modellingAndValidation as Record<string, unknown>).LCIMethod as Record<
+        string,
+        unknown
+      >
+    ).typeOfDataSet,
+    'Elementary flow',
+  );
+
+  const fallbackProcess = __testInternals.buildCanonicalProcessPayload(
+    {
+      schema_version: 1,
+      kind: 'process',
+      target: {},
+      identity_decision: {
+        decision: 'create_new',
+      },
+      evidence_manifest: {
+        sources: [],
+      },
+      name_plan: {
+        base_name: 'Fallback process',
+      },
+      quantitative_reference_plan: {
+        reference_flow_id: 'flow-fallback',
+        reference_flow_internal_id: '9',
+        resulting_amount: '2.5',
+      },
+      required_fields: {
+        annualSupplyOrProductionVolume: {
+          en: '1000 kg/year',
+          zh: '1000 kg/年',
+        },
+      },
+      exchange_plan: {
+        exchanges: [null, { mean_amount: '0.75' }],
+      },
+      modelling_and_validation: {
+        type_of_dataset: 'LCI result',
+      },
+      administrative_information: {
+        time_stamp: '2026-05-22T00:00:00.000Z',
+        intended_applications: { en: 'Regression test' },
+      },
+    },
+    '/tmp/process-plan.json',
+  ) as Record<string, unknown>;
+  const fallbackProcessDataSet = fallbackProcess.processDataSet as Record<string, unknown>;
+  const fallbackProcessInfo = fallbackProcessDataSet.processInformation as Record<string, unknown>;
+  const fallbackDataInfo = fallbackProcessInfo.dataSetInformation as Record<string, unknown>;
+  const fallbackName = fallbackDataInfo.name as Record<string, unknown>;
+  assert.deepEqual(fallbackName.treatmentStandardsRoutes, [
+    {
+      '#text': 'Technology route documented in build plan',
+      '@xml:lang': 'en',
+    },
+  ]);
+  assert.deepEqual(
+    (fallbackProcessInfo.technology as Record<string, unknown>)
+      .technologyDescriptionAndIncludedProcesses,
+    [
+      {
+        '#text': 'Technology route documented in build plan evidence.',
+        '@xml:lang': 'en',
+      },
+    ],
+  );
+  const fallbackModelling = fallbackProcessDataSet.modellingAndValidation as Record<
+    string,
+    unknown
+  >;
+  assert.deepEqual(
+    (fallbackModelling.dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>)
+      .annualSupplyOrProductionVolume,
+    [
+      { '#text': '1000 kg/year', '@xml:lang': 'en' },
+      { '#text': '1000 kg/年', '@xml:lang': 'zh' },
+    ],
+  );
+  const fallbackExchanges = (fallbackProcessDataSet.exchanges as Record<string, unknown>)
+    .exchange as Array<Record<string, unknown>>;
+  assert.equal(fallbackExchanges[1]?.['@dataSetInternalID'], '2');
+  assert.equal(fallbackExchanges[1]?.meanAmount, '0.75');
+  const sparseExchangeRef = fallbackExchanges[1]?.referenceToFlowDataSet as Record<string, unknown>;
+  assert.equal(sparseExchangeRef['@type'], 'flow data set');
+  assert.match(String(sparseExchangeRef['@refObjectId']), /^[0-9a-f-]{36}$/u);
+  assert.equal(
+    sparseExchangeRef['@uri'],
+    `../flow-data-set/${String(sparseExchangeRef['@refObjectId'])}.xml`,
+  );
+  assert.deepEqual(sparseExchangeRef['common:shortDescription'], {
+    '#text': 'Exchange flow 2',
+    '@xml:lang': 'en',
   });
+
+  assert.deepEqual(
+    __testInternals.multiLangFromValue(
+      [{ text: '数组文本' }, {}, 'Plain text', ''],
+      'Fallback text',
+      'zh',
+    ),
+    [
+      { '#text': '数组文本', '@xml:lang': 'zh' },
+      { '#text': 'Plain text', '@xml:lang': 'zh' },
+    ],
+  );
+  assert.deepEqual(__testInternals.multiLangFromValue({ '#text': '单值文本' }, 'Fallback'), [
+    { '#text': '单值文本', '@xml:lang': 'en' },
+  ]);
+  assert.deepEqual(__testInternals.multiLangFromValue({ zh: '仅中文' }, 'Fallback'), [
+    { '#text': '仅中文', '@xml:lang': 'zh' },
+  ]);
+
+  const wasteFlow = __testInternals.buildCanonicalFlowPayload(
+    flowPlan({
+      target: {
+        flow_type: 'Waste flow',
+      },
+      classification_path: ['Waste catalog'],
+      evidenceManifest: {
+        sources: [
+          {
+            source_id: 'source-alias',
+            uri: 'https://example.invalid/source',
+            name: 'Source alias',
+          },
+        ],
+      },
+      name_plan: {
+        base_name: 'Waste reference flow',
+      },
+      complianceReference: {
+        refObjectId: 'compliance-ref',
+        version: '01.00.000',
+        uri: 'https://example.invalid/compliance',
+        shortDescription: 'Compliance ref',
+      },
+      formatReference: {
+        refObjectId: 'format-ref',
+        version: '01.00.000',
+        uri: 'https://example.invalid/format',
+        name: 'Format ref',
+      },
+      administrative_information: {
+        owner: {
+          refObjectId: 'owner-ref',
+          version: '01.00.000',
+          uri: 'https://example.invalid/owner',
+          shortDescription: 'Owner ref',
+        },
+      },
+    }),
+    '/tmp/waste-flow-plan.json',
+  ) as Record<string, unknown>;
+  const wasteFlowDataSet = wasteFlow.flowDataSet as Record<string, unknown>;
+  assert.equal(
+    (
+      (wasteFlowDataSet.modellingAndValidation as Record<string, unknown>).LCIMethod as Record<
+        string,
+        unknown
+      >
+    ).typeOfDataSet,
+    'Waste flow',
+  );
+  assert.equal(
+    (
+      (
+        (wasteFlowDataSet.administrativeInformation as Record<string, unknown>)
+          .publicationAndOwnership as Record<string, unknown>
+      )['common:referenceToOwnershipOfDataSet'] as Record<string, unknown>
+    )['@refObjectId'],
+    'owner-ref',
+  );
+
+  const defaultedProcess = __testInternals.buildCanonicalProcessPayload(
+    {
+      schema_version: 1,
+      kind: 'process',
+      target: {
+        reference_year: 'not-a-year',
+      },
+      identity_decision: {
+        decision: 'create_new',
+      },
+      name_plan: {
+        base_name: [{ value: 'Defaulted process', lang: 'en' }],
+      },
+      quantitative_reference_plan: {},
+      exchange_plan: {
+        exchanges: [
+          {
+            '@dataSetInternalID': '11',
+            referenceFlowId: 'camel-flow',
+            resultingAmount: '0.2',
+            exchangeDirection: 'Input',
+            quantitativeReference: true,
+          },
+        ],
+      },
+      administrativeInformation: {
+        commissioner: {
+          ref_object_id: 'commissioner-ref',
+          name: 'Commissioner ref',
+        },
+        data_entry: {
+          refObjectId: 'data-entry-ref',
+          name: 'Data entry ref',
+        },
+      },
+    },
+    '/tmp/defaulted-process-plan.json',
+  ) as Record<string, unknown>;
+  const defaultedProcessDataSet = defaultedProcess.processDataSet as Record<string, unknown>;
+  const defaultedProcessInfo = defaultedProcessDataSet.processInformation as Record<
+    string,
+    unknown
+  >;
+  assert.equal(
+    ((defaultedProcessInfo.time as Record<string, unknown>) ?? {})['common:referenceYear'],
+    1970,
+  );
+  assert.deepEqual(
+    (
+      (defaultedProcessDataSet.modellingAndValidation as Record<string, unknown>)
+        .dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>
+    ).annualSupplyOrProductionVolume,
+    [
+      { '#text': '1 unit/year', '@xml:lang': 'en' },
+      { '#text': '1 unit/年', '@xml:lang': 'zh' },
+    ],
+  );
+
+  __testInternals.buildCanonicalProcessPayload(
+    processPlan({
+      evidence_manifest: {
+        sources: [{ source_id: 'source-id-only', short_description: 'Source ID only' }],
+      },
+    }),
+    '/tmp/source-id-process-plan.json',
+  );
+  __testInternals.buildCanonicalProcessPayload(
+    processPlan({
+      evidence_manifest: {
+        sources: [{ ref_object_id: 'ref-object-id-only', title: 'Ref object ID only' }],
+      },
+    }),
+    '/tmp/ref-object-id-process-plan.json',
+  );
+  __testInternals.buildCanonicalFlowPayload(
+    flowPlan({
+      complianceReference: {
+        name: 'Named compliance fallback',
+      },
+    }),
+    '/tmp/named-compliance-flow-plan.json',
+  );
 });

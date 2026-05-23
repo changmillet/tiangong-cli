@@ -2657,6 +2657,7 @@ test('executeCli executes process auto-build with injected implementation', asyn
               source_policy: path.join(dir, 'run-root', 'request', 'source-policy.json'),
               flow_summary: path.join(dir, 'run-root', 'manifests', 'flow-summary.json'),
               input_manifest: path.join(dir, 'run-root', 'input', 'input_manifest.json'),
+              build_plan: path.join(dir, 'run-root', 'manifests', 'process-build-plan.json'),
               assembly_plan: path.join(dir, 'run-root', 'manifests', 'assembly-plan.json'),
               lineage_manifest: path.join(dir, 'run-root', 'manifests', 'lineage-manifest.json'),
               invocation_index: path.join(dir, 'run-root', 'manifests', 'invocation-index.json'),
