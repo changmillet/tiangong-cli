@@ -9,6 +9,12 @@ import {
 } from './dataset-command.js';
 import { CliError } from './errors.js';
 import {
+  FLOW_SCHEMA_VALIDATOR,
+  validateFlowPayload,
+  type FlowPayloadValidationIssue,
+  type FlowPayloadValidationResult,
+} from './flow-payload-validation.js';
+import {
   coerceText,
   deepGet,
   isRecord,
@@ -36,7 +42,7 @@ type FlowPublishOperation =
   | 'update_after_insert_error';
 
 type FlowPublishFailureReason = {
-  validator: 'remote_rest';
+  validator: 'remote_rest' | 'flow_schema';
   stage: string;
   path: string;
   message: string;
@@ -71,7 +77,43 @@ type FlowPublishSuccessRow = {
 type FlowPublishFiles = {
   successList: string;
   remoteFailed: string;
+  gateReport: string;
   report: string;
+};
+
+type FlowPublishGateFinding = {
+  code: string;
+  severity: 'blocker';
+  message: string;
+  path: string;
+  dataset_index: number;
+  dataset_id: string | null;
+  dataset_version: string | null;
+};
+
+export type FlowPublishVersionGateReport = {
+  schema_version: 1;
+  generated_at_utc: string;
+  status: 'passed' | 'blocked';
+  ruleset_id: 'flow-publish/strict';
+  ruleset_version: '1';
+  validator: string;
+  counts: {
+    total: number;
+    valid: number;
+    invalid: number;
+  };
+  findings: FlowPublishGateFinding[];
+  blockers: FlowPublishGateFinding[];
+  next_action: 'query_remote_write_plan' | 'fix_flow_payloads';
+  flows: Array<{
+    index: number;
+    id: string | null;
+    version: string | null;
+    ok: boolean;
+    issue_count: number;
+    issues: FlowPayloadValidationIssue[];
+  }>;
 };
 
 type FlowPublishOutcome =
@@ -99,6 +141,14 @@ export type FlowPublishVersionReport = {
     success_count: number;
     failure_count: number;
   };
+  flow_gate: {
+    status: FlowPublishVersionGateReport['status'];
+    ruleset_id: FlowPublishVersionGateReport['ruleset_id'];
+    ruleset_version: FlowPublishVersionGateReport['ruleset_version'];
+    counts: FlowPublishVersionGateReport['counts'];
+    blocker_count: number;
+    next_action: FlowPublishVersionGateReport['next_action'];
+  };
   operation_counts: Record<string, number>;
   max_workers: number;
   limit: number | null;
@@ -106,6 +156,7 @@ export type FlowPublishVersionReport = {
   files: {
     success_list: string;
     remote_failed: string;
+    gate_report: string;
     report: string;
   };
 };
@@ -121,6 +172,7 @@ export type RunFlowPublishVersionOptions = {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   now?: Date;
+  validateFlowPayloadImpl?: (payload: JsonRecord) => FlowPayloadValidationResult;
 };
 
 function normalize_token(value: unknown): string | null {
@@ -197,6 +249,7 @@ function build_output_files(outDir: string): FlowPublishFiles {
   return {
     successList: path.join(outDir, `${LEGACY_OUTPUT_PREFIX}_mcp_success_list.json`),
     remoteFailed: path.join(outDir, `${LEGACY_OUTPUT_PREFIX}_remote_validation_failed.jsonl`),
+    gateReport: path.join(outDir, 'flow-publish-version-gate-report.json'),
     report: path.join(outDir, `${LEGACY_OUTPUT_PREFIX}_mcp_sync_report.json`),
   };
 }
@@ -251,6 +304,177 @@ function flow_version(payload: JsonRecord): string {
     );
   }
   return version;
+}
+
+function flow_version_gate_result(payload: JsonRecord): {
+  version: string | null;
+  issue: FlowPayloadValidationIssue | null;
+} {
+  const version = coerceText(
+    deepGet(payload, [
+      'flowDataSet',
+      'administrativeInformation',
+      'publicationAndOwnership',
+      'common:dataSetVersion',
+    ]),
+  );
+  if (version) {
+    return { version, issue: null };
+  }
+  return {
+    version: null,
+    issue: validation_issue(
+      'flowDataSet.administrativeInformation.publicationAndOwnership.common:dataSetVersion',
+      'Flow payload is missing flowDataSet.administrativeInformation.publicationAndOwnership.common:dataSetVersion.',
+      'FLOW_PUBLISH_VERSION_MISSING_VERSION',
+    ),
+  };
+}
+
+function validation_issue(
+  pathValue: string,
+  message: string,
+  code: string,
+): FlowPayloadValidationIssue {
+  return {
+    path: pathValue,
+    message,
+    code,
+  };
+}
+
+function validate_publish_flow_row(
+  row: JsonRecord,
+  index: number,
+  validate: (payload: JsonRecord) => FlowPayloadValidationResult,
+): FlowPublishVersionGateReport['flows'][number] {
+  const issues: FlowPayloadValidationIssue[] = [];
+  let payload: JsonRecord | null = null;
+  let id: string | null = null;
+  let version: string | null = null;
+
+  try {
+    payload = flow_payload(row);
+  } catch (error) {
+    const cliError = error as CliError;
+    issues.push(
+      validation_issue('<root>', cliError.message, cliError.code || 'flow_payload_required'),
+    );
+  }
+
+  if (payload) {
+    id = flow_id(row, payload) || null;
+    if (!id) {
+      issues.push(
+        validation_issue(
+          'flowDataSet.flowInformation.dataSetInformation.common:UUID',
+          'Flow row is missing a resolvable id/common:UUID value.',
+          'FLOW_PUBLISH_VERSION_ID_REQUIRED',
+        ),
+      );
+    }
+
+    const versionGate = flow_version_gate_result(payload);
+    version = versionGate.version;
+    if (versionGate.issue) {
+      issues.push(versionGate.issue);
+    }
+
+    const validation = validate(payload);
+    if (!validation.ok) {
+      issues.push(...validation.issues);
+    }
+  }
+
+  return {
+    index,
+    id,
+    version,
+    ok: issues.length === 0,
+    issue_count: issues.length,
+    issues,
+  };
+}
+
+function build_flow_publish_gate_report(
+  rows: JsonRecord[],
+  options: {
+    now: Date;
+    validateFlowPayloadImpl?: (payload: JsonRecord) => FlowPayloadValidationResult;
+  },
+): FlowPublishVersionGateReport {
+  const validate = options.validateFlowPayloadImpl ?? validateFlowPayload;
+  const flows = rows.map((row, index) => validate_publish_flow_row(row, index, validate));
+  const invalid = flows.filter((flow) => !flow.ok).length;
+  const blockers = flows.flatMap((flow) =>
+    flow.issues.map((issue) => ({
+      code: issue.code,
+      severity: 'blocker' as const,
+      message: issue.message,
+      path: issue.path,
+      dataset_index: flow.index,
+      dataset_id: flow.id,
+      dataset_version: flow.version,
+    })),
+  );
+
+  return {
+    schema_version: 1,
+    generated_at_utc: options.now.toISOString(),
+    status: invalid > 0 ? 'blocked' : 'passed',
+    ruleset_id: 'flow-publish/strict',
+    ruleset_version: '1',
+    validator: FLOW_SCHEMA_VALIDATOR,
+    counts: {
+      total: flows.length,
+      valid: flows.length - invalid,
+      invalid,
+    },
+    findings: blockers,
+    blockers,
+    next_action: invalid > 0 ? 'fix_flow_payloads' : 'query_remote_write_plan',
+    flows,
+  };
+}
+
+function flow_gate_summary(
+  gate: FlowPublishVersionGateReport,
+): FlowPublishVersionReport['flow_gate'] {
+  return {
+    status: gate.status,
+    ruleset_id: gate.ruleset_id,
+    ruleset_version: gate.ruleset_version,
+    counts: gate.counts,
+    blocker_count: gate.blockers.length,
+    next_action: gate.next_action,
+  };
+}
+
+function gate_failure_rows(
+  rows: JsonRecord[],
+  gate: FlowPublishVersionGateReport,
+): FlowPublishFailureRow[] {
+  return gate.flows.flatMap((flow) => {
+    if (flow.ok) {
+      return [];
+    }
+    const row = rows[flow.index];
+    if (!row) {
+      return [];
+    }
+    return [
+      failure_row(
+        row,
+        flow.issues.map((issue) => ({
+          validator: 'flow_schema' as const,
+          stage: 'schema_gate',
+          path: issue.path,
+          message: issue.message,
+          code: issue.code,
+        })),
+      ),
+    ];
+  });
 }
 
 function resolve_target_user_id(
@@ -682,9 +906,62 @@ export async function runFlowPublishVersion(
     '--limit',
     'FLOW_PUBLISH_VERSION_LIMIT_INVALID',
   );
+  const now = options.now ?? new Date();
+  const files = build_output_files(outDir);
+
+  let rows = loadRowsFromFile(inputFile);
+  if (limit !== null && limit > 0) {
+    rows = rows.slice(0, limit);
+  }
+  if (rows.length === 0) {
+    throw new CliError(`No rows found in ${inputFile}`, {
+      code: 'FLOW_PUBLISH_VERSION_EMPTY_INPUT',
+      exitCode: 2,
+    });
+  }
+
+  const flowGate = build_flow_publish_gate_report(rows, {
+    now,
+    validateFlowPayloadImpl: options.validateFlowPayloadImpl,
+  });
+  await writeJsonArtifact(files.gateReport, flowGate);
+
+  if (flowGate.status === 'blocked') {
+    const failures = gate_failure_rows(rows, flowGate);
+    await writeJsonArtifact(files.successList, []);
+    await writeJsonLinesArtifact(files.remoteFailed, failures);
+
+    const report: FlowPublishVersionReport = {
+      schema_version: 1,
+      generated_at_utc: now.toISOString(),
+      status: status_from_mode(mode, failures.length),
+      mode,
+      input_file: inputFile,
+      out_dir: outDir,
+      counts: {
+        total_rows: rows.length,
+        success_count: 0,
+        failure_count: failures.length,
+      },
+      flow_gate: flow_gate_summary(flowGate),
+      operation_counts: {},
+      max_workers: maxWorkers,
+      limit,
+      target_user_id_override: normalize_token(options.targetUserId ?? null),
+      files: {
+        success_list: files.successList,
+        remote_failed: files.remoteFailed,
+        gate_report: files.gateReport,
+        report: files.report,
+      },
+    };
+
+    await writeJsonArtifact(files.report, report);
+    return report;
+  }
+
   const fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const now = options.now ?? new Date();
   const runtime = createSupabaseDataRuntime({
     runtime: requireSupabaseRestRuntime(options.env ?? process.env),
     fetchImpl,
@@ -698,18 +975,6 @@ export async function runFlowPublishVersion(
   });
   const { client, restBaseUrl } = createSupabaseDataClient(runtime, fetchImpl, timeoutMs);
   const targetUserIdOverride = normalize_token(options.targetUserId ?? null);
-  const files = build_output_files(outDir);
-
-  let rows = loadRowsFromFile(inputFile);
-  if (limit !== null && limit > 0) {
-    rows = rows.slice(0, limit);
-  }
-  if (rows.length === 0) {
-    throw new CliError(`No rows found in ${inputFile}`, {
-      code: 'FLOW_PUBLISH_VERSION_EMPTY_INPUT',
-      exitCode: 2,
-    });
-  }
 
   const outcomes = await map_with_concurrency(rows, maxWorkers, async (row) =>
     sync_one_row({
@@ -751,6 +1016,7 @@ export async function runFlowPublishVersion(
       success_count: successes.length,
       failure_count: failures.length,
     },
+    flow_gate: flow_gate_summary(flowGate),
     operation_counts: operationCounts,
     max_workers: maxWorkers,
     limit,
@@ -758,6 +1024,7 @@ export async function runFlowPublishVersion(
     files: {
       success_list: files.successList,
       remote_failed: files.remoteFailed,
+      gate_report: files.gateReport,
       report: files.report,
     },
   };
@@ -775,6 +1042,12 @@ export const __testInternals = {
   flow_payload,
   flow_id,
   flow_version,
+  flow_version_gate_result,
+  validate_publish_flow_row,
+  build_flow_publish_gate_report,
+  flow_gate_summary,
+  gate_failure_rows,
+  sync_one_row,
   resolve_target_user_id,
   build_visible_rows_url,
   build_update_url,

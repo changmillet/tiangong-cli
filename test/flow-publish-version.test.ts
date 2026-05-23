@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { CliError } from '../src/lib/errors.js';
+import type { FlowPayloadValidationResult } from '../src/lib/flow-payload-validation.js';
 import type { FetchLike } from '../src/lib/http.js';
 import { __testInternals, runFlowPublishVersion } from '../src/lib/flow-publish-version.js';
 import {
@@ -13,6 +14,13 @@ import {
 } from './helpers/supabase-auth.js';
 
 type JsonRecord = Record<string, unknown>;
+
+const VALIDATION_OK = (): FlowPayloadValidationResult => ({
+  ok: true,
+  validator: 'test-flow-validator',
+  issue_count: 0,
+  issues: [],
+});
 
 type FetchSpec = {
   ok?: boolean;
@@ -160,6 +168,7 @@ test('runFlowPublishVersion writes dry-run artifacts for insert, update, and fai
       ),
       now: new Date('2026-03-30T12:00:00.000Z'),
       maxWorkers: 1,
+      validateFlowPayloadImpl: VALIDATION_OK,
     });
 
     assert.deepEqual(report, {
@@ -173,6 +182,18 @@ test('runFlowPublishVersion writes dry-run artifacts for insert, update, and fai
         total_rows: 4,
         success_count: 2,
         failure_count: 2,
+      },
+      flow_gate: {
+        status: 'passed',
+        ruleset_id: 'flow-publish/strict',
+        ruleset_version: '1',
+        counts: {
+          total: 4,
+          valid: 4,
+          invalid: 0,
+        },
+        blocker_count: 0,
+        next_action: 'query_remote_write_plan',
       },
       operation_counts: {
         would_insert: 1,
@@ -190,6 +211,7 @@ test('runFlowPublishVersion writes dry-run artifacts for insert, update, and fai
           outDir,
           'flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl',
         ),
+        gate_report: path.join(outDir, 'flow-publish-version-gate-report.json'),
         report: path.join(outDir, 'flows_tidas_sdk_plus_classification_mcp_sync_report.json'),
       },
     });
@@ -275,6 +297,7 @@ test('runFlowPublishVersion commit executes update, insert, fallback update, and
         observed,
       ),
       now: new Date('2026-03-30T13:00:00.000Z'),
+      validateFlowPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.status, 'completed_flow_publish_version_with_failures');
@@ -426,6 +449,7 @@ test('runFlowPublishVersion can fall back to process.env and global fetch and re
       inputFile,
       outDir,
       limit: 1,
+      validateFlowPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.status, 'prepared_flow_publish_version');
@@ -516,6 +540,7 @@ test('runFlowPublishVersion records rows with missing ids as failures without re
       }),
       fetchImpl: makeFetchQueue([], observed),
       maxWorkers: 1,
+      validateFlowPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.status, 'prepared_flow_publish_version');
@@ -535,6 +560,68 @@ test('runFlowPublishVersion records rows with missing ids as failures without re
       ((failures[0].reason as JsonRecord[])[0] as JsonRecord).code,
       'FLOW_PUBLISH_VERSION_ID_REQUIRED',
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runFlowPublishVersion blocks FlowSchema validation failures before remote planning', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-flow-publish-version-schema-gate-'));
+  const inputFile = path.join(dir, 'ready-flows.jsonl');
+  const outDir = path.join(dir, 'publish-version');
+  const observed: string[] = [];
+
+  writeJsonl(inputFile, [makeFlowRow({ id: 'flow-schema-blocked', userId: 'user-1' })]);
+
+  try {
+    const report = await runFlowPublishVersion({
+      inputFile,
+      outDir,
+      commit: true,
+      maxWorkers: 1,
+      fetchImpl: (async (input) => {
+        observed.push(String(input));
+        throw new Error('remote should not be called');
+      }) as FetchLike,
+      validateFlowPayloadImpl: () => ({
+        ok: false,
+        validator: 'test-flow-validator',
+        issue_count: 1,
+        issues: [
+          {
+            path: 'flowDataSet.flowInformation',
+            message: 'schema failed',
+            code: 'flow_schema_failed',
+          },
+        ],
+      }),
+      now: new Date('2026-03-30T15:30:00.000Z'),
+    });
+
+    assert.equal(report.status, 'completed_flow_publish_version_with_failures');
+    assert.deepEqual(report.flow_gate, {
+      status: 'blocked',
+      ruleset_id: 'flow-publish/strict',
+      ruleset_version: '1',
+      counts: {
+        total: 1,
+        valid: 0,
+        invalid: 1,
+      },
+      blocker_count: 1,
+      next_action: 'fix_flow_payloads',
+    });
+    assert.equal(observed.length, 0);
+
+    const gate = JSON.parse(readFileSync(report.files.gate_report, 'utf8')) as JsonRecord;
+    assert.equal(gate.status, 'blocked');
+    assert.equal((gate.blockers as JsonRecord[])[0]?.code, 'flow_schema_failed');
+
+    const failures = readFileSync(report.files.remote_failed, 'utf8')
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonRecord);
+    assert.equal(((failures[0].reason as JsonRecord[])[0] as JsonRecord).validator, 'flow_schema');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -577,6 +664,7 @@ test('runFlowPublishVersion surfaces update-after-insert-error failures when fal
         observed,
       ),
       now: new Date('2026-03-30T14:00:00.000Z'),
+      validateFlowPayloadImpl: VALIDATION_OK,
     });
 
     assert.equal(report.status, 'completed_flow_publish_version_with_failures');
@@ -678,6 +766,46 @@ test('flow publish-version helper internals cover validation, parsing, concurren
     assert.equal(__testInternals.flow_id({ id: 'direct-id' }, payload as JsonRecord), 'direct-id');
     assert.equal(__testInternals.flow_id({}, payload as JsonRecord), 'row-2');
     assert.equal(__testInternals.flow_version(payload as JsonRecord), '01.00.001');
+    assert.deepEqual(__testInternals.flow_version_gate_result(payload as JsonRecord), {
+      version: '01.00.001',
+      issue: null,
+    });
+    assert.equal(
+      __testInternals.flow_version_gate_result({ flowDataSet: {} }).issue?.code,
+      'FLOW_PUBLISH_VERSION_MISSING_VERSION',
+    );
+    assert.equal(
+      __testInternals.build_flow_publish_gate_report([{ json_ordered: { flowDataSet: {} } }], {
+        now: new Date('2026-03-30T16:01:00.000Z'),
+      }).status,
+      'blocked',
+    );
+    assert.equal(
+      __testInternals.validate_publish_flow_row({ bad: true }, 0, VALIDATION_OK).issues[0]?.code,
+      'FLOW_PUBLISH_VERSION_PAYLOAD_REQUIRED',
+    );
+    const throwingRow = {};
+    Object.defineProperty(throwingRow, 'json_ordered', {
+      get: () => {
+        throw new Error('payload getter failed');
+      },
+    });
+    assert.equal(
+      __testInternals.validate_publish_flow_row(throwingRow as JsonRecord, 0, VALIDATION_OK)
+        .issues[0]?.code,
+      'flow_payload_required',
+    );
+    assert.equal(
+      __testInternals.validate_publish_flow_row(
+        {
+          id: 'missing-version',
+          json_ordered: { flowDataSet: { flowInformation: { dataSetInformation: {} } } },
+        },
+        0,
+        VALIDATION_OK,
+      ).issues[0]?.code,
+      'FLOW_PUBLISH_VERSION_MISSING_VERSION',
+    );
     assert.throws(
       () => __testInternals.flow_version({ flowDataSet: {} }),
       (error: unknown) =>
@@ -814,6 +942,77 @@ test('flow publish-version helper internals cover validation, parsing, concurren
     assert.equal(
       __testInternals.status_from_mode('commit', 1),
       'completed_flow_publish_version_with_failures',
+    );
+    assert.deepEqual(
+      __testInternals.gate_failure_rows([], {
+        schema_version: 1,
+        generated_at_utc: '2026-03-30T16:00:00.000Z',
+        status: 'blocked',
+        ruleset_id: 'flow-publish/strict',
+        ruleset_version: '1',
+        validator: 'test-flow-validator',
+        counts: {
+          total: 1,
+          valid: 0,
+          invalid: 1,
+        },
+        findings: [],
+        blockers: [],
+        next_action: 'fix_flow_payloads',
+        flows: [
+          {
+            index: 99,
+            id: null,
+            version: null,
+            ok: false,
+            issue_count: 1,
+            issues: [{ path: '<root>', message: 'missing row', code: 'missing_row' }],
+          },
+        ],
+      }),
+      [],
+    );
+    assert.deepEqual(
+      __testInternals.gate_failure_rows([makeFlowRow({ id: 'ok-flow' })], {
+        schema_version: 1,
+        generated_at_utc: '2026-03-30T16:00:00.000Z',
+        status: 'passed',
+        ruleset_id: 'flow-publish/strict',
+        ruleset_version: '1',
+        validator: 'test-flow-validator',
+        counts: {
+          total: 1,
+          valid: 1,
+          invalid: 0,
+        },
+        findings: [],
+        blockers: [],
+        next_action: 'query_remote_write_plan',
+        flows: [
+          {
+            index: 0,
+            id: 'ok-flow',
+            version: '01.00.001',
+            ok: true,
+            issue_count: 0,
+            issues: [],
+          },
+        ],
+      }),
+      [],
+    );
+    assert.equal(
+      (
+        await __testInternals.sync_one_row({
+          row: { json_ordered: { flowDataSet: {} } },
+          mode: 'dry_run',
+          client: {} as never,
+          restBaseUrl: 'https://example.supabase.co/rest/v1',
+          commandTransport: {} as never,
+          targetUserIdOverride: null,
+        })
+      ).status,
+      'failure',
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

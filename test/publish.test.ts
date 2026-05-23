@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { collectPublishInputs, normalizePublishRequest, runPublish } from '../src/lib/publish.js';
+import {
+  __testInternals,
+  collectPublishInputs,
+  normalizePublishRequest,
+  runPublish,
+} from '../src/lib/publish.js';
 import type { FetchLike } from '../src/lib/http.js';
 import type { ProcessPayloadValidationResult } from '../src/lib/process-payload-validation.js';
 import {
@@ -363,6 +368,13 @@ test('runPublish produces a dry-run report and artifacts from bundle and direct 
     assert.equal(report.counts.deferred, 1);
     assert.equal(report.relations.status, 'prepared_local_relation_manifest');
     assert.equal(report.relations.relations.length, 2);
+    assert.equal(report.verification.status, 'passed');
+    assert.equal(report.verification.ruleset_id, 'publish-run/strict');
+    assert.equal(existsSync(report.files.verification_report), true);
+    assert.deepEqual(
+      JSON.parse(readFileSync(report.files.verification_report, 'utf8')),
+      report.verification,
+    );
     assert.equal(existsSync(report.files.publish_report), true);
     assert.deepEqual(JSON.parse(readFileSync(report.files.publish_report, 'utf8')), report);
   } finally {
@@ -401,6 +413,41 @@ test('runPublish supports wrapped payload objects and string dataset entry paths
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('publish verification internals retain fallback blocker messages', () => {
+  const report = __testInternals.build_publish_verification_report({
+    now: new Date('2026-03-28T01:00:00Z'),
+    commit: true,
+    failed: 1,
+    deferred: 0,
+    executed: 0,
+    lifecyclemodels: [
+      {
+        table: 'lifecyclemodels',
+        id: 'lm-failed',
+        version: '01.01.000',
+        status: 'failed',
+        source: 'input',
+      } as never,
+    ],
+    processes: [],
+    sources: [],
+    processBuildRuns: [
+      {
+        run_id: 'run-failed',
+        status: 'failed',
+        source: 'input',
+        bundle_path: null,
+        forward_args: [],
+      },
+    ],
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.blockers[0]?.code, 'lifecyclemodels_publish_failed');
+  assert.equal(report.blockers[0]?.message, 'Publish dataset failed.');
+  assert.equal(report.blockers[1]?.message, 'Process build run publish failed.');
 });
 
 test('runPublish executes available commit executors and records failures', async () => {

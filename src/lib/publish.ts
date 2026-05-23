@@ -26,6 +26,8 @@ type JsonObject = Record<string, unknown>;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_RETRY_DELAY_SECONDS = 2.0;
 const DEFAULT_DATASET_VERSION = '01.01.000';
+const PUBLISH_VERIFICATION_RULESET_ID = 'publish-run/strict';
+const PUBLISH_VERIFICATION_RULESET_VERSION = '1';
 
 function isRecord(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -254,6 +256,37 @@ export type PublishRelationManifest = {
   relations: unknown[];
 };
 
+export type PublishVerificationFinding = {
+  code: string;
+  severity: 'warning' | 'blocker';
+  message: string;
+  table: 'lifecyclemodels' | 'processes' | 'sources' | 'process_build_runs';
+  id: string | null;
+  version: string | null;
+  path?: string;
+  bundle_path?: string | null;
+};
+
+export type PublishVerificationReport = {
+  schema_version: 1;
+  generated_at_utc: string;
+  command: 'publish run';
+  status: 'passed' | 'blocked';
+  ruleset_id: string;
+  ruleset_version: string;
+  commit: boolean;
+  findings: PublishVerificationFinding[];
+  blockers: PublishVerificationFinding[];
+  next_action: 'ready_for_commit_or_publish' | 'fix_blockers';
+  counts: {
+    findings: number;
+    blockers: number;
+    failed: number;
+    deferred: number;
+    executed: number;
+  };
+};
+
 export type PublishReport = {
   generated_at_utc: string;
   request_path: string;
@@ -275,8 +308,10 @@ export type PublishReport = {
     normalized_request: string;
     collected_inputs: string;
     relation_manifest: string;
+    verification_report: string;
     publish_report: string;
   };
+  verification: PublishVerificationReport;
   lifecyclemodels: PublishDatasetReport[];
   processes: PublishDatasetReport[];
   sources: PublishDatasetReport[];
@@ -955,6 +990,87 @@ function resolve_dataset_executors(options: RunPublishOptions): PublishExecutors
   };
 }
 
+function dataset_failure_finding(
+  report: PublishDatasetReport,
+  fallbackCode: string,
+): PublishVerificationFinding {
+  const validationIssue = report.validation?.ok === false ? report.validation.issues[0] : null;
+  return {
+    code: validationIssue?.code ?? fallbackCode,
+    severity: 'blocker',
+    message:
+      validationIssue?.message ??
+      report.error?.message ??
+      report.reason ??
+      'Publish dataset failed.',
+    table: report.table,
+    id: report.id,
+    version: report.version,
+    ...(validationIssue?.path ? { path: validationIssue.path } : {}),
+    ...(report.bundle_path !== undefined ? { bundle_path: report.bundle_path } : {}),
+  };
+}
+
+function process_build_run_failure_finding(
+  report: PublishProcessBuildRunReport,
+): PublishVerificationFinding {
+  return {
+    code: 'process_build_run_publish_failed',
+    severity: 'blocker',
+    message: report.error?.message ?? 'Process build run publish failed.',
+    table: 'process_build_runs',
+    id: report.run_id,
+    version: null,
+    bundle_path: report.bundle_path,
+  };
+}
+
+function build_publish_verification_report(options: {
+  now: Date;
+  commit: boolean;
+  failed: number;
+  deferred: number;
+  executed: number;
+  lifecyclemodels: PublishDatasetReport[];
+  processes: PublishDatasetReport[];
+  sources: PublishDatasetReport[];
+  processBuildRuns: PublishProcessBuildRunReport[];
+}): PublishVerificationReport {
+  const datasetFindings = [
+    ...options.lifecyclemodels,
+    ...options.processes,
+    ...options.sources,
+  ].flatMap((report) =>
+    report.status === 'failed'
+      ? [dataset_failure_finding(report, `${report.table}_publish_failed`)]
+      : [],
+  );
+  const processBuildRunFindings = options.processBuildRuns.flatMap((report) =>
+    report.status === 'failed' ? [process_build_run_failure_finding(report)] : [],
+  );
+  const blockers = [...datasetFindings, ...processBuildRunFindings];
+
+  return {
+    schema_version: 1,
+    generated_at_utc: options.now.toISOString(),
+    command: 'publish run',
+    status: blockers.length > 0 ? 'blocked' : 'passed',
+    ruleset_id: PUBLISH_VERIFICATION_RULESET_ID,
+    ruleset_version: PUBLISH_VERIFICATION_RULESET_VERSION,
+    commit: options.commit,
+    findings: blockers,
+    blockers,
+    next_action: blockers.length > 0 ? 'fix_blockers' : 'ready_for_commit_or_publish',
+    counts: {
+      findings: blockers.length,
+      blockers: blockers.length,
+      failed: options.failed,
+      deferred: options.deferred,
+      executed: options.executed,
+    },
+  };
+}
+
 export async function runPublish(options: RunPublishOptions): Promise<PublishReport> {
   const requestPath = path.resolve(options.inputPath);
   const requestDir = path.dirname(requestPath);
@@ -974,6 +1090,7 @@ export async function runPublish(options: RunPublishOptions): Promise<PublishRep
     normalized_request: path.join(outDir, 'normalized-request.json'),
     collected_inputs: path.join(outDir, 'collected-inputs.json'),
     relation_manifest: path.join(outDir, 'relation-manifest.json'),
+    verification_report: path.join(outDir, 'verification-report.json'),
     publish_report: path.join(outDir, 'publish-report.json'),
   };
 
@@ -1017,6 +1134,17 @@ export async function runPublish(options: RunPublishOptions): Promise<PublishRep
   const failed = publishEntries.filter((item) => item.status === 'failed').length;
   const executed = publishEntries.filter((item) => item.status === 'executed').length;
   const deferred = publishEntries.filter((item) => item.status.startsWith('deferred')).length;
+  const verification = build_publish_verification_report({
+    now,
+    commit: normalized.publish.commit,
+    failed,
+    deferred,
+    executed,
+    lifecyclemodels,
+    processes,
+    sources,
+    processBuildRuns,
+  });
 
   const report: PublishReport = {
     generated_at_utc: now.toISOString(),
@@ -1036,6 +1164,7 @@ export async function runPublish(options: RunPublishOptions): Promise<PublishRep
       failed,
     },
     files,
+    verification,
     lifecyclemodels,
     processes,
     sources,
@@ -1043,6 +1172,11 @@ export async function runPublish(options: RunPublishOptions): Promise<PublishRep
     relations,
   };
 
+  writeJsonArtifact(files.verification_report, verification);
   writeJsonArtifact(files.publish_report, report);
   return report;
 }
+
+export const __testInternals = {
+  build_publish_verification_report,
+};

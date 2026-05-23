@@ -112,6 +112,8 @@ These modules share one contract:
 - `src/cli.ts` owns subcommand registration, help, and exit semantics
 - `process/flow build-plan` validates minimum authoring contracts and writes standard gate artifacts before downstream materialization or publish handoff
 - `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes
+- `flow publish-version` and `process publish-build` validate canonical payloads with `FlowSchema` / `ProcessSchema` before publish planning or handoff artifacts proceed
+- `publish run` writes a deterministic `verification-report.json` next to the final publish report so downstream automation can read blockers without parsing execution details
 - maintenance and review commands still emit artifact-first local outputs and remain covered by the strict `src/**/*.ts` coverage gate
 
 ### Dataset and lifecyclemodel governance commands

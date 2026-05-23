@@ -336,6 +336,8 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 - 从 `--run-dir` 读取一个现有 process build run；可选 `--run-id` 只做 basename 一致性校验
 - 校验 `process_from_flow_state.json`、`agent_handoff_summary.json`、`run-manifest.json`、`invocation-index.json`
 - 优先从 `exports/processes`、`exports/sources` 收集 canonical 数据，缺失时回退到 state 中的 `process_datasets`、`source_datasets`
+- 用 `ProcessSchema` 对待发布 process payload 执行本地 schema gate
+- 输出 `reports/process-publish-schema-gate.json`
 - 生成 `stage_outputs/10_publish/publish-bundle.json`
 - 生成 `stage_outputs/10_publish/publish-request.json`
 - 生成 `stage_outputs/10_publish/publish-intent.json`
@@ -510,6 +512,8 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 `tiangong-lca flow publish-version` 现在已经承担 flow governance 的第一个 CLI 远端写入切片，负责：
 
 - 读取单个 ready-for-publish flow JSON / JSONL 输入
+- 用 `FlowSchema` 对 canonical flow payload 执行本地 publish gate
+- 输出 `flow-publish-version-gate-report.json`
 - 从 `TIANGONG_LCA_API_BASE_URL` 推导 Supabase REST 预检路径与 Edge Function dataset command 路径；支持 project root、`/functions/v1`、`/rest/v1` 三种 base URL 形态
 - dry-run 通过精确版本可见性预检决定 `would_insert` / `would_update_existing` / failure；commit 则在同一条预检链上调用 `app_dataset_create` / `app_dataset_save_draft`
 - 输出历史兼容的 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report`
@@ -614,6 +618,7 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 - 输出 `normalized-request.json`
 - 输出 `collected-inputs.json`
 - 输出 `relation-manifest.json`
+- 输出 `verification-report.json`
 - 输出 `publish-report.json`
 
 `publish run` 的 `out_dir` 路径规则固定如下：

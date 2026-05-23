@@ -524,6 +524,13 @@ Options:
 
 Path rule:
   Relative out_dir values from the request body or --out-dir resolve from the request file directory.
+
+Outputs written under out_dir:
+  - normalized-request.json
+  - collected-inputs.json
+  - relation-manifest.json
+  - verification-report.json
+  - publish-report.json
 `.trim();
 }
 
@@ -906,6 +913,7 @@ Environment:
 Outputs written under --out-dir:
   - flows_tidas_sdk_plus_classification_mcp_success_list.json
   - flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl
+  - flow-publish-version-gate-report.json
   - flows_tidas_sdk_plus_classification_mcp_sync_report.json
 `.trim();
 }
@@ -942,6 +950,7 @@ Outputs written under --out-dir:
   - publish-report.json
   - flows_tidas_sdk_plus_classification_mcp_success_list.json
   - flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl
+  - flow-publish-version-gate-report.json
   - flows_tidas_sdk_plus_classification_mcp_sync_report.json
 `.trim();
 }

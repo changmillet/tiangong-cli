@@ -197,12 +197,16 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
     });
     assert.deepEqual(publishBundle.process_schema_gate, {
       status: 'passed',
+      ruleset_id: 'process-publish/strict',
+      ruleset_version: '1',
       validator: '@tiangong-lca/tidas-sdk/ProcessSchema',
       counts: {
         total: 2,
         valid: 2,
         invalid: 0,
       },
+      blocker_count: 0,
+      next_action: 'write_publish_bundle',
       report_path: publishReport.files.process_schema_gate,
     });
     assert.equal((publishBundle.processes as unknown[]).length, 2);
@@ -257,11 +261,15 @@ test('runProcessPublishBuild writes local publish handoff artifacts from run-dir
     assert.equal(extra.request_id, autoReport.request_id);
     assert.deepEqual(extra.process_schema_gate, {
       status: 'passed',
+      ruleset_id: 'process-publish/strict',
+      ruleset_version: '1',
       counts: {
         total: 2,
         valid: 2,
         invalid: 0,
       },
+      blocker_count: 0,
+      next_action: 'write_publish_bundle',
     });
 
     assert.equal(
@@ -789,12 +797,17 @@ test('process publish-build internals cover fallback layout and report helpers',
           schema_version: 1,
           generated_at_utc: '2026-03-29T07:01:00.000Z',
           status: 'blocked',
+          ruleset_id: 'process-publish/strict',
+          ruleset_version: '1',
           validator: 'test-validator',
           counts: {
             total: 1,
             valid: 0,
             invalid: 1,
           },
+          findings: [],
+          blockers: [],
+          next_action: 'fix_process_payloads',
           processes: [],
         },
         __testInternals.buildLayout(sampleRunDir, 'run-123'),
