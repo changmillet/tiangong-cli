@@ -343,6 +343,14 @@ test('runProcessVerifyRows returns a completed status for fully valid rows and v
                 },
               },
             },
+            modellingAndValidation: {
+              dataSourcesTreatmentAndRepresentativeness: {
+                annualSupplyOrProductionVolume: [
+                  { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
+                  { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
+                ],
+              },
+            },
           },
         },
       })}\n`,

@@ -36,6 +36,22 @@ function readJsonl(filePath: string): unknown[] {
     .map((line) => JSON.parse(line));
 }
 
+function validProcessPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    processDataSet: {
+      modellingAndValidation: {
+        dataSourcesTreatmentAndRepresentativeness: {
+          annualSupplyOrProductionVolume: [
+            { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
+            { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
+          ],
+        },
+      },
+    },
+    ...overrides,
+  };
+}
+
 const schemas = {
   flow: {
     safeParse: (value: unknown) => ({ success: !(value as { invalid?: boolean }).invalid }),
@@ -59,12 +75,12 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
     {
       id: 'proc-ok',
       version: '01.01.000',
-      json_ordered: { processDataSet: {} },
+      json_ordered: validProcessPayload(),
     },
     {
       id: 'proc-bad',
       version: '01.01.000',
-      json_ordered: { processDataSet: {}, invalid: true },
+      json_ordered: validProcessPayload({ invalid: true }),
     },
     {
       id: 'flow-ok',
@@ -236,7 +252,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const aliases = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: {} } }],
+    rawInput: [{ json_ordered: validProcessPayload() }],
     type: 'processes',
     schemas,
   });
@@ -261,7 +277,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const fallbackIssue = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+    rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
     type: 'process',
     schemas: {
       process: {
@@ -275,7 +291,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const issueLessFailure = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+    rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
     type: 'process',
     schemas: {
       process: {
@@ -316,7 +332,7 @@ test('runDatasetValidate uses deep SDK fallback for default schema failures', as
 
     const report = await runDatasetValidate({
       inputPath: 'memory',
-      rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+      rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
       type: 'process',
     });
 

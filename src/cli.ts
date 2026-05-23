@@ -96,6 +96,11 @@ import {
   type RunProcessSaveDraftOptions,
 } from './lib/process-save-draft-run.js';
 import {
+  runProcessRequiredFieldsComplete,
+  type ProcessRequiredFieldsReport,
+  type RunProcessRequiredFieldsCompleteOptions,
+} from './lib/process-required-fields.js';
+import {
   runProcessVerifyRows,
   type ProcessVerifyRowsReport,
   type RunProcessVerifyRowsOptions,
@@ -269,6 +274,9 @@ export type CliDeps = {
   runProcessSaveDraftImpl?: (
     options: RunProcessSaveDraftOptions,
   ) => Promise<ProcessSaveDraftReport>;
+  runProcessRequiredFieldsCompleteImpl?: (
+    options: RunProcessRequiredFieldsCompleteOptions,
+  ) => Promise<ProcessRequiredFieldsReport>;
   runProcessVerifyRowsImpl?: (
     options: RunProcessVerifyRowsOptions,
   ) => Promise<ProcessVerifyRowsReport>;
@@ -370,7 +378,7 @@ Commands:
 Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
-  process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
+  process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
   dataset    validate | bilingual extract/apply/validate | references rewrite
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
@@ -398,6 +406,7 @@ Examples:
   tiangong-lca process auto-build --input ./pff-request.json --out-dir /abs/path/to/process-run
   tiangong-lca process resume-build --run-dir /abs/path/to/process-run
   tiangong-lca process publish-build --run-dir /abs/path/to/process-run
+  tiangong-lca process complete-required-fields --input ./processes.jsonl --out ./processes.completed.jsonl --default-unit MJ
   tiangong-lca process save-draft --input ./patched-processes.jsonl --out-dir /abs/path/to/process-save-draft --dry-run
   tiangong-lca process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
   tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
@@ -1558,6 +1567,30 @@ Outputs written under --out-dir:
 `.trim();
 }
 
+function renderProcessRequiredFieldsHelp(): string {
+  return `Usage:
+  tiangong-lca process complete-required-fields --input <file> --out <file> [options]
+
+Options:
+  --input <file>        Process rows JSON/JSONL file
+  --out <file>          Output JSONL with required fields completed
+  --out-dir <dir>       Optional artifact directory for report and evidence
+  --default-unit <unit> Unit suffix to use when it cannot be inferred (default: unit)
+  --json                Print compact JSON
+  -h, --help
+
+Annual supply / production volume policy:
+  1. keep an existing valid annualSupplyOrProductionVolume;
+  2. use an explicit value from row-level authoring evidence or evidenceManifest field bindings;
+  3. otherwise complete from the quantitative reference flow meanAmount/resultingAmount and unit.
+
+Outputs:
+  - completed rows at --out
+  - outputs/process-required-fields-report.json
+  - outputs/process-required-fields-evidence.jsonl
+`.trim();
+}
+
 function renderProcessRefreshReferencesHelp(): string {
   return `Usage:
   tiangong-lca process refresh-references --out-dir <dir> [options]
@@ -1638,6 +1671,7 @@ Implemented Subcommands:
   auto-build   Prepare a local process-from-flow run scaffold and artifact workspace
   resume-build Prepare a local resume handoff from one existing process build run
   publish-build Prepare publish handoff artifacts from one existing process build run
+  complete-required-fields Complete deterministic required authoring fields in process rows
   save-draft   Save canonical process datasets through the state-aware draft-maintenance path
   batch-build  Run multiple process auto-build requests through one batch-oriented CLI surface
   refresh-references Refresh current-user process references to the latest reachable dataset versions
@@ -1654,6 +1688,7 @@ Examples:
   tiangong-lca process auto-build --help
   tiangong-lca process resume-build --run-dir /abs/path/to/process-run --help
   tiangong-lca process publish-build --run-dir /abs/path/to/process-run --help
+  tiangong-lca process complete-required-fields --input ./processes.jsonl --out ./processes.completed.jsonl --help
   tiangong-lca process save-draft --input ./patched-processes.jsonl --help
   tiangong-lca process batch-build --input ./batch-request.json --help
   tiangong-lca process refresh-references --out-dir ./process-refresh --help
@@ -4061,6 +4096,46 @@ function parseProcessSaveDraftFlags(args: string[]): {
   };
 }
 
+function parseProcessRequiredFieldsFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outPath: string;
+  outDir: string | null;
+  defaultUnit: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        out: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'default-unit': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outPath: typeof values.out === 'string' ? values.out : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    defaultUnit: typeof values['default-unit'] === 'string' ? values['default-unit'] : null,
+  };
+}
+
 function parseProcessRefreshReferencesFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -4268,6 +4343,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const processResumeBuildImpl = deps.runProcessResumeBuildImpl ?? runProcessResumeBuild;
     const processPublishBuildImpl = deps.runProcessPublishBuildImpl ?? runProcessPublishBuild;
     const processSaveDraftImpl = deps.runProcessSaveDraftImpl ?? runProcessSaveDraft;
+    const processRequiredFieldsCompleteImpl =
+      deps.runProcessRequiredFieldsCompleteImpl ?? runProcessRequiredFieldsComplete;
     const processVerifyRowsImpl = deps.runProcessVerifyRowsImpl ?? runProcessVerifyRows;
     const processIdentityPreflightImpl =
       deps.runProcessIdentityPreflightImpl ?? runProcessIdentityPreflight;
@@ -4932,6 +5009,30 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
 
       return {
         exitCode: 0,
+        stdout: stringifyJson(report, processFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'process' && subcommand === 'complete-required-fields') {
+      const processFlags = parseProcessRequiredFieldsFlags(commandArgs);
+      if (processFlags.help) {
+        return {
+          exitCode: 0,
+          stdout: `${renderProcessRequiredFieldsHelp()}\n`,
+          stderr: '',
+        };
+      }
+
+      const report = await processRequiredFieldsCompleteImpl({
+        inputPath: processFlags.inputPath,
+        outPath: processFlags.outPath,
+        outDir: processFlags.outDir,
+        defaultUnit: processFlags.defaultUnit,
+      });
+
+      return {
+        exitCode: report.status === 'completed_with_blockers' ? 1 : 0,
         stdout: stringifyJson(report, processFlags.json),
         stderr: '',
       };

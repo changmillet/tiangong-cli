@@ -1495,6 +1495,19 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.match(saveDraftHelp.stdout, /outputs\/save-draft-rpc\/summary\.json/u);
   assert.doesNotMatch(saveDraftHelp.stdout, /Planned command/u);
 
+  const requiredFieldsHelp = await executeCli(
+    ['process', 'complete-required-fields', '--help'],
+    makeDeps(),
+  );
+  assert.equal(requiredFieldsHelp.exitCode, 0);
+  assert.match(
+    requiredFieldsHelp.stdout,
+    /tiangong-lca process complete-required-fields --input <file> --out <file>/u,
+  );
+  assert.match(requiredFieldsHelp.stdout, /annualSupplyOrProductionVolume/u);
+  assert.match(requiredFieldsHelp.stdout, /process-required-fields-evidence\.jsonl/u);
+  assert.doesNotMatch(requiredFieldsHelp.stdout, /Planned command/u);
+
   const refreshReferencesHelp = await executeCli(
     ['process', 'refresh-references', '--help'],
     makeDeps(),
@@ -3004,6 +3017,108 @@ test('executeCli executes process save-draft with injected implementation', asyn
   }
 });
 
+test('executeCli executes process complete-required-fields with injected implementation', async () => {
+  const result = await executeCli(
+    [
+      'process',
+      'complete-required-fields',
+      '--json',
+      '--input',
+      './processes.jsonl',
+      '--out',
+      './completed.jsonl',
+      '--out-dir',
+      './required-fields',
+      '--default-unit',
+      'MJ',
+    ],
+    {
+      ...makeDeps(),
+      runProcessRequiredFieldsCompleteImpl: async (options) => {
+        assert.equal(options.inputPath, './processes.jsonl');
+        assert.equal(options.outPath, './completed.jsonl');
+        assert.equal(options.outDir, './required-fields');
+        assert.equal(options.defaultUnit, 'MJ');
+        return {
+          generated_at_utc: '2026-05-23T00:00:00.000Z',
+          input_path: '/tmp/processes.jsonl',
+          out_path: '/tmp/completed.jsonl',
+          out_dir: '/tmp/required-fields',
+          status: 'completed',
+          default_unit: 'MJ',
+          counts: {
+            total: 1,
+            processes: 1,
+            completed: 1,
+            existing: 0,
+            blocked: 0,
+            skipped: 0,
+          },
+          files: {
+            output_rows: '/tmp/completed.jsonl',
+            report: '/tmp/report.json',
+            evidence: '/tmp/evidence.jsonl',
+          },
+          rows: [],
+        };
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /"status":"completed"/u);
+});
+
+test('executeCli maps process complete-required-fields blockers to exit code 1', async () => {
+  const result = await executeCli(
+    ['process', 'complete-required-fields', '--input', './processes.jsonl', '--out', './out.jsonl'],
+    {
+      ...makeDeps(),
+      runProcessRequiredFieldsCompleteImpl: async () => ({
+        generated_at_utc: '2026-05-23T00:00:00.000Z',
+        input_path: '/tmp/processes.jsonl',
+        out_path: '/tmp/out.jsonl',
+        out_dir: null,
+        status: 'completed_with_blockers',
+        default_unit: 'unit',
+        counts: {
+          total: 1,
+          processes: 1,
+          completed: 0,
+          existing: 0,
+          blocked: 1,
+          skipped: 0,
+        },
+        files: {
+          output_rows: '/tmp/out.jsonl',
+          report: null,
+          evidence: null,
+        },
+        rows: [
+          {
+            index: 0,
+            id: 'proc-1',
+            version: '01.01.000',
+            type: 'process',
+            status: 'blocked',
+            issues: [
+              {
+                code: 'annual_supply_reference_amount_missing',
+                message: 'reference amount missing',
+                path: 'processDataSet.exchanges.exchange',
+              },
+            ],
+            completions: [],
+          },
+        ],
+      }),
+    },
+  );
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.stdout, /annual_supply_reference_amount_missing/u);
+});
+
 test('executeCli maps process save-draft failures to exit code 1', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-save-draft-cli-failure-'));
   const inputPath = path.join(dir, 'patched-processes.jsonl');
@@ -3855,6 +3970,14 @@ test('executeCli returns parsing errors for invalid lifecyclemodel, process, and
   assert.equal(processSaveDraftResult.exitCode, 2);
   assert.equal(processSaveDraftResult.stdout, '');
   assert.match(processSaveDraftResult.stderr, /INVALID_ARGS/u);
+
+  const processRequiredFieldsResult = await executeCli(
+    ['process', 'complete-required-fields', '--bad-flag'],
+    makeDeps(),
+  );
+  assert.equal(processRequiredFieldsResult.exitCode, 2);
+  assert.equal(processRequiredFieldsResult.stdout, '');
+  assert.match(processRequiredFieldsResult.stderr, /INVALID_ARGS/u);
 
   const processRefreshArgsResult = await executeCli(
     ['process', 'refresh-references', '--bad-flag'],
