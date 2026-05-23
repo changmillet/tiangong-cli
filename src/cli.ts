@@ -756,6 +756,8 @@ function renderFlowIdentityPreflightHelp(): string {
 
 Options:
   --input <file>   JSON preflight request with target flow and optional candidates
+  --candidate-input <path>
+                   Optional JSON/JSONL file or directory of candidate flow rows; repeatable
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -769,6 +771,7 @@ Input contract:
 Outputs written under --out-dir:
   - outputs/identity-decision.json
   - outputs/identity-candidates.jsonl
+  - outputs/identity-candidate-sources.json
 `.trim();
 }
 
@@ -1460,6 +1463,8 @@ function renderProcessIdentityPreflightHelp(): string {
 
 Options:
   --input <file>   JSON preflight request with target process and optional candidates
+  --candidate-input <path>
+                   Optional JSON/JSONL file or directory of candidate process rows; repeatable
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -1473,6 +1478,7 @@ Input contract:
 Outputs written under --out-dir:
   - outputs/identity-decision.json
   - outputs/identity-candidates.jsonl
+  - outputs/identity-candidate-sources.json
 `.trim();
 }
 
@@ -2203,6 +2209,7 @@ function parseIdentityPreflightFlags(args: string[]): {
   json: boolean;
   inputPath: string;
   outDir: string | null;
+  candidateInputPaths: string[];
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -2214,6 +2221,7 @@ function parseIdentityPreflightFlags(args: string[]): {
         help: { type: 'boolean', short: 'h' },
         json: { type: 'boolean' },
         input: { type: 'string' },
+        'candidate-input': { type: 'string', multiple: true },
         'out-dir': { type: 'string' },
       },
     }));
@@ -2224,11 +2232,15 @@ function parseIdentityPreflightFlags(args: string[]): {
     });
   }
 
+  const candidateInputValue = values['candidate-input'];
   return {
     help: Boolean(values.help),
     json: Boolean(values.json),
     inputPath: typeof values.input === 'string' ? values.input : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    candidateInputPaths: Array.isArray(candidateInputValue)
+      ? candidateInputValue.filter((entry): entry is string => typeof entry === 'string')
+      : [],
   };
 }
 
@@ -4856,6 +4868,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       const report = await processIdentityPreflightImpl({
         inputPath: processFlags.inputPath,
         outDir: processFlags.outDir,
+        candidateInputPaths: processFlags.candidateInputPaths,
       });
 
       return {
@@ -5212,6 +5225,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       const report = await flowIdentityPreflightImpl({
         inputPath: flowFlags.inputPath,
         outDir: flowFlags.outDir,
+        candidateInputPaths: flowFlags.candidateInputPaths,
       });
 
       return {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -294,6 +294,144 @@ test('process identity preflight queues manual review for weaker process similar
   assert.deepEqual(nameOnly.candidates[0]?.match_reasons, ['overlapping_name']);
 });
 
+test('process identity preflight blocks exact exchange fingerprints with local candidate scans', async () => {
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-local-scan-'));
+  const inputPath = path.join(workDir, 'process-preflight.json');
+  const candidateDir = path.join(workDir, 'candidates');
+  const nestedDir = path.join(candidateDir, 'nested');
+  const candidateJsonl = path.join(candidateDir, 'existing.jsonl');
+  const hiddenJson = path.join(candidateDir, '.hidden.json');
+  const candidateJson = path.join(nestedDir, 'more.json');
+  try {
+    writeFileSync(
+      inputPath,
+      JSON.stringify({
+        target: {
+          name_en: 'market for electricity, medium voltage, renewable adjustment',
+          reference_flow_id: 'flow-electricity',
+          geography: 'CN',
+          exchanges: [{ flow_id: 'flow-wind', direction: 'Input', mean_amount: '1.0' }],
+        },
+      }),
+      'utf8',
+    );
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(
+      candidateJsonl,
+      `${JSON.stringify({
+        process_id: 'existing-process',
+        name_en: 'electricity supply candidate with different wording',
+        reference_flow_id: 'flow-electricity',
+        geography: 'CN',
+        exchanges: [{ flow_id: 'flow-wind', direction: 'Input', mean_amount: '1.0' }],
+      })}\n`,
+      'utf8',
+    );
+    writeFileSync(
+      candidateJson,
+      JSON.stringify({
+        rows: [{ process_id: 'unrelated', name_en: 'unrelated process' }],
+      }),
+      'utf8',
+    );
+    writeFileSync(
+      hiddenJson,
+      JSON.stringify({
+        rows: [{ process_id: 'hidden', name_en: 'hidden process' }],
+      }),
+      'utf8',
+    );
+
+    const report = await runProcessIdentityPreflight({
+      inputPath,
+      candidateInputPaths: [candidateDir],
+      now,
+    });
+
+    assert.equal(report.status, 'blocked');
+    assert.equal(report.decision, 'block_duplicate');
+    assert.equal(report.candidates.length, 2);
+    assert.equal(report.candidate_sources[0]?.kind, 'directory');
+    assert.equal(report.candidate_sources[0]?.row_count, 2);
+    assert.ok(report.candidate_sources[0]?.scanned_files.includes(candidateJsonl));
+    assert.ok(report.candidate_sources[0]?.scanned_files.includes(candidateJson));
+    assert.equal(report.candidate_sources[0]?.scanned_files.includes(hiddenJson), false);
+    assert.ok(report.candidates[0]?.match_reasons.includes('same_exchange_fingerprint'));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test('identity preflight reads file candidate sources and rejects invalid source paths', async () => {
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-candidate-file-'));
+  const candidatePath = path.join(workDir, 'candidates.json');
+  try {
+    writeFileSync(
+      candidatePath,
+      JSON.stringify({
+        rows: [{ name_en: 'same flow', type_of_dataset: 'Product flow' }],
+      }),
+      'utf8',
+    );
+
+    const report = await runFlowIdentityPreflight({
+      inputPath: '/tmp/flow-preflight.json',
+      rawInput: {
+        flow: { name_en: 'target flow' },
+      },
+      candidateInputPaths: [candidatePath],
+      now,
+    });
+
+    assert.equal(report.candidate_sources[0]?.kind, 'file');
+    assert.equal(report.candidate_sources[0]?.row_count, 1);
+    assert.deepEqual(report.candidate_sources[0]?.scanned_files, [candidatePath]);
+
+    const requestPathReport = await runFlowIdentityPreflight({
+      inputPath: '/tmp/flow-preflight.json',
+      rawInput: {
+        flow: { name_en: 'target flow' },
+        candidate_inputs: `${candidatePath}, , ${candidatePath}`,
+      },
+      now,
+    });
+
+    assert.equal(requestPathReport.candidate_sources.length, 2);
+    assert.equal(requestPathReport.candidate_sources[0]?.path, candidatePath);
+
+    await assert.rejects(
+      () =>
+        runFlowIdentityPreflight({
+          inputPath: '/tmp/flow-preflight.json',
+          rawInput: { flow: {} },
+          candidateInputPaths: [path.join(workDir, 'missing.jsonl')],
+          now,
+        }),
+      /Candidate input not found/u,
+    );
+
+    assert.throws(
+      () => __testInternals.readCandidateSource(os.devNull),
+      /Candidate input must be a JSON\/JSONL file or directory/u,
+    );
+
+    await assert.rejects(
+      () =>
+        runFlowIdentityPreflight({
+          inputPath: '/tmp/flow-preflight.json',
+          rawInput: {
+            flow: {},
+            candidate_inputs: [1],
+          },
+          now,
+        }),
+      /candidate_inputs\[0\] must be a string path/u,
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test('flow identity preflight blocks equivalent flow identities and writes artifacts', async () => {
   const outDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-'));
   try {
@@ -332,8 +470,13 @@ test('flow identity preflight blocks equivalent flow identities and writes artif
       report.files.candidates,
       path.join(outDir, 'outputs', 'identity-candidates.jsonl'),
     );
+    assert.equal(
+      report.files.candidate_sources,
+      path.join(outDir, 'outputs', 'identity-candidate-sources.json'),
+    );
     assert.equal(existsSync(report.files.identity_decision as string), true);
     assert.equal(existsSync(report.files.candidates as string), true);
+    assert.equal(existsSync(report.files.candidate_sources as string), true);
 
     const artifact = JSON.parse(readFileSync(report.files.identity_decision as string, 'utf8')) as {
       files: { identity_decision: string };
@@ -344,6 +487,35 @@ test('flow identity preflight blocks equivalent flow identities and writes artif
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }
+});
+
+test('flow identity preflight blocks alias-equivalent flow core fields', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Product flow',
+        name_en: ['electricity, high voltage', 'power, high voltage'],
+        reference_unit: 'kWh',
+        flow_property: 'Energy',
+        category: 'energy carrier',
+      },
+      candidates: [
+        {
+          type_of_dataset: 'Product flow',
+          name_en: 'power, high voltage',
+          reference_unit: 'kWh',
+          flow_property: 'Energy',
+          category: 'energy carrier',
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
 });
 
 test('flow identity preflight accepts sparse file input and numeric text fields', async () => {

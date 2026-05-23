@@ -283,6 +283,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
     /tiangong-lca flow identity-preflight --input <file>/u,
   );
   assert.match(flowIdentityPreflightHelp.stdout, /identity-candidates\.jsonl/u);
+  assert.match(flowIdentityPreflightHelp.stdout, /identity-candidate-sources\.json/u);
   assert.doesNotMatch(flowIdentityPreflightHelp.stdout, /Planned command/u);
 
   const flowBuildPlanHelp = await executeCli(['flow', 'build-plan', '--help'], makeDeps());
@@ -1431,6 +1432,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
     /tiangong-lca process identity-preflight --input <file>/u,
   );
   assert.match(identityPreflightHelp.stdout, /identity-decision\.json/u);
+  assert.match(identityPreflightHelp.stdout, /identity-candidate-sources\.json/u);
   assert.doesNotMatch(identityPreflightHelp.stdout, /Planned command/u);
 
   const processBuildPlanHelp = await executeCli(['process', 'build-plan', '--help'], makeDeps());
@@ -1863,6 +1865,10 @@ test('executeCli executes process identity-preflight with injected implementatio
       '--json',
       '--input',
       '/tmp/process-preflight.json',
+      '--candidate-input',
+      '/tmp/candidates-a.jsonl',
+      '--candidate-input',
+      '/tmp/candidate-dir',
       '--out-dir',
       '/tmp/process-preflight',
     ],
@@ -1871,6 +1877,10 @@ test('executeCli executes process identity-preflight with injected implementatio
       runProcessIdentityPreflightImpl: async (options) => {
         assert.equal(options.inputPath, '/tmp/process-preflight.json');
         assert.equal(options.outDir, '/tmp/process-preflight');
+        assert.deepEqual(options.candidateInputPaths, [
+          '/tmp/candidates-a.jsonl',
+          '/tmp/candidate-dir',
+        ]);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',
@@ -1904,6 +1914,7 @@ test('executeCli executes process identity-preflight with injected implementatio
               decision_hint: 'block_duplicate',
             },
           ],
+          candidate_sources: [],
           findings: [
             {
               code: 'process_duplicate_candidate',
@@ -1924,6 +1935,7 @@ test('executeCli executes process identity-preflight with injected implementatio
           files: {
             identity_decision: null,
             candidates: null,
+            candidate_sources: null,
           },
         };
       },
@@ -1961,12 +1973,14 @@ test('executeCli maps process identity-preflight success and argument errors', a
           },
         },
         candidates: [],
+        candidate_sources: [],
         findings: [],
         blockers: [],
         next_action: 'materialize_new_payload',
         files: {
           identity_decision: null,
           candidates: null,
+          candidate_sources: null,
         },
       }),
     },
@@ -2436,6 +2450,7 @@ test('executeCli executes flow identity-preflight with injected implementation',
             },
           },
           candidates: [],
+          candidate_sources: [],
           findings: [
             {
               code: 'flow_no_duplicate_candidate',
@@ -2448,6 +2463,7 @@ test('executeCli executes flow identity-preflight with injected implementation',
           files: {
             identity_decision: null,
             candidates: null,
+            candidate_sources: null,
           },
         };
       },
@@ -2485,6 +2501,7 @@ test('executeCli maps flow identity-preflight blocker reports to exit code 1', a
           },
         },
         candidates: [],
+        candidate_sources: [],
         findings: [],
         blockers: [
           {
@@ -2497,6 +2514,7 @@ test('executeCli maps flow identity-preflight blocker reports to exit code 1', a
         files: {
           identity_decision: null,
           candidates: null,
+          candidate_sources: null,
         },
       }),
     },

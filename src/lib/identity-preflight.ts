@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
@@ -6,6 +7,7 @@ import {
   datasetIdentity,
   detectDatasetKind,
   isRecord,
+  readDatasetRowsInput,
   unwrapDatasetPayload,
   type DatasetKind,
   type JsonObject,
@@ -70,6 +72,13 @@ export type IdentityPreflightCandidateReport = {
   decision_hint: IdentityPreflightDecision | null;
 };
 
+export type IdentityPreflightCandidateSourceReport = {
+  path: string;
+  kind: 'embedded_request' | 'file' | 'directory';
+  row_count: number;
+  scanned_files: string[];
+};
+
 export type IdentityPreflightReport = {
   schema_version: 1;
   generated_at_utc: string;
@@ -87,6 +96,7 @@ export type IdentityPreflightReport = {
     schema_validation: ValidationSummary;
   };
   candidates: IdentityPreflightCandidateReport[];
+  candidate_sources: IdentityPreflightCandidateSourceReport[];
   findings: IdentityPreflightFinding[];
   blockers: IdentityPreflightFinding[];
   next_action:
@@ -99,6 +109,7 @@ export type IdentityPreflightReport = {
   files: {
     identity_decision: string | null;
     candidates: string | null;
+    candidate_sources: string | null;
   };
 };
 
@@ -106,6 +117,7 @@ export type RunIdentityPreflightOptions = {
   inputPath: string;
   outDir?: string | null;
   rawInput?: unknown;
+  candidateInputPaths?: string[];
   now?: Date;
   schemas?: Partial<Record<IdentityPreflightKind, SafeParseSchema>>;
 };
@@ -118,6 +130,7 @@ export type FlowIdentityPreflightReport = IdentityPreflightReport & { kind: 'flo
 type NormalizedInput = {
   target: JsonObject;
   candidates: JsonObject[];
+  candidateInputPaths: string[];
 };
 
 type CandidateEvaluation = {
@@ -165,6 +178,25 @@ function normalizeRows(value: unknown, label: string): JsonObject[] {
   return normalizedRows.map((row, index) => normalizeToRecord(row, `${label}[${index}]`));
 }
 
+function normalizePathList(value: unknown, label: string): string[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  const values = Array.isArray(value) ? value : [value];
+  return values.flatMap((entry, index) => {
+    if (typeof entry !== 'string') {
+      throw new CliError(`${label}[${index}] must be a string path.`, {
+        code: 'IDENTITY_PREFLIGHT_INVALID_CANDIDATE_INPUT',
+        exitCode: 2,
+      });
+    }
+    return entry
+      .split(',')
+      .map((pathValue) => pathValue.trim())
+      .filter(Boolean);
+  });
+}
+
 function pickKindTarget(input: JsonObject, kind: IdentityPreflightKind): unknown {
   if (input.target !== undefined) {
     return input.target;
@@ -194,6 +226,70 @@ function normalizePreflightInput(rawInput: unknown, kind: IdentityPreflightKind)
   return {
     target,
     candidates: candidateGroups,
+    candidateInputPaths: [
+      ...normalizePathList(input.candidate_input, 'candidate_input'),
+      ...normalizePathList(input.candidate_inputs, 'candidate_inputs'),
+      ...normalizePathList(input.candidateInputPaths, 'candidateInputPaths'),
+      ...normalizePathList(input.candidate_files, 'candidate_files'),
+      ...normalizePathList(input.candidateFiles, 'candidateFiles'),
+    ],
+  };
+}
+
+function collectCandidateFiles(candidatePath: string): string[] {
+  const resolved = path.resolve(candidatePath);
+  if (!existsSync(resolved)) {
+    throw new CliError(`Candidate input not found: ${resolved}`, {
+      code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_NOT_FOUND',
+      exitCode: 2,
+    });
+  }
+
+  const stats = statSync(resolved);
+  if (stats.isFile()) {
+    return [resolved];
+  }
+  if (!stats.isDirectory()) {
+    throw new CliError(`Candidate input must be a JSON/JSONL file or directory: ${resolved}`, {
+      code: 'IDENTITY_PREFLIGHT_CANDIDATE_INPUT_UNSUPPORTED',
+      exitCode: 2,
+    });
+  }
+
+  const files: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.startsWith('.')) {
+        continue;
+      }
+      const entryPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(entryPath);
+      } else if (entry.isFile() && /\.(?:json|jsonl)$/iu.test(entry.name)) {
+        files.push(entryPath);
+      }
+    }
+  };
+  visit(resolved);
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+function readCandidateSource(candidatePath: string): {
+  rows: JsonObject[];
+  source: IdentityPreflightCandidateSourceReport;
+} {
+  const resolved = path.resolve(candidatePath);
+  const files = collectCandidateFiles(resolved);
+  const rows = files.flatMap((file) => readDatasetRowsInput(file));
+  const kind = statSync(resolved).isDirectory() ? 'directory' : 'file';
+  return {
+    rows,
+    source: {
+      path: resolved,
+      kind,
+      row_count: rows.length,
+      scanned_files: files,
+    },
   };
 }
 
@@ -654,8 +750,49 @@ function intersects(left: string[], right: string[]): boolean {
   return left.some((entry) => rightSet.has(entry));
 }
 
+function normalizedFieldValues(value: string | null | string[]): string[] {
+  return (Array.isArray(value) ? value : [value])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(normalizeText)
+    .filter(Boolean);
+}
+
+function sameNonEmptyField(
+  left: string | null | string[],
+  right: string | null | string[],
+): boolean {
+  const leftValues = normalizedFieldValues(left);
+  const rightValues = normalizedFieldValues(right);
+  return leftValues.length > 0 && rightValues.length > 0 && intersects(leftValues, rightValues);
+}
+
 function sameExchangeSignature(left: string[], right: string[]): boolean {
   return left.length > 0 && right.length > 0 && left.join('|') === right.join('|');
+}
+
+function hasEquivalentFlowCore(target: IdentityProfile, candidate: IdentityProfile): boolean {
+  const hasSameType = sameNonEmptyField(
+    target.fields.type_of_dataset,
+    candidate.fields.type_of_dataset,
+  );
+  const hasSameProperty = sameNonEmptyField(
+    target.fields.flow_property,
+    candidate.fields.flow_property,
+  );
+  const hasSameUnit = sameNonEmptyField(
+    target.fields.reference_unit,
+    candidate.fields.reference_unit,
+  );
+  const hasSameCas = sameNonEmptyField(target.fields.cas, candidate.fields.cas);
+  const hasSameCategory = sameNonEmptyField(target.fields.categories, candidate.fields.categories);
+
+  return (
+    hasSameType &&
+    hasSameProperty &&
+    hasSameUnit &&
+    intersects(target.normalized_names, candidate.normalized_names) &&
+    (hasSameCas || hasSameCategory)
+  );
 }
 
 function candidateEvaluation(
@@ -703,7 +840,8 @@ function candidateEvaluation(
     }
   }
 
-  if (intersects(target.normalized_names, candidate.normalized_names)) {
+  const hasOverlappingName = intersects(target.normalized_names, candidate.normalized_names);
+  if (hasOverlappingName) {
     matchScore += 20;
     matchReasons.push('overlapping_name');
     if (!decisionHint) {
@@ -721,9 +859,31 @@ function candidateEvaluation(
     .filter((value): value is string => typeof value === 'string')
     .map(normalizeText)
     .filter(Boolean);
-  if (intersects(targetReferenceFields, candidateReferenceFields)) {
+  const hasOverlappingIdentityField = intersects(targetReferenceFields, candidateReferenceFields);
+  if (hasOverlappingIdentityField) {
     matchScore += 10;
     matchReasons.push('overlapping_identity_field');
+  }
+
+  if (
+    kind === 'process' &&
+    decisionHint === 'manual_review' &&
+    matchReasons.includes('same_exchange_signature') &&
+    hasOverlappingIdentityField
+  ) {
+    matchScore += 20;
+    matchReasons.push('same_exchange_fingerprint');
+    decisionHint = 'block_duplicate';
+  }
+
+  if (
+    kind === 'flow' &&
+    (decisionHint === null || decisionHint === 'manual_review') &&
+    hasEquivalentFlowCore(target, candidate)
+  ) {
+    matchScore += 70;
+    matchReasons.push('equivalent_flow_core_fields');
+    decisionHint = 'block_duplicate';
   }
 
   const findings: IdentityPreflightFinding[] = [];
@@ -877,6 +1037,7 @@ function writeArtifacts(
     return {
       identity_decision: null,
       candidates: null,
+      candidate_sources: null,
     };
   }
 
@@ -884,10 +1045,12 @@ function writeArtifacts(
   const files = {
     identity_decision: path.join(resolved, 'outputs', 'identity-decision.json'),
     candidates: path.join(resolved, 'outputs', 'identity-candidates.jsonl'),
+    candidate_sources: path.join(resolved, 'outputs', 'identity-candidate-sources.json'),
   };
 
   writeJsonArtifact(files.identity_decision, { ...report, files });
   writeJsonLinesArtifact(files.candidates, report.candidates);
+  writeJsonArtifact(files.candidate_sources, report.candidate_sources);
   return files;
 }
 
@@ -900,9 +1063,30 @@ export async function runIdentityPreflight(
     options.rawInput ?? readJsonInput(inputPath),
     kind,
   );
+  const candidateSourceReads = [
+    ...normalizedInput.candidateInputPaths,
+    ...(options.candidateInputPaths ?? []),
+  ].map(readCandidateSource);
+  const candidateSources: IdentityPreflightCandidateSourceReport[] = [
+    ...(normalizedInput.candidates.length > 0
+      ? [
+          {
+            path: path.resolve(inputPath),
+            kind: 'embedded_request' as const,
+            row_count: normalizedInput.candidates.length,
+            scanned_files: [],
+          },
+        ]
+      : []),
+    ...candidateSourceReads.map((entry) => entry.source),
+  ];
+  const candidates = [
+    ...normalizedInput.candidates,
+    ...candidateSourceReads.flatMap((entry) => entry.rows),
+  ];
   const targetProfile = profileForKind(normalizedInput.target, kind);
   const validation = validateTargetSchema(normalizedInput.target, kind, options.schemas);
-  const evaluations = normalizedInput.candidates.map((candidate, index) =>
+  const evaluations = candidates.map((candidate, index) =>
     candidateEvaluation(targetProfile, profileForKind(candidate, kind), kind, index),
   );
   const decision = chooseDecision(evaluations, validation, kind);
@@ -925,12 +1109,14 @@ export async function runIdentityPreflight(
       schema_validation: validation,
     },
     candidates: evaluations.map((evaluation) => evaluation.report),
+    candidate_sources: candidateSources,
     findings: decision.findings,
     blockers,
     next_action: nextActionForDecision(decision.decision),
     files: {
       identity_decision: null,
       candidates: null,
+      candidate_sources: null,
     },
   };
 
@@ -961,4 +1147,5 @@ export const __testInternals = {
   flowProfile,
   candidateEvaluation,
   chooseDecision,
+  readCandidateSource,
 };
