@@ -3029,6 +3029,8 @@ test('executeCli executes process complete-required-fields with injected impleme
       './completed.jsonl',
       '--out-dir',
       './required-fields',
+      '--flows',
+      './flows.jsonl',
       '--default-unit',
       'MJ',
     ],
@@ -3038,6 +3040,7 @@ test('executeCli executes process complete-required-fields with injected impleme
         assert.equal(options.inputPath, './processes.jsonl');
         assert.equal(options.outPath, './completed.jsonl');
         assert.equal(options.outDir, './required-fields');
+        assert.equal(options.flowInputPath, './flows.jsonl');
         assert.equal(options.defaultUnit, 'MJ');
         return {
           generated_at_utc: '2026-05-23T00:00:00.000Z',

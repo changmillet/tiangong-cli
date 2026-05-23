@@ -1575,6 +1575,7 @@ Options:
   --input <file>        Process rows JSON/JSONL file
   --out <file>          Output JSONL with required fields completed
   --out-dir <dir>       Optional artifact directory for report and evidence
+  --flows <file>        Optional flow rows JSON/JSONL used to infer reference-flow units
   --default-unit <unit> Unit suffix to use when it cannot be inferred (default: unit)
   --json                Print compact JSON
   -h, --help
@@ -4102,6 +4103,7 @@ function parseProcessRequiredFieldsFlags(args: string[]): {
   inputPath: string;
   outPath: string;
   outDir: string | null;
+  flowInputPath: string | null;
   defaultUnit: string | null;
 } {
   let values: ReturnType<typeof parseArgs>['values'];
@@ -4116,6 +4118,7 @@ function parseProcessRequiredFieldsFlags(args: string[]): {
         input: { type: 'string' },
         out: { type: 'string' },
         'out-dir': { type: 'string' },
+        flows: { type: 'string' },
         'default-unit': { type: 'string' },
       },
     }));
@@ -4132,6 +4135,7 @@ function parseProcessRequiredFieldsFlags(args: string[]): {
     inputPath: typeof values.input === 'string' ? values.input : '',
     outPath: typeof values.out === 'string' ? values.out : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    flowInputPath: typeof values.flows === 'string' ? values.flows : null,
     defaultUnit: typeof values['default-unit'] === 'string' ? values['default-unit'] : null,
   };
 }
@@ -5028,6 +5032,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         inputPath: processFlags.inputPath,
         outPath: processFlags.outPath,
         outDir: processFlags.outDir,
+        flowInputPath: processFlags.flowInputPath,
         defaultUnit: processFlags.defaultUnit,
       });
 

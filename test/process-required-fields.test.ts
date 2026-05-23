@@ -43,7 +43,10 @@ function processRow(overrides: Record<string, unknown> = {}) {
               exchangeDirection: 'Output',
               meanAmount: '3.6',
               referenceToFlowDataSet: {
-                'common:shortDescription': [{ '@xml:lang': 'en', '#text': 'Net calorific value' }],
+                '@refObjectId': 'flow-1',
+                'common:shortDescription': [
+                  { '@xml:lang': 'en', '#text': 'Alternating current; electricity mix' },
+                ],
               },
             },
           ],
@@ -87,6 +90,26 @@ test('runProcessRequiredFieldsComplete completes annual volume from reference ex
       outPath,
       outDir,
       defaultUnit: 'kg',
+      flowInputPath: 'memory-flows',
+      rawFlowInput: [
+        {
+          id: 'flow-1',
+          json_ordered: {
+            flowDataSet: {
+              flowProperties: {
+                flowProperty: {
+                  referenceToFlowPropertyDataSet: {
+                    '@refObjectId': '93a60a56-a3c8-11da-a746-0800200c9a66',
+                    'common:shortDescription': [
+                      { '@xml:lang': 'en', '#text': 'Net calorific value' },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
       now: new Date('2026-05-23T00:00:00.000Z'),
     });
 
@@ -428,6 +451,125 @@ test('process required field internals cover exchange, unit, and row wrapper fal
     'MJ',
   );
   assert.equal(__testInternals.inferUnitFromReferenceExchange({}, 'unit'), 'unit');
+  assert.equal(
+    __testInternals.inferUnitFromReferenceExchange(
+      {
+        referenceToFlowDataSet: {
+          'common:shortDescription': [{ '@xml:lang': 'en', '#text': 'Electrical energy' }],
+        },
+      },
+      'unit',
+    ),
+    'MJ',
+  );
+  assert.equal(
+    __testInternals.inferUnitFromReferenceExchange(
+      {
+        referenceToFlowDataSet: {
+          '@refObjectId': 'flow-external',
+        },
+      },
+      {
+        defaultUnit: 'unit',
+        flowUnitById: new Map([['flow-external', 'MJ']]),
+      },
+    ),
+    'MJ',
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({
+      flowDataSet: {
+        flowInformation: {
+          dataSetInformation: {
+            classificationInformation: {
+              'common:classification': {
+                'common:class': [{ '@xml:lang': 'en', '#text': 'Electrical energy' }],
+              },
+            },
+          },
+        },
+      },
+    }),
+    'MJ',
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({
+      flowDataSet: {
+        flowProperties: {
+          flowProperty: { unit: 'kWh' },
+        },
+      },
+    }),
+    'kWh',
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({
+      flowDataSet: {
+        flowProperties: {
+          flowProperty: {
+            referenceToFlowPropertyDataSet: {
+              'common:shortDescription': [{ '@xml:lang': 'en', '#text': 'Net calorific value' }],
+            },
+          },
+        },
+      },
+    }),
+    'MJ',
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({
+      flowDataSet: {
+        flowProperties: {
+          flowProperty: { meanValue: '1' },
+        },
+      },
+    }),
+    null,
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({ flowDataSet: { flowProperties: {} } }),
+    null,
+  );
+  assert.equal(
+    __testInternals.inferSpecificUnitFromFlowPayload({
+      flowDataSet: {
+        flowInformation: {
+          dataSetInformation: {
+            classificationInformation: {
+              'common:classification': 'not-a-classification-object',
+            },
+          },
+        },
+      },
+    }),
+    null,
+  );
+  assert.deepEqual(
+    Array.from(
+      __testInternals.buildFlowUnitIndex(
+        [
+          {
+            index: 0,
+            id: null,
+            version: null,
+            kind: 'flow',
+            row: {},
+            payload: {},
+          },
+          {
+            index: 1,
+            id: 'proc-ignored',
+            version: null,
+            kind: 'process',
+            row: {},
+            payload: {},
+          },
+        ],
+        'unit',
+      ),
+    ),
+    [],
+  );
 
   assert.deepEqual(
     __testInternals.cloneRowWithPayload({

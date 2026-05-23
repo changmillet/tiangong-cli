@@ -74,12 +74,15 @@ export type RunProcessRequiredFieldsCompleteOptions = {
   outPath: string;
   outDir?: string | null;
   defaultUnit?: string | null;
+  flowInputPath?: string | null;
   rawInput?: unknown;
+  rawFlowInput?: unknown;
   now?: Date;
 };
 
 type CompletionContext = {
   defaultUnit: string;
+  flowUnitById?: Map<string, string>;
 };
 
 type AnnualSupplyEvidenceValue = {
@@ -219,21 +222,101 @@ function localizedTextIncludes(value: unknown, pattern: RegExp): boolean {
   return annualSupplyItems(value).some((item) => pattern.test(item['#text']));
 }
 
-function inferUnitFromReferenceExchange(exchange: JsonObject, fallbackUnit: string): string {
+function inferSpecificUnitFromFlowPayload(payload: JsonObject): string | null {
+  const root = datasetRoot(payload, 'flow');
+  const flowPropertiesRoot = isRecord(root.flowProperties) ? root.flowProperties : {};
+  const flowProperties = asList(flowPropertiesRoot.flowProperty).filter(isRecord);
+  for (const flowProperty of flowProperties) {
+    const direct = firstNonEmpty(
+      flowProperty.unit,
+      flowProperty.referenceUnit,
+      flowProperty.flowUnit,
+    );
+    if (direct) {
+      return direct;
+    }
+
+    const flowPropertyRef = isRecord(flowProperty.referenceToFlowPropertyDataSet)
+      ? flowProperty.referenceToFlowPropertyDataSet
+      : {};
+    const flowPropertyId = firstNonEmpty(flowPropertyRef['@refObjectId']);
+    const flowPropertyText = flowPropertyRef['common:shortDescription'];
+    if (
+      flowPropertyId === NET_CALORIFIC_VALUE_ID ||
+      localizedTextIncludes(flowPropertyText, /Net calorific|净热值/u)
+    ) {
+      return 'MJ';
+    }
+  }
+
+  const flowInformation = isRecord(root.flowInformation) ? root.flowInformation : {};
+  const dataSetInformation = isRecord(flowInformation.dataSetInformation)
+    ? flowInformation.dataSetInformation
+    : {};
+  const classificationInformation = isRecord(dataSetInformation.classificationInformation)
+    ? dataSetInformation.classificationInformation
+    : {};
+  const classification = isRecord(classificationInformation['common:classification'])
+    ? classificationInformation['common:classification']
+    : {};
+  const classificationClasses = classification['common:class'];
+  if (
+    localizedTextIncludes(classificationClasses, /Electrical energy|electricity|交流电|电力|电能/iu)
+  ) {
+    return 'MJ';
+  }
+
+  return null;
+}
+
+function buildFlowUnitIndex(
+  flowRows: DatasetRowInput[],
+  fallbackUnit: string,
+): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const row of flowRows) {
+    if (row.kind !== 'flow' || !row.id) {
+      continue;
+    }
+    const inferred = inferSpecificUnitFromFlowPayload(row.payload);
+    if (inferred && inferred !== fallbackUnit) {
+      index.set(row.id, inferred);
+    }
+  }
+  return index;
+}
+
+function inferUnitFromReferenceExchange(
+  exchange: JsonObject,
+  fallbackOrContext: string | CompletionContext,
+): string {
+  const context =
+    typeof fallbackOrContext === 'string' ? { defaultUnit: fallbackOrContext } : fallbackOrContext;
+  const fallbackUnit = context.defaultUnit;
+  const flowRef = isRecord(exchange.referenceToFlowDataSet) ? exchange.referenceToFlowDataSet : {};
+  const refObjectId = firstNonEmpty(flowRef['@refObjectId']);
+  if (refObjectId) {
+    const indexedUnit = context.flowUnitById?.get(refObjectId);
+    if (indexedUnit) {
+      return indexedUnit;
+    }
+  }
+
   const direct = firstNonEmpty(exchange.unit, exchange.referenceUnit, exchange.flowUnit);
   if (direct) {
     return direct;
   }
 
-  const flowRef = isRecord(exchange.referenceToFlowDataSet) ? exchange.referenceToFlowDataSet : {};
   const shortDescriptions = flowRef['common:shortDescription'];
   if (
-    localizedTextIncludes(shortDescriptions, /MJ|net calorific|lower calorific|净热值|低位发热/iu)
+    localizedTextIncludes(
+      shortDescriptions,
+      /MJ|net calorific|lower calorific|Electrical energy|electricity|净热值|低位发热|交流电|电力|电能/iu,
+    )
   ) {
     return 'MJ';
   }
 
-  const refObjectId = firstNonEmpty(flowRef['@refObjectId']);
   const flowProperty = isRecord(exchange.flowProperty) ? exchange.flowProperty : {};
   const flowPropertyRef = isRecord(flowProperty.referenceToFlowPropertyDataSet)
     ? flowProperty.referenceToFlowPropertyDataSet
@@ -602,7 +685,7 @@ function completeProcessRow(
     };
   }
 
-  const unit = inferUnitFromReferenceExchange(referenceExchange, context.defaultUnit);
+  const unit = inferUnitFromReferenceExchange(referenceExchange, context);
   const value = buildAnnualSupplyValue(amount, unit);
   const dataSources = ensureDataSources(root);
   dataSources.annualSupplyOrProductionVolume = value;
@@ -666,7 +749,11 @@ export async function runProcessRequiredFieldsComplete(
   const outDir = options.outDir?.trim() ? options.outDir.trim() : null;
   const defaultUnit = normalizeUnit(options.defaultUnit);
   const rows = materializeDatasetRows(options.inputPath, options.rawInput);
-  const completed = rows.map((row) => completeProcessRow(row, { defaultUnit }));
+  const flowRows = options.flowInputPath?.trim()
+    ? materializeDatasetRows(options.flowInputPath, options.rawFlowInput)
+    : [];
+  const flowUnitById = buildFlowUnitIndex(flowRows, defaultUnit);
+  const completed = rows.map((row) => completeProcessRow(row, { defaultUnit, flowUnitById }));
   const rowReports = completed.map((item) => item.report);
   const files = buildFiles(outPath, outDir);
   const blockers = rowReports.filter((row) => row.status === 'blocked');
@@ -724,7 +811,9 @@ export const __testInternals = {
   fieldPathFromEvidenceEntry,
   findAnnualSupplyEvidenceValue,
   findAnnualSupplyEvidenceEntry,
+  buildFlowUnitIndex,
   inferUnitFromReferenceExchange,
+  inferSpecificUnitFromFlowPayload,
   isAnnualSupplyEvidencePath,
   isValidAnnualSupplyVolume,
   normalizeAnnualSupplyEvidenceValue,
