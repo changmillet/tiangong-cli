@@ -201,6 +201,17 @@ import {
   type DatasetReferencesRewriteReport,
   type RunDatasetReferencesRewriteOptions,
 } from './lib/dataset-references-rewrite.js';
+import {
+  runDatasetBilingualApply,
+  runDatasetBilingualExtract,
+  runDatasetBilingualValidate,
+  type DatasetBilingualApplyReport,
+  type DatasetBilingualExtractReport,
+  type DatasetBilingualValidateReport,
+  type RunDatasetBilingualApplyOptions,
+  type RunDatasetBilingualExtractOptions,
+  type RunDatasetBilingualValidateOptions,
+} from './lib/dataset-bilingual.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
@@ -319,6 +330,15 @@ export type CliDeps = {
   runDatasetReferencesRewriteImpl?: (
     options: RunDatasetReferencesRewriteOptions,
   ) => Promise<DatasetReferencesRewriteReport>;
+  runDatasetBilingualExtractImpl?: (
+    options: RunDatasetBilingualExtractOptions,
+  ) => Promise<DatasetBilingualExtractReport>;
+  runDatasetBilingualApplyImpl?: (
+    options: RunDatasetBilingualApplyOptions,
+  ) => Promise<DatasetBilingualApplyReport>;
+  runDatasetBilingualValidateImpl?: (
+    options: RunDatasetBilingualValidateOptions,
+  ) => Promise<DatasetBilingualValidateReport>;
 };
 
 export type CliResult = {
@@ -351,7 +371,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | save-draft | batch-build | refresh-references | verify-rows
-  dataset    validate | references rewrite
+  dataset    validate | bilingual extract/apply/validate | references rewrite
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
@@ -383,6 +403,9 @@ Examples:
   tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
   tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir /abs/path/to/dataset-validate
+  tiangong-lca dataset bilingual extract --input ./rows/processes.jsonl --type process --out-dir ./translation
+  tiangong-lca dataset bilingual apply --input ./rows/processes.jsonl --translations ./translation/trans-reviewed.jsonl --out ./rows/processes.translated.jsonl
+  tiangong-lca dataset bilingual validate --input ./rows/processes.translated.jsonl --type process --out-dir ./translation-validate
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir /abs/path/to/dataset-rewrite
   tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
@@ -514,10 +537,16 @@ function renderDatasetHelp(): string {
 
 Implemented Subcommands:
   validate             Validate local flow / process / lifecyclemodel rows with the TIDAS SDK
+  bilingual extract    Extract bilingual translation units from local rows
+  bilingual apply      Apply reviewed bilingual translations back to local rows
+  bilingual validate   Validate bilingual rows with deterministic scans and schema/review gates
   references rewrite   Rewrite flow references in local process and lifecyclemodel rows
 
 Examples:
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --help
+  tiangong-lca dataset bilingual extract --input ./rows.jsonl --type process --out-dir ./translation --help
+  tiangong-lca dataset bilingual apply --input ./rows.jsonl --translations ./trans-reviewed.jsonl --out ./rows.translated.jsonl --help
+  tiangong-lca dataset bilingual validate --input ./rows.translated.jsonl --type process --out-dir ./translation-validate --help
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
 `.trim();
 }
@@ -537,6 +566,84 @@ Outputs written under --out-dir:
   - outputs/validation-report.json
   - outputs/valid-rows.jsonl
   - outputs/invalid-rows.jsonl
+`.trim();
+}
+
+function renderDatasetBilingualHelp(): string {
+  return `Usage:
+  tiangong-lca dataset bilingual <extract|apply|validate> [options]
+
+Subcommands:
+  extract    Extract trans-units.jsonl from process/flow/lifecyclemodel rows
+  apply      Apply reviewed translations to rows and write translation-evidence.json
+  validate   Run placeholder/mixed-language scans plus schema and process/flow review gates
+
+Examples:
+  tiangong-lca dataset bilingual extract --input ./rows/processes.jsonl --type process --out-dir ./translation
+  tiangong-lca dataset bilingual apply --input ./rows/processes.jsonl --translations ./translation/trans-reviewed.jsonl --out ./rows/processes.translated.jsonl
+  tiangong-lca dataset bilingual validate --input ./rows/processes.translated.jsonl --type process --out-dir ./translation-validate
+`.trim();
+}
+
+function renderDatasetBilingualExtractHelp(): string {
+  return `Usage:
+  tiangong-lca dataset bilingual extract --input <file> [options]
+
+Options:
+  --input <file>        Local rows as JSON or JSONL
+  --type <type>         auto | flow | process | lifecyclemodel (default: auto)
+  --source-lang <lang>  Source language code (default: en)
+  --target-lang <lang>  Target language code (default: zh)
+  --out-dir <dir>       Artifact directory for trans-units.jsonl and extract-report.json
+  --json                Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/trans-units.jsonl
+  - outputs/extract-report.json
+`.trim();
+}
+
+function renderDatasetBilingualApplyHelp(): string {
+  return `Usage:
+  tiangong-lca dataset bilingual apply --input <file> --translations <file> --out <file> [options]
+
+Options:
+  --input <file>         Local rows as JSON or JSONL
+  --translations <file>  Reviewed translation JSONL from extract units
+  --out <file>           Output JSONL with translations applied
+  --target-lang <lang>   Target language code (default: zh)
+  --out-dir <dir>        Optional artifact directory; defaults to the output file directory
+  --json                 Print compact JSON
+  -h, --help
+
+Translation row fields:
+  unit_id, row_index, field_path, source_lang, target_lang, source_text, translated_text,
+  basis, review_status, reviewer
+
+Outputs:
+  - translated rows at --out
+  - outputs/translation-evidence.json
+  - outputs/bilingual-apply-report.json
+`.trim();
+}
+
+function renderDatasetBilingualValidateHelp(): string {
+  return `Usage:
+  tiangong-lca dataset bilingual validate --input <file> [options]
+
+Options:
+  --input <file>   Local rows as JSON or JSONL
+  --type <type>    auto | flow | process | lifecyclemodel (default: auto)
+  --out-dir <dir>  Artifact directory for scan, schema, and review outputs
+  --json           Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/bilingual-validate-report.json
+  - outputs/bilingual-findings.jsonl
+  - schema/outputs/validation-report.json
+  - review/process/... and/or review/flow/... when applicable
 `.trim();
 }
 
@@ -1822,6 +1929,129 @@ function parseValidationFlags(args: string[]): {
 }
 
 function parseDatasetValidateFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  type: string | undefined;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        type: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    type: typeof values.type === 'string' ? values.type : undefined,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetBilingualExtractFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  type: string | undefined;
+  sourceLang: string | null;
+  targetLang: string | null;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        type: { type: 'string' },
+        'source-lang': { type: 'string' },
+        'target-lang': { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    type: typeof values.type === 'string' ? values.type : undefined,
+    sourceLang: typeof values['source-lang'] === 'string' ? values['source-lang'] : null,
+    targetLang: typeof values['target-lang'] === 'string' ? values['target-lang'] : null,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetBilingualApplyFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  translationsPath: string;
+  outPath: string;
+  targetLang: string | null;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        translations: { type: 'string' },
+        out: { type: 'string' },
+        'target-lang': { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    translationsPath: typeof values.translations === 'string' ? values.translations : '',
+    outPath: typeof values.out === 'string' ? values.out : '',
+    targetLang: typeof values['target-lang'] === 'string' ? values['target-lang'] : null,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetBilingualValidateFlags(args: string[]): {
   help: boolean;
   json: boolean;
   inputPath: string;
@@ -4073,6 +4303,11 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
     const datasetReferencesRewriteImpl =
       deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
+    const datasetBilingualExtractImpl =
+      deps.runDatasetBilingualExtractImpl ?? runDatasetBilingualExtract;
+    const datasetBilingualApplyImpl = deps.runDatasetBilingualApplyImpl ?? runDatasetBilingualApply;
+    const datasetBilingualValidateImpl =
+      deps.runDatasetBilingualValidateImpl ?? runDatasetBilingualValidate;
 
     if (flags.version) {
       return { exitCode: 0, stdout: `${loadCliPackageVersion(import.meta.url)}\n`, stderr: '' };
@@ -4143,6 +4378,73 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         stdout: stringifyJson(report, datasetFlags.json),
         stderr: '',
       };
+    }
+
+    if (command === 'dataset' && subcommand === 'bilingual') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetBilingualHelp()}\n`, stderr: '' };
+      }
+
+      if (action === 'extract') {
+        const datasetFlags = parseDatasetBilingualExtractFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetBilingualExtractHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetBilingualExtractImpl({
+          inputPath: datasetFlags.inputPath,
+          type: datasetFlags.type,
+          sourceLang: datasetFlags.sourceLang,
+          targetLang: datasetFlags.targetLang,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      if (action === 'apply') {
+        const datasetFlags = parseDatasetBilingualApplyFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetBilingualApplyHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetBilingualApplyImpl({
+          inputPath: datasetFlags.inputPath,
+          translationsPath: datasetFlags.translationsPath,
+          outPath: datasetFlags.outPath,
+          targetLang: datasetFlags.targetLang,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      if (action === 'validate') {
+        const datasetFlags = parseDatasetBilingualValidateFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetBilingualValidateHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetBilingualValidateImpl({
+          inputPath: datasetFlags.inputPath,
+          type: datasetFlags.type,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      throw new CliError("dataset bilingual action must be 'extract', 'apply', or 'validate'.", {
+        code: 'INVALID_ARGS',
+        exitCode: 2,
+      });
     }
 
     if (command === 'dataset' && subcommand === 'references') {
