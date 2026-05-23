@@ -54,6 +54,26 @@ function processRow(overrides: Record<string, unknown> = {}) {
         },
         modellingAndValidation: {
           dataSourcesTreatmentAndRepresentativeness: {},
+          validation: {
+            review: {
+              '@type': 'Not reviewed',
+            },
+          },
+          complianceDeclarations: {
+            compliance: {
+              'common:referenceToComplianceSystem': {
+                '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+                '@type': 'source data set',
+                '@version': '00.00.001',
+              },
+              'common:approvalOfOverallCompliance': 'Not defined',
+              'common:nomenclatureCompliance': 'Not defined',
+              'common:methodologicalCompliance': 'Not defined',
+              'common:reviewCompliance': 'Not defined',
+              'common:documentationCompliance': 'Not defined',
+              'common:qualityCompliance': 'Not defined',
+            },
+          },
         },
       },
     },
@@ -213,6 +233,121 @@ test('runProcessRequiredFieldsComplete keeps existing valid values and blocks mi
   assert.equal(report.rows[1]?.issues.at(-1)?.code, 'annual_supply_reference_amount_missing');
 });
 
+test('runProcessRequiredFieldsComplete repairs UI-roundtripped annual reference-flow text', async () => {
+  const row = processRow();
+  const processRoot = (
+    row.json_ordered as {
+      processDataSet: {
+        modellingAndValidation: {
+          dataSourcesTreatmentAndRepresentativeness: Record<string, unknown>;
+        };
+      };
+    }
+  ).processDataSet;
+  processRoot.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume =
+    [
+      {
+        '@xml:lang': 'en',
+        '#text': '3.6 MJ Alternating current; electricity mix; production mix, at plant; 35-330kV',
+      },
+      {
+        '@xml:lang': 'zh',
+        '#text': '3.6 交流电; 电力混合; 生产组合，在电厂; 35-330千伏',
+      },
+    ];
+
+  const report = await runProcessRequiredFieldsComplete({
+    inputPath: 'memory',
+    outPath: path.join(os.tmpdir(), `completed-ui-roundtrip-${process.pid}.jsonl`),
+    rawInput: [row],
+    defaultUnit: 'kg',
+    flowInputPath: 'memory-flows',
+    rawFlowInput: [
+      {
+        id: 'flow-1',
+        json_ordered: {
+          flowDataSet: {
+            flowProperties: {
+              flowProperty: {
+                referenceToFlowPropertyDataSet: {
+                  '@refObjectId': '93a60a56-a3c8-11da-a746-0800200c9a66',
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(report.status, 'completed');
+  assert.equal(report.rows[0]?.status, 'completed');
+  assert.deepEqual(
+    report.rows[0]?.completions.map((completion) => completion.source),
+    ['reference_flow_amount'],
+  );
+  assert.deepEqual(annualSupplyFrom(readJsonl(report.files.output_rows)[0]), [
+    { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
+    { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
+  ]);
+});
+
+test('runProcessRequiredFieldsComplete repairs missing validation and compliance structures', async () => {
+  const row = processRow();
+  const processRoot = (
+    row.json_ordered as {
+      processDataSet: {
+        modellingAndValidation: Record<string, unknown>;
+      };
+    }
+  ).processDataSet;
+  processRoot.modellingAndValidation = {
+    dataSourcesTreatmentAndRepresentativeness: {
+      annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+    },
+  };
+
+  const report = await runProcessRequiredFieldsComplete({
+    inputPath: 'memory',
+    outPath: path.join(os.tmpdir(), `completed-required-structure-${process.pid}.jsonl`),
+    rawInput: [row],
+  });
+
+  assert.equal(report.status, 'completed');
+  assert.deepEqual(
+    report.rows[0]?.completions.map((completion) => completion.source),
+    ['required_structure_repair', 'required_structure_repair'],
+  );
+  const modelling = (
+    readJsonl(report.files.output_rows)[0] as {
+      json_ordered: {
+        processDataSet: {
+          modellingAndValidation: {
+            validation: { review: { '@type': string } };
+            complianceDeclarations: {
+              compliance: {
+                'common:referenceToComplianceSystem': { '@refObjectId': string };
+                'common:approvalOfOverallCompliance': string;
+              };
+            };
+          };
+        };
+      };
+    }
+  ).json_ordered.processDataSet.modellingAndValidation;
+  assert.equal(modelling.validation.review['@type'], 'Not reviewed');
+  assert.equal(
+    modelling.complianceDeclarations.compliance['common:referenceToComplianceSystem'][
+      '@refObjectId'
+    ],
+    'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+  );
+  assert.equal(
+    modelling.complianceDeclarations.compliance['common:approvalOfOverallCompliance'],
+    'Not defined',
+  );
+});
+
 test('runProcessRequiredFieldsComplete validates required output flags and resultingAmount fallback', async () => {
   await assert.rejects(
     () =>
@@ -246,10 +381,39 @@ test('runProcessRequiredFieldsComplete validates required output flags and resul
 });
 
 test('process required field issue collector detects missing and invalid annual volumes', () => {
+  const validRequiredStructures = {
+    validation: {
+      review: {
+        '@type': 'Not reviewed',
+      },
+    },
+    complianceDeclarations: {
+      compliance: {
+        'common:referenceToComplianceSystem': {
+          '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+        },
+        'common:approvalOfOverallCompliance': 'Not defined',
+        'common:nomenclatureCompliance': 'Not defined',
+        'common:methodologicalCompliance': 'Not defined',
+        'common:reviewCompliance': 'Not defined',
+        'common:documentationCompliance': 'Not defined',
+        'common:qualityCompliance': 'Not defined',
+      },
+    },
+  };
+  assert.deepEqual(
+    collectProcessRequiredFieldIssues({
+      processDataSet: {
+        modellingAndValidation: 'not-an-object',
+      },
+    }).map((issue) => issue.code),
+    ['process_data_sources_treatment_missing'],
+  );
   assert.deepEqual(
     collectProcessRequiredFieldIssues({
       processDataSet: {
         modellingAndValidation: {
+          ...validRequiredStructures,
           dataSourcesTreatmentAndRepresentativeness: {},
         },
       },
@@ -260,6 +424,7 @@ test('process required field issue collector detects missing and invalid annual 
     collectProcessRequiredFieldIssues({
       processDataSet: {
         modellingAndValidation: {
+          ...validRequiredStructures,
           dataSourcesTreatmentAndRepresentativeness: {
             annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': 'not quantified' }],
           },
@@ -267,6 +432,33 @@ test('process required field issue collector detects missing and invalid annual 
       },
     }).map((issue) => issue.code),
     ['annual_supply_or_production_volume_invalid'],
+  );
+  assert.deepEqual(
+    collectProcessRequiredFieldIssues({
+      processDataSet: {
+        modellingAndValidation: {
+          ...validRequiredStructures,
+          dataSourcesTreatmentAndRepresentativeness: {
+            annualSupplyOrProductionVolume: [
+              { '@xml:lang': 'en', '#text': '3.6 MJ electricity mix' },
+            ],
+          },
+        },
+      },
+    }).map((issue) => issue.code),
+    ['annual_supply_or_production_volume_not_annualized'],
+  );
+  assert.deepEqual(
+    collectProcessRequiredFieldIssues({
+      processDataSet: {
+        modellingAndValidation: {
+          dataSourcesTreatmentAndRepresentativeness: {
+            annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+          },
+        },
+      },
+    }).map((issue) => issue.code),
+    ['process_validation_review_missing', 'process_compliance_declaration_missing'],
   );
   assert.equal(
     __testInternals.findAnnualSupplyEvidenceValue(
@@ -383,7 +575,13 @@ test('runProcessRequiredFieldsComplete removes placeholder review metadata', asy
     assert.equal(report.rows[0]?.status, 'completed');
     assert.deepEqual(
       report.rows[0]?.completions.map((completion) => completion.source),
-      ['placeholder_repair', 'placeholder_repair', 'placeholder_repair'],
+      [
+        'placeholder_repair',
+        'placeholder_repair',
+        'placeholder_repair',
+        'required_structure_repair',
+        'required_structure_repair',
+      ],
     );
     const validation = (
       readJsonl(outPath)[0] as {
@@ -397,6 +595,7 @@ test('runProcessRequiredFieldsComplete removes placeholder review metadata', asy
       }
     ).json_ordered.processDataSet.modellingAndValidation.validation;
     assert.equal((validation.review as Record<string, unknown>)['common:reviewDetails'], undefined);
+    assert.equal((validation.review as Record<string, unknown>)['@type'], 'Not reviewed');
     assert.equal(validation['common:reviewDetails'], undefined);
     assert.equal(validation['common:referenceToCompleteReviewReport'], undefined);
   } finally {
@@ -507,6 +706,21 @@ test('process required field internals cover evidence normalization and helper f
   assert.equal(__testInternals.normalizeAnnualSupplyEvidenceValue({}, { defaultUnit: 'kg' }), null);
 
   assert.equal(__testInternals.isAnnualSupplyEvidencePath(null), false);
+  assert.equal(__testInternals.isValidComplianceDeclaration(['not-an-object']), false);
+  assert.equal(
+    __testInternals.isValidComplianceDeclaration([
+      {
+        'common:referenceToComplianceSystem': 'not-an-object',
+        'common:approvalOfOverallCompliance': 'Not defined',
+        'common:nomenclatureCompliance': 'Not defined',
+        'common:methodologicalCompliance': 'Not defined',
+        'common:reviewCompliance': 'Not defined',
+        'common:documentationCompliance': 'Not defined',
+        'common:qualityCompliance': 'Not defined',
+      },
+    ]),
+    false,
+  );
   assert.equal(
     __testInternals.isAnnualSupplyEvidencePath(
       'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume',
@@ -560,6 +774,15 @@ test('process required field internals cover evidence normalization and helper f
 });
 
 test('process required field internals cover exchange, unit, and row wrapper fallbacks', () => {
+  const rootWithoutModelling: Record<string, unknown> = {};
+  const dataSources = __testInternals.ensureDataSources(rootWithoutModelling);
+  assert.deepEqual(dataSources, {});
+  assert.deepEqual(rootWithoutModelling, {
+    modellingAndValidation: {
+      dataSourcesTreatmentAndRepresentativeness: {},
+    },
+  });
+
   assert.equal(__testInternals.selectReferenceExchange({}), null);
   assert.deepEqual(
     __testInternals.selectReferenceExchange({

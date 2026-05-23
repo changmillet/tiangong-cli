@@ -1070,7 +1070,7 @@ test('process refresh helper internals cover dataset parsing, manifests, report 
       nested: [
         {
           referenceToFlowDataSet: {
-            '@type': 'flow data set',
+            '@type': 'Flow data set',
             '@refObjectId': 'flow-1',
             '@version': '01.00.000',
             'common:shortDescription': [lang('Old flow short')],
@@ -1078,7 +1078,7 @@ test('process refresh helper internals cover dataset parsing, manifests, report 
         },
         {
           referenceToSourceDataSet: {
-            '@type': 'source data set',
+            '@type': 'Source data set',
             '@refObjectId': 'source-1',
             '@version': '01.00.000',
           },
@@ -1093,6 +1093,9 @@ test('process refresh helper internals cover dataset parsing, manifests, report 
     const refs = __testInternals.collectRefs(cyclicPayload);
     assert.equal(refs.length, 2);
     assert.equal(refs[0]?.path.includes('referenceToFlowDataSet'), true);
+    assert.equal(__testInternals.normalizeReferenceType(' Source data set '), 'source data set');
+    assert.equal(__testInternals.tableForReferenceType('Contact data set'), 'contacts');
+    assert.equal(__testInternals.tableForReferenceType('unknown'), null);
 
     const update = __testInternals.updateProcessJson(
       cyclicPayload,

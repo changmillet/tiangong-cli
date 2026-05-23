@@ -46,6 +46,26 @@ function validProcessPayload(overrides: Record<string, unknown> = {}) {
             { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
           ],
         },
+        validation: {
+          review: {
+            '@type': 'Not reviewed',
+          },
+        },
+        complianceDeclarations: {
+          compliance: {
+            'common:referenceToComplianceSystem': {
+              '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+              '@type': 'source data set',
+              '@version': '00.00.001',
+            },
+            'common:approvalOfOverallCompliance': 'Not defined',
+            'common:nomenclatureCompliance': 'Not defined',
+            'common:methodologicalCompliance': 'Not defined',
+            'common:reviewCompliance': 'Not defined',
+            'common:documentationCompliance': 'Not defined',
+            'common:qualityCompliance': 'Not defined',
+          },
+        },
       },
     },
     ...overrides,
@@ -132,9 +152,27 @@ test('runDatasetValidate treats process placeholders as invalid authoring conten
                 annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
               },
               validation: {
+                review: {
+                  '@type': 'Not reviewed',
+                },
                 reviewDetails: {
                   '#text': 'Review summary pending confirmation.',
                   '@xml:lang': 'en',
+                },
+              },
+              complianceDeclarations: {
+                compliance: {
+                  'common:referenceToComplianceSystem': {
+                    '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+                    '@type': 'source data set',
+                    '@version': '00.00.001',
+                  },
+                  'common:approvalOfOverallCompliance': 'Not defined',
+                  'common:nomenclatureCompliance': 'Not defined',
+                  'common:methodologicalCompliance': 'Not defined',
+                  'common:reviewCompliance': 'Not defined',
+                  'common:documentationCompliance': 'Not defined',
+                  'common:qualityCompliance': 'Not defined',
                 },
               },
             },

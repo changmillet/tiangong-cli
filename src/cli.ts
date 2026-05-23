@@ -1581,7 +1581,7 @@ Options:
   -h, --help
 
 Annual supply / production volume policy:
-  1. keep an existing valid annualSupplyOrProductionVolume;
+  1. keep an existing valid annualized annualSupplyOrProductionVolume, for example "3.6 MJ/year";
   2. use an explicit value from row-level authoring evidence or evidenceManifest field bindings;
   3. otherwise complete from the quantitative reference flow meanAmount/resultingAmount and unit.
 

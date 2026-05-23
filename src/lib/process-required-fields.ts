@@ -15,8 +15,37 @@ const ANNUAL_SUPPLY_FIELD =
   'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';
 const ANNUAL_SUPPLY_ROOT_FIELD =
   'modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';
-const ANNUAL_SUPPLY_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?\s+\S.*$/u;
+const NUMERIC_TEXT_WITH_SUFFIX_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?\s+\S.*$/u;
+const ANNUAL_PERIOD_PATTERN =
+  /(?:\/\s*(?:year|yr|a)\b|\bper\s+(?:year|annum)\b|\/\s*年|每年|年度|年供应|年产)/iu;
 const NET_CALORIFIC_VALUE_ID = '93a60a56-a3c8-11da-a746-0800200c9a66';
+const DEFAULT_COMPLIANCE_SYSTEM = {
+  '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+  '@type': 'source data set',
+  '@uri': 'https://tiangong.earth/datasets/c84c4185-d1b0-44fc-823e-d2ec630c7906',
+  '@version': '00.00.001',
+  'common:shortDescription': {
+    '@xml:lang': 'en',
+    '#text': 'Environmental Footprint (EF) 3.1',
+  },
+} as const;
+const DEFAULT_COMPLIANCE_DECLARATION = {
+  'common:referenceToComplianceSystem': DEFAULT_COMPLIANCE_SYSTEM,
+  'common:approvalOfOverallCompliance': 'Not defined',
+  'common:nomenclatureCompliance': 'Not defined',
+  'common:methodologicalCompliance': 'Not defined',
+  'common:reviewCompliance': 'Not defined',
+  'common:documentationCompliance': 'Not defined',
+  'common:qualityCompliance': 'Not defined',
+} as const;
+const REQUIRED_COMPLIANCE_FIELDS = [
+  'common:approvalOfOverallCompliance',
+  'common:nomenclatureCompliance',
+  'common:methodologicalCompliance',
+  'common:reviewCompliance',
+  'common:documentationCompliance',
+  'common:qualityCompliance',
+] as const;
 
 type AnnualSupplyStatus = 'existing' | 'completed' | 'blocked' | 'skipped';
 
@@ -28,7 +57,12 @@ export type ProcessRequiredFieldIssue = {
 
 export type ProcessRequiredFieldCompletion = {
   field_path: string;
-  source: 'existing' | 'evidence' | 'reference_flow_amount' | 'placeholder_repair';
+  source:
+    | 'existing'
+    | 'evidence'
+    | 'reference_flow_amount'
+    | 'placeholder_repair'
+    | 'required_structure_repair';
   value: Array<{ '#text': string; '@xml:lang': string }>;
   amount: string | null;
   unit: string | null;
@@ -137,8 +171,31 @@ function annualSupplyItems(value: unknown): Array<{ '#text': string; '@xml:lang'
 function isValidAnnualSupplyVolume(value: unknown): boolean {
   const items = annualSupplyItems(value);
   return (
-    items.length > 0 && items.every((item) => ANNUAL_SUPPLY_PATTERN.test(item['#text'].trim()))
+    items.length > 0 &&
+    items.every((item) => {
+      const text = item['#text'].trim();
+      return NUMERIC_TEXT_WITH_SUFFIX_PATTERN.test(text) && ANNUAL_PERIOD_PATTERN.test(text);
+    })
   );
+}
+
+function isValidReview(value: unknown): boolean {
+  return asList(value).some((item) => isRecord(item) && Boolean(firstNonEmpty(item['@type'])));
+}
+
+function isValidComplianceDeclaration(value: unknown): boolean {
+  return asList(value).some((item) => {
+    if (!isRecord(item)) {
+      return false;
+    }
+    const complianceSystem = isRecord(item['common:referenceToComplianceSystem'])
+      ? item['common:referenceToComplianceSystem']
+      : {};
+    return (
+      Boolean(firstNonEmpty(complianceSystem['@refObjectId'])) &&
+      REQUIRED_COMPLIANCE_FIELDS.every((field) => Boolean(firstNonEmpty(item[field])))
+    );
+  });
 }
 
 export function collectProcessRequiredFieldIssues(
@@ -159,14 +216,37 @@ export function collectProcessRequiredFieldIssues(
     ];
   }
 
+  const issues: ProcessRequiredFieldIssue[] = [];
+  const validation = isRecord(modelling.validation) ? modelling.validation : {};
+  if (!isValidReview(validation.review)) {
+    issues.push({
+      code: 'process_validation_review_missing',
+      message: 'Process payload must include modellingAndValidation.validation.review.',
+      path: 'processDataSet.modellingAndValidation.validation.review',
+    });
+  }
+
+  const complianceDeclarations = isRecord(modelling.complianceDeclarations)
+    ? modelling.complianceDeclarations
+    : {};
+  if (!isValidComplianceDeclaration(complianceDeclarations.compliance)) {
+    issues.push({
+      code: 'process_compliance_declaration_missing',
+      message:
+        'Process payload must include modellingAndValidation.complianceDeclarations.compliance.',
+      path: 'processDataSet.modellingAndValidation.complianceDeclarations.compliance',
+    });
+  }
+
   const annualSupply = dataSources.annualSupplyOrProductionVolume;
   if (isValidAnnualSupplyVolume(annualSupply)) {
-    return [];
+    return issues;
   }
 
   const items = annualSupplyItems(annualSupply);
   if (items.length === 0) {
     return [
+      ...issues,
       {
         code: 'annual_supply_or_production_volume_missing',
         message:
@@ -176,7 +256,23 @@ export function collectProcessRequiredFieldIssues(
     ];
   }
 
+  if (
+    items.every((item) => NUMERIC_TEXT_WITH_SUFFIX_PATTERN.test(item['#text'].trim())) &&
+    items.some((item) => !ANNUAL_PERIOD_PATTERN.test(item['#text'].trim()))
+  ) {
+    return [
+      ...issues,
+      {
+        code: 'annual_supply_or_production_volume_not_annualized',
+        message:
+          'annualSupplyOrProductionVolume must express an annualized amount such as "3.6 MJ/year" or "3.6 MJ/年", not a reference-flow description.',
+        path: ANNUAL_SUPPLY_FIELD,
+      },
+    ];
+  }
+
   return [
+    ...issues,
     {
       code: 'annual_supply_or_production_volume_invalid',
       message:
@@ -289,6 +385,60 @@ function repairPlaceholderReviewMetadata(root: JsonObject): ProcessRequiredField
     ]) {
       removePlaceholderField(validation.review, key, `${reviewPath}.${key}`, completions);
     }
+  }
+
+  return completions;
+}
+
+function addRequiredStructureCompletion(
+  completions: ProcessRequiredFieldCompletion[],
+  fieldPath: string,
+  basis: string,
+): void {
+  completions.push({
+    field_path: fieldPath,
+    source: 'required_structure_repair',
+    value: [],
+    amount: null,
+    unit: null,
+    reference_exchange_internal_id: null,
+    basis,
+  });
+}
+
+function repairRequiredProcessStructures(root: JsonObject): ProcessRequiredFieldCompletion[] {
+  const completions: ProcessRequiredFieldCompletion[] = [];
+  if (!isRecord(root.modellingAndValidation)) {
+    root.modellingAndValidation = {};
+  }
+  const modelling = root.modellingAndValidation as JsonObject;
+
+  if (!isRecord(modelling.validation)) {
+    modelling.validation = {};
+  }
+  const validation = modelling.validation as JsonObject;
+  if (!isValidReview(validation.review)) {
+    validation.review = {
+      '@type': 'Not reviewed',
+    };
+    addRequiredStructureCompletion(
+      completions,
+      'processDataSet.modellingAndValidation.validation.review',
+      'Inserted a conservative Not reviewed marker because UI roundtrip or source data omitted the required validation.review structure.',
+    );
+  }
+
+  if (!isRecord(modelling.complianceDeclarations)) {
+    modelling.complianceDeclarations = {};
+  }
+  const complianceDeclarations = modelling.complianceDeclarations as JsonObject;
+  if (!isValidComplianceDeclaration(complianceDeclarations.compliance)) {
+    complianceDeclarations.compliance = cloneJson(DEFAULT_COMPLIANCE_DECLARATION);
+    addRequiredStructureCompletion(
+      completions,
+      'processDataSet.modellingAndValidation.complianceDeclarations.compliance',
+      'Inserted a conservative Not defined compliance declaration against EF 3.1 because UI roundtrip or source data omitted the required compliance structure.',
+    );
   }
 
   return completions;
@@ -462,7 +612,7 @@ function annualSupplyTextParts(value: string): { amount: string; unit: string } 
 
 function annualSupplyValueFromText(value: string): AnnualSupplyEvidenceValue | null {
   const text = value.trim();
-  if (!ANNUAL_SUPPLY_PATTERN.test(text)) {
+  if (!NUMERIC_TEXT_WITH_SUFFIX_PATTERN.test(text) || !ANNUAL_PERIOD_PATTERN.test(text)) {
     return null;
   }
   const parts = annualSupplyTextParts(text) as { amount: string; unit: string };
@@ -724,6 +874,8 @@ function completeProcessRow(
 
   const root = processRootForMutation(payload);
   const placeholderCompletions = repairPlaceholderReviewMetadata(root);
+  const requiredStructureCompletions = repairRequiredProcessStructures(root);
+  const repairCompletions = [...placeholderCompletions, ...requiredStructureCompletions];
   const existingIssues = collectProcessRequiredFieldIssues(payload);
   const placeholderIssues = collectProcessPlaceholderIssues(payload);
 
@@ -735,9 +887,9 @@ function completeProcessRow(
         id: row.id,
         version: row.version,
         type: row.kind,
-        status: placeholderCompletions.length > 0 ? 'completed' : 'existing',
+        status: repairCompletions.length > 0 ? 'completed' : 'existing',
         issues: [],
-        completions: placeholderCompletions,
+        completions: repairCompletions,
       },
     };
   }
@@ -752,7 +904,7 @@ function completeProcessRow(
         type: row.kind,
         status: 'blocked',
         issues: [...existingIssues, ...placeholderIssues],
-        completions: placeholderCompletions,
+        completions: repairCompletions,
       },
     };
   }
@@ -779,7 +931,7 @@ function completeProcessRow(
         type: row.kind,
         status: 'completed',
         issues: [],
-        completions: [...placeholderCompletions, completion],
+        completions: [...repairCompletions, completion],
       },
     };
   }
@@ -806,7 +958,7 @@ function completeProcessRow(
             path: 'processDataSet.exchanges.exchange',
           },
         ],
-        completions: placeholderCompletions,
+        completions: repairCompletions,
       },
     };
   }
@@ -836,7 +988,7 @@ function completeProcessRow(
       type: row.kind,
       status: 'completed',
       issues: [],
-      completions: [...placeholderCompletions, completion],
+      completions: [...repairCompletions, completion],
     },
   };
 }
@@ -934,6 +1086,7 @@ export const __testInternals = {
   cloneRowWithPayload,
   collectProcessRequiredFieldIssues,
   completeProcessRow,
+  ensureDataSources,
   fieldPathFromEvidenceEntry,
   findAnnualSupplyEvidenceValue,
   findAnnualSupplyEvidenceEntry,
@@ -942,8 +1095,11 @@ export const __testInternals = {
   inferSpecificUnitFromFlowPayload,
   issuePath,
   isAnnualSupplyEvidencePath,
+  isValidComplianceDeclaration,
   isValidAnnualSupplyVolume,
+  isValidReview,
   normalizeAnnualSupplyEvidenceValue,
+  repairRequiredProcessStructures,
   requireOutputPath,
   selectReferenceExchange,
   textValue,
