@@ -19,6 +19,7 @@ import {
   type RunFlowPublishVersionOptions,
 } from './flow-publish-version.js';
 import type { FetchLike } from './http.js';
+import { getRuntimeRuleset } from './runtime-rulesets.js';
 import {
   hasSupabaseRestRuntime,
   syncSupabaseJsonOrderedRecord,
@@ -209,6 +210,7 @@ export type RunFlowReviewedPublishDataOptions = {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   now?: Date;
+  validateFlowPayloadImpl?: RunFlowPublishVersionOptions['validateFlowPayloadImpl'];
   runFlowPublishVersionImpl?: (
     options: RunFlowPublishVersionOptions,
   ) => Promise<FlowPublishVersionReport>;
@@ -957,6 +959,7 @@ function build_compat_report(options: {
   targetUserId: string | null;
   files: FlowReviewedPublishFiles;
 }): FlowPublishVersionReport {
+  const ruleset = getRuntimeRuleset('flow-publish/default');
   let status: FlowPublishVersionReport['status'];
   if (options.mode === 'dry_run') {
     status = 'prepared_flow_publish_version';
@@ -979,6 +982,18 @@ function build_compat_report(options: {
       success_count: options.successCount,
       failure_count: options.failureCount,
     },
+    flow_gate: {
+      status: 'passed',
+      ruleset_id: ruleset.id,
+      ruleset_version: ruleset.version,
+      counts: {
+        total: options.preparedRows,
+        valid: options.preparedRows,
+        invalid: 0,
+      },
+      blocker_count: 0,
+      next_action: 'query_remote_write_plan',
+    },
     operation_counts: {},
     max_workers: options.maxWorkers,
     limit: null,
@@ -986,6 +1001,7 @@ function build_compat_report(options: {
     files: {
       success_list: options.files.success_list,
       remote_failed: options.files.remote_failed,
+      gate_report: options.files.flow_publish_version_report,
       report: options.files.flow_publish_version_report,
     },
   };
@@ -1094,6 +1110,7 @@ export async function runFlowReviewedPublishData(
       fetchImpl: options.fetchImpl,
       timeoutMs: options.timeoutMs,
       now,
+      validateFlowPayloadImpl: options.validateFlowPayloadImpl,
     });
 
     const successRows = loadRowsFromFile(files.success_list) as FlowPublishSuccessRow[];

@@ -8,11 +8,27 @@ import {
   type ProcessPayloadValidationResult,
 } from './process-payload-validation.js';
 import { normalizePublishRequest } from './publish.js';
+import { getRuntimeRuleset, resolveRuntimeRuleId } from './runtime-rulesets.js';
 import { withStateFileLock } from './state-lock.js';
 
 type JsonRecord = Record<string, unknown>;
 
 type DatasetOrigin = 'exports' | 'state';
+type GateSeverity = 'info' | 'warning' | 'blocker';
+
+const PROCESS_PUBLISH_RULESET_ID = 'process-publish/default';
+const PROCESS_PUBLISH_RULESET_VERSION = '1';
+
+type ProcessGateFinding = {
+  code: string;
+  severity: GateSeverity;
+  methodology_rule_id: string | null;
+  message: string;
+  path: string;
+  dataset_index: number;
+  dataset_id: string | null;
+  dataset_version: string | null;
+};
 
 export type ProcessPublishBuildLayout = {
   runId: string;
@@ -39,12 +55,19 @@ export type ProcessPublishSchemaGateReport = {
   schema_version: 1;
   generated_at_utc: string;
   status: 'passed' | 'blocked';
+  ruleset_id: string;
+  ruleset_version: string;
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
   validator: string;
   counts: {
     total: number;
     valid: number;
     invalid: number;
   };
+  findings: ProcessGateFinding[];
+  blockers: ProcessGateFinding[];
+  next_action: 'write_publish_bundle' | 'fix_process_payloads';
   processes: Array<{
     index: number;
     id: string | null;
@@ -481,8 +504,12 @@ function buildPublishBundle(
     dataset_origins: datasetOrigins,
     process_schema_gate: {
       status: schemaGate.status,
+      ruleset_id: schemaGate.ruleset_id,
+      ruleset_version: schemaGate.ruleset_version,
       validator: schemaGate.validator,
       counts: schemaGate.counts,
+      blocker_count: schemaGate.blockers.length,
+      next_action: schemaGate.next_action,
       report_path: layout.processSchemaGatePath,
     },
     source_run: {
@@ -585,7 +612,11 @@ function buildAgentHandoffSummary(
       request_id: nonEmptyString(state.request_id),
       process_schema_gate: {
         status: schemaGate.status,
+        ruleset_id: schemaGate.ruleset_id,
+        ruleset_version: schemaGate.ruleset_version,
         counts: schemaGate.counts,
+        blocker_count: schemaGate.blockers.length,
+        next_action: schemaGate.next_action,
       },
     },
   };
@@ -651,6 +682,7 @@ function buildProcessSchemaGateReport(
     validateProcessPayloadImpl?: (payload: JsonRecord) => ProcessPayloadValidationResult;
   },
 ): ProcessPublishSchemaGateReport {
+  const ruleset = getRuntimeRuleset('process-publish/default');
   const validate = options.validateProcessPayloadImpl ?? validateProcessPayload;
   const processResults = processes.map((process, index) => {
     const result = validate(process);
@@ -665,17 +697,36 @@ function buildProcessSchemaGateReport(
     };
   });
   const invalid = processResults.filter((process) => !process.ok).length;
+  const blockers = processResults.flatMap((process) =>
+    process.issues.map((issue) => ({
+      code: issue.code,
+      severity: 'blocker' as const,
+      methodology_rule_id: resolveRuntimeRuleId(ruleset.id, issue.code),
+      message: issue.message,
+      path: issue.path,
+      dataset_index: process.index,
+      dataset_id: process.id,
+      dataset_version: process.version,
+    })),
+  );
 
   return {
     schema_version: 1,
     generated_at_utc: options.now.toISOString(),
     status: invalid > 0 ? 'blocked' : 'passed',
+    ruleset_id: PROCESS_PUBLISH_RULESET_ID,
+    ruleset_version: PROCESS_PUBLISH_RULESET_VERSION,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
     validator: '@tiangong-lca/tidas-sdk/ProcessSchema',
     counts: {
       total: processResults.length,
       valid: processResults.length - invalid,
       invalid,
     },
+    findings: blockers,
+    blockers,
+    next_action: invalid > 0 ? 'fix_process_payloads' : 'write_publish_bundle',
     processes: processResults,
   };
 }

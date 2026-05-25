@@ -195,12 +195,19 @@ test('runProcessDedupReview analyzes grouped duplicate candidates locally', asyn
     assert.equal(report.status, 'completed_process_dedup_review');
     assert.equal(report.group_count, 1);
     assert.equal(report.exact_duplicate_group_count, 1);
+    assert.equal(report.ruleset_id, 'process-dedup/default');
+    assert.equal(report.gate?.status, 'blocked');
+    assert.equal(
+      report.gate?.blockers[0]?.methodology_rule_id,
+      'tidas.process.identity.duplicate-fingerprint.block',
+    );
     assert.equal(report.remote_status.enabled, false);
     assert.equal(report.remote_status.reference_scan, 'skipped_by_flag');
 
     const duplicateGroups = JSON.parse(readFileSync(report.files.duplicate_groups, 'utf8')) as {
       groups: Array<{
         exact_duplicate: boolean;
+        methodology_rule_id?: string | null;
         processes: Array<{ process_id: string; analysis_exchanges: unknown[] }>;
       }>;
     };
@@ -214,6 +221,10 @@ test('runProcessDedupReview analyzes grouped duplicate candidates locally', asyn
     };
 
     assert.equal(duplicateGroups.groups[0]?.exact_duplicate, true);
+    assert.equal(
+      duplicateGroups.groups[0]?.methodology_rule_id,
+      'tidas.process.identity.duplicate-fingerprint.block',
+    );
     assert.equal(duplicateGroups.groups[0]?.processes[0]?.analysis_exchanges.length, 2);
     assert.equal(deletePlan.groups[0]?.keep.process_id, 'proc-keep');
     assert.deepEqual(
@@ -228,6 +239,18 @@ test('runProcessDedupReview analyzes grouped duplicate candidates locally', asyn
 });
 
 test('process dedup helper scoring covers transport and same-flow pass-through naming branches', () => {
+  assert.equal(
+    __testInternals.buildDedupGate([
+      {
+        group_id: 'safe',
+        group_pattern: 'unknown',
+        exact_duplicate: false,
+        processes: [],
+      },
+    ]).status,
+    'passed',
+  );
+
   assert.deepEqual(
     __testInternals.scoreProcessName(
       {

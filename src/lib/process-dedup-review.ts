@@ -3,6 +3,7 @@ import { writeJsonArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
 import type { FetchLike, ResponseLike } from './http.js';
 import { readJsonInput } from './io.js';
+import { getRuntimeRuleset, resolveRuntimeRuleId } from './runtime-rulesets.js';
 import { deriveSupabaseProjectBaseUrl, requireSupabaseRestRuntime } from './supabase-client.js';
 import { resolveSupabaseUserSession } from './supabase-session.js';
 
@@ -77,6 +78,26 @@ type RemoteStatus = {
     | 'failed';
 };
 
+type ProcessDedupGate = {
+  status: 'passed' | 'blocked';
+  ruleset_id: 'process-dedup/default';
+  ruleset_version: '1';
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
+  counts: {
+    duplicate_groups: number;
+    blocker_groups: number;
+  };
+  blockers: Array<{
+    group_id: ProcessGroupId;
+    code: 'process_exact_duplicate_fingerprint';
+    methodology_rule_id: string | null;
+    severity: 'blocker';
+    message: string;
+  }>;
+  next_action: 'continue' | 'resolve_duplicate_processes';
+};
+
 type DedupAnalyzedProcess = DedupInputProcess &
   Partial<RemoteMetadataRecord> & {
     analysis_exchanges: ExchangeSummaryRow[];
@@ -89,6 +110,10 @@ export type ProcessDedupReviewGroup = {
   group_id: ProcessGroupId;
   group_pattern: string;
   exact_duplicate: boolean;
+  rule_id?: 'process_exact_duplicate_fingerprint';
+  methodology_rule_id?: string | null;
+  severity?: 'blocker';
+  blocker?: boolean;
   processes: DedupAnalyzedProcess[];
 };
 
@@ -151,6 +176,11 @@ export type ProcessDedupReviewReport = {
   source_label: string;
   group_count: number;
   exact_duplicate_group_count: number;
+  ruleset_id?: 'process-dedup/default';
+  ruleset_version?: '1';
+  ruleset_source_version?: string;
+  ruleset_rule_ids?: string[];
+  gate?: ProcessDedupGate;
   remote_status: RemoteStatus;
   files: {
     input_manifest: string;
@@ -1015,6 +1045,17 @@ function analyzeGroups(
       group_id: group.group_id,
       group_pattern: groupPattern,
       exact_duplicate: exactDuplicate,
+      ...(exactDuplicate
+        ? {
+            rule_id: 'process_exact_duplicate_fingerprint' as const,
+            methodology_rule_id: resolveRuntimeRuleId(
+              'process-dedup/default',
+              'process_exact_duplicate_fingerprint',
+            ),
+            severity: 'blocker' as const,
+            blocker: true,
+          }
+        : {}),
       processes,
     });
 
@@ -1083,6 +1124,33 @@ function analyzeGroups(
   return {
     duplicateGroups,
     deletePlanGroups,
+  };
+}
+
+function buildDedupGate(duplicateGroups: ProcessDedupReviewGroup[]): ProcessDedupGate {
+  const ruleset = getRuntimeRuleset('process-dedup/default');
+  const blockers = duplicateGroups
+    .filter((group) => group.exact_duplicate)
+    .map((group) => ({
+      group_id: group.group_id,
+      code: 'process_exact_duplicate_fingerprint' as const,
+      methodology_rule_id: resolveRuntimeRuleId(ruleset.id, 'process_exact_duplicate_fingerprint'),
+      severity: 'blocker' as const,
+      message:
+        'Process group has an exact duplicate normalized exchange fingerprint and must be resolved before creating or publishing another process.',
+    }));
+  return {
+    status: blockers.length > 0 ? 'blocked' : 'passed',
+    ruleset_id: ruleset.id,
+    ruleset_version: ruleset.version,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
+    counts: {
+      duplicate_groups: duplicateGroups.length,
+      blocker_groups: blockers.length,
+    },
+    blockers,
+    next_action: blockers.length > 0 ? 'resolve_duplicate_processes' : 'continue',
   };
 }
 
@@ -1188,6 +1256,7 @@ export async function runProcessDedupReview(
   }
 
   const analysis = analyzeGroups(document.groups, remoteById, referenceHits);
+  const gate = buildDedupGate(analysis.duplicateGroups);
   const duplicateGroupsPath = path.join(resolvedOutDir, 'outputs', 'duplicate-groups.json');
   const deletePlanPath = path.join(resolvedOutDir, 'outputs', 'delete-plan.json');
 
@@ -1196,6 +1265,11 @@ export async function runProcessDedupReview(
     generated_at_utc: generatedAtUtc,
     input_file: resolvedInputPath,
     source_label: document.sourceLabel,
+    ruleset_id: gate.ruleset_id,
+    ruleset_version: gate.ruleset_version,
+    ruleset_source_version: gate.ruleset_source_version,
+    ruleset_rule_ids: gate.ruleset_rule_ids,
+    gate,
     remote_status: remoteStatus,
     groups: analysis.duplicateGroups,
   });
@@ -1204,6 +1278,11 @@ export async function runProcessDedupReview(
     generated_at_utc: generatedAtUtc,
     input_file: resolvedInputPath,
     source_label: document.sourceLabel,
+    ruleset_id: gate.ruleset_id,
+    ruleset_version: gate.ruleset_version,
+    ruleset_source_version: gate.ruleset_source_version,
+    ruleset_rule_ids: gate.ruleset_rule_ids,
+    gate,
     remote_status: remoteStatus,
     groups: analysis.deletePlanGroups,
   });
@@ -1218,6 +1297,11 @@ export async function runProcessDedupReview(
     group_count: analysis.duplicateGroups.length,
     exact_duplicate_group_count: analysis.duplicateGroups.filter((group) => group.exact_duplicate)
       .length,
+    ruleset_id: gate.ruleset_id,
+    ruleset_version: gate.ruleset_version,
+    ruleset_source_version: gate.ruleset_source_version,
+    ruleset_rule_ids: gate.ruleset_rule_ids,
+    gate,
     remote_status: remoteStatus,
     files: {
       input_manifest: inputManifestPath,
@@ -1231,6 +1315,7 @@ export async function runProcessDedupReview(
 
 export const __testInternals = {
   analyzeGroups,
+  buildDedupGate,
   collectReferenceHits,
   detectGroupPattern,
   errorMessage,

@@ -420,6 +420,18 @@ test('runFlowReviewedPublishData delegates commit publish to flow publish-versio
             success_count: 1,
             failure_count: 1,
           },
+          flow_gate: {
+            status: 'passed',
+            ruleset_id: 'flow-publish/default',
+            ruleset_version: '1',
+            counts: {
+              total: 2,
+              valid: 2,
+              invalid: 0,
+            },
+            blocker_count: 0,
+            next_action: 'query_remote_write_plan',
+          },
           operation_counts: {
             insert: 1,
           },
@@ -435,6 +447,7 @@ test('runFlowReviewedPublishData delegates commit publish to flow publish-versio
               options.outDir,
               'flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl',
             ),
+            gate_report: path.join(options.outDir, 'flow-publish-version-gate-report.json'),
             report: path.join(
               options.outDir,
               'flows_tidas_sdk_plus_classification_mcp_sync_report.json',
@@ -764,6 +777,12 @@ test('runFlowReviewedPublishData can use the default flow publish-version implem
         TIANGONG_LCA_API_KEY: 'secret-token',
       }),
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      validateFlowPayloadImpl: () => ({
+        ok: true,
+        validator: 'test-flow-validator',
+        issue_count: 0,
+        issues: [],
+      }),
     });
 
     assert.equal(report.status, 'completed_flow_publish_reviewed_data');

@@ -15,6 +15,11 @@ import {
 import type { JsonRecord } from './flow-governance.js';
 import type { FetchLike } from './http.js';
 import { invokeLlm, readLlmRuntimeEnv, type LlmRuntimeEnv } from './llm.js';
+import {
+  getRuntimeRuleset,
+  isRuntimeRuleBlocker,
+  resolveRuntimeRuleId,
+} from './runtime-rulesets.js';
 
 const UUID_RE = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/u;
 
@@ -30,6 +35,8 @@ type FlowRuleFinding = {
   base_version: string;
   severity: string;
   rule_id?: string;
+  ruleset_id?: 'flow-authoring/strict';
+  methodology_rule_id?: string | null;
   message?: string;
   fixability?: string;
   source: 'rule' | 'llm';
@@ -119,6 +126,20 @@ type FlowReviewLlmRunResult = FlowReviewLlmResult & {
   llmFindings: FlowRuleFinding[];
 };
 
+type FlowRulesetGate = {
+  status: 'passed' | 'needs_review' | 'blocked';
+  ruleset_id: 'flow-authoring/strict';
+  ruleset_version: '1';
+  ruleset_source_version: string;
+  ruleset_rule_ids: string[];
+  counts: {
+    findings: number;
+    blockers: number;
+  };
+  blockers: FlowRuleFinding[];
+  next_action: 'continue' | 'review_findings' | 'fix_blockers';
+};
+
 export type FlowReviewReport = {
   schema_version: 1;
   generated_at_utc: string;
@@ -128,6 +149,10 @@ export type FlowReviewReport = {
   input_mode: 'rows_file' | 'flows_dir' | 'run_root';
   effective_flows_dir: string;
   logic_version: string;
+  ruleset_id?: 'flow-authoring/strict';
+  ruleset_version?: '1';
+  ruleset_source_version?: string;
+  ruleset_rule_ids?: string[];
   flow_count: number;
   similarity_threshold: number;
   methodology_rule_source: string;
@@ -136,8 +161,11 @@ export type FlowReviewReport = {
   rule_finding_count: number;
   llm_finding_count: number;
   finding_count: number;
+  blocker_count?: number;
   severity_counts: Record<string, number>;
   rule_counts: Record<string, number>;
+  methodology_rule_counts?: Record<string, number>;
+  ruleset_gate?: FlowRulesetGate;
   llm: FlowReviewLlmResult;
   files: {
     review_input_summary: string;
@@ -145,6 +173,7 @@ export type FlowReviewReport = {
     rule_findings: string;
     llm_findings: string;
     findings: string;
+    ruleset_gate?: string;
     flow_summaries: string;
     similarity_pairs: string;
     summary: string;
@@ -452,17 +481,49 @@ function createRuleFinding(
     ruleSource?: string;
   },
 ): FlowRuleFinding {
+  const ruleset = getRuntimeRuleset('flow-authoring/strict');
   return {
     flow_uuid: flowUuidValue,
     base_version: baseVersion,
     severity,
     rule_id: ruleId,
+    ruleset_id: ruleset.id,
+    methodology_rule_id: resolveRuntimeRuleId(ruleset.id, ruleId),
     message,
     fixability: options?.fixability ?? 'manual',
     source: 'rule',
     ...(options?.ruleSource ? { rule_source: options.ruleSource } : {}),
     ...(options?.evidence ? { evidence: options.evidence } : {}),
     ...(options?.action ? { action: options.action } : {}),
+  };
+}
+
+function flowRulesetGate(findings: FlowRuleFinding[]): FlowRulesetGate {
+  const ruleset = getRuntimeRuleset('flow-authoring/strict');
+  const blockers = findings.filter(
+    (finding) =>
+      finding.severity === 'error' ||
+      finding.severity === 'blocker' ||
+      isRuntimeRuleBlocker(finding.methodology_rule_id),
+  );
+  const status = blockers.length > 0 ? 'blocked' : findings.length > 0 ? 'needs_review' : 'passed';
+  return {
+    status,
+    ruleset_id: ruleset.id,
+    ruleset_version: ruleset.version,
+    ruleset_source_version: ruleset.source_version,
+    ruleset_rule_ids: ruleset.rule_ids,
+    counts: {
+      findings: findings.length,
+      blockers: blockers.length,
+    },
+    blockers,
+    next_action:
+      status === 'blocked'
+        ? 'fix_blockers'
+        : status === 'needs_review'
+          ? 'review_findings'
+          : 'continue',
   };
 }
 
@@ -1150,6 +1211,20 @@ function ruleCounts(rows: FlowRuleFinding[]): Record<string, number> {
   );
 }
 
+function methodologyRuleCounts(rows: FlowRuleFinding[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  rows.forEach((row) => {
+    const key = coerceText(row.methodology_rule_id);
+    if (!key) {
+      return;
+    }
+    counts[key] = (counts[key] ?? 0) + 1;
+  });
+  return Object.fromEntries(
+    Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
 function readJsonObject(filePath: string): JsonRecord {
   try {
     const parsed = JSON.parse(readFileSync(filePath, 'utf8')) as unknown;
@@ -1544,6 +1619,7 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
     batch_results: llmRun.batch_results,
   };
   const mergedFindings = [...ruleFindings, ...llmRun.llmFindings];
+  const rulesetGate = flowRulesetGate(ruleFindings);
   const savedSummaries = flowSummaries.map((summary) => stripInternalSummaryFields(summary));
   const now = options.now ?? (() => new Date());
 
@@ -1551,6 +1627,7 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
   const ruleFindingsPath = path.join(outDir, 'rule_findings.jsonl');
   const llmFindingsPath = path.join(outDir, 'llm_findings.jsonl');
   const findingsPath = path.join(outDir, 'findings.jsonl');
+  const rulesetGatePath = path.join(outDir, 'flow-review-ruleset-gate.json');
   const flowSummariesPath = path.join(outDir, 'flow_summaries.jsonl');
   const similarityPairsPath = path.join(outDir, 'similarity_pairs.jsonl');
   const summaryPath = path.join(outDir, 'flow_review_summary.json');
@@ -1563,6 +1640,7 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
   writeJsonLinesArtifact(ruleFindingsPath, ruleFindings);
   writeJsonLinesArtifact(llmFindingsPath, llmRun.llmFindings);
   writeJsonLinesArtifact(findingsPath, mergedFindings);
+  writeJsonArtifact(rulesetGatePath, rulesetGate);
   writeJsonLinesArtifact(flowSummariesPath, savedSummaries);
   writeJsonLinesArtifact(similarityPairsPath, similarity.pairs);
 
@@ -1575,6 +1653,10 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
     input_mode: resolvedInput.inputMode,
     effective_flows_dir: resolvedInput.effectiveFlowsDir,
     logic_version: options.logicVersion?.trim() || 'flow-v1.0-cli',
+    ruleset_id: rulesetGate.ruleset_id,
+    ruleset_version: rulesetGate.ruleset_version,
+    ruleset_source_version: rulesetGate.ruleset_source_version,
+    ruleset_rule_ids: rulesetGate.ruleset_rule_ids,
     flow_count: flowSummaries.length,
     similarity_threshold: options.similarityThreshold ?? 0.92,
     methodology_rule_source: methodologyRuleSource,
@@ -1583,8 +1665,11 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
     rule_finding_count: ruleFindings.length,
     llm_finding_count: llmRun.llmFindings.length,
     finding_count: mergedFindings.length,
+    blocker_count: rulesetGate.counts.blockers,
     severity_counts: severityCounts(mergedFindings),
     rule_counts: ruleCounts(ruleFindings),
+    methodology_rule_counts: methodologyRuleCounts(ruleFindings),
+    ruleset_gate: rulesetGate,
     llm: llmResult,
     files: {
       review_input_summary: reviewInputSummaryPath,
@@ -1592,6 +1677,7 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
       rule_findings: ruleFindingsPath,
       llm_findings: llmFindingsPath,
       findings: findingsPath,
+      ruleset_gate: rulesetGatePath,
       flow_summaries: flowSummariesPath,
       similarity_pairs: similarityPairsPath,
       summary: summaryPath,
@@ -1610,11 +1696,17 @@ export async function runFlowReview(options: RunFlowReviewOptions): Promise<Flow
     reference_context_mode: report.reference_context_mode,
     similarity_threshold: report.similarity_threshold,
     methodology_rule_source: report.methodology_rule_source,
+    ruleset_id: report.ruleset_id,
+    ruleset_version: report.ruleset_version,
+    ruleset_source_version: report.ruleset_source_version,
+    ruleset_rule_ids: report.ruleset_rule_ids,
+    ruleset_gate: report.ruleset_gate,
     rule_finding_count: report.rule_finding_count,
     llm_finding_count: report.llm_finding_count,
     finding_count: report.finding_count,
     severity_counts: report.severity_counts,
     rule_counts: report.rule_counts,
+    methodology_rule_counts: report.methodology_rule_counts,
     llm: report.llm,
   });
   writeTextArtifact(
@@ -1680,6 +1772,8 @@ export const __testInternals = {
   renderZhReview,
   resolveReviewInput,
   runOptionalLlmReview,
+  flowRulesetGate,
+  methodologyRuleCounts,
   ruleCounts,
   severityCounts,
   walkStrings,

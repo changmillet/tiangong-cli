@@ -461,6 +461,168 @@ test('process auto-build internals cover source-policy and empty-stage fallbacks
   } finally {
     stages.push(...originalStages);
   }
+
+  const fallbackPlan = __testInternals.buildInitialProcessBuildPlan(
+    {
+      schema_version: 1,
+      request_path: '/tmp/request.json',
+      request_id: 'req-treat',
+      flow_file: '/tmp/flow.json',
+      flow_summary: {
+        wrapper: 'direct',
+        uuid: null,
+        version: null,
+        base_name: null,
+        permanent_uri: null,
+      },
+      flow_dataset: {},
+      operation: 'treat',
+      run_id: 'fallback-run',
+      run_root: '/tmp/fallback-run',
+      source_inputs: [],
+      source_policy: __testInternals.normalizeSourcePolicy(undefined),
+    },
+    '/tmp/fallback-run/input/flow.json',
+  ) as Record<string, unknown>;
+  assert.match(
+    (((fallbackPlan.target as Record<string, unknown>) ?? {}).technology_route as string) ?? '',
+    /Treatment route/u,
+  );
+  assert.equal(
+    ((fallbackPlan.quantitative_reference_plan as Record<string, unknown>) ?? {}).reference_flow_id,
+    'fallback_run',
+  );
+  assert.equal(
+    ((fallbackPlan.name_plan as Record<string, unknown>) ?? {}).base_name,
+    'Treatment process from reference flow',
+  );
+
+  const arrayPropertyPlan = __testInternals.buildInitialProcessBuildPlan(
+    {
+      schema_version: 1,
+      request_path: '/tmp/request.json',
+      request_id: 'req-array-property',
+      flow_file: '/tmp/flow.json',
+      flow_summary: {
+        wrapper: 'direct',
+        uuid: 'flow-array-property',
+        version: '01.00.000',
+        base_name: 'Array backed flow',
+        permanent_uri: null,
+      },
+      flow_dataset: {
+        flowInformation: {
+          quantitativeReference: {
+            referenceToReferenceFlowProperty: '2',
+          },
+        },
+        flowProperties: {
+          flowProperty: [
+            {
+              '@dataSetInternalID': '1',
+              referenceToFlowPropertyDataSet: {
+                '@refObjectId': 'ignored-property',
+                'common:shortDescription': {
+                  '#text': 'Mass',
+                  '@xml:lang': 'en',
+                },
+              },
+            },
+            {
+              '@dataSetInternalID': '2',
+              referenceToFlowPropertyDataSet: {
+                '@refObjectId': 'volume-property',
+                'common:shortDescription': {
+                  '#text': 'Volume',
+                  '@xml:lang': 'en',
+                },
+              },
+            },
+          ],
+        },
+      },
+      operation: 'produce',
+      run_id: 'array-run',
+      run_root: '/tmp/array-run',
+      source_inputs: [],
+      source_policy: __testInternals.normalizeSourcePolicy(undefined),
+    },
+    '/tmp/array-run/input/flow.json',
+  ) as Record<string, unknown>;
+  assert.deepEqual(arrayPropertyPlan.flow_property_plan, {
+    reference_property: 'Volume',
+    reference_property_id: 'volume-property',
+    reference_unit: null,
+  });
+
+  const implicitReferencePlan = __testInternals.buildInitialProcessBuildPlan(
+    {
+      schema_version: 1,
+      request_path: '/tmp/request.json',
+      request_id: 'req-implicit-property',
+      flow_file: '/tmp/flow.json',
+      flow_summary: {
+        wrapper: 'direct',
+        uuid: 'flow-implicit-property',
+        version: '01.00.000',
+        base_name: 'Implicit property flow',
+        permanent_uri: null,
+      },
+      flow_dataset: {
+        flowProperties: {
+          flowProperty: {
+            '@dataSetInternalID': '0',
+            referenceToFlowPropertyDataSet: {
+              '@refObjectId': 'implicit-property',
+              'common:shortDescription': 'Implicit property',
+            },
+          },
+        },
+      },
+      operation: 'treat',
+      run_id: 'implicit-run',
+      run_root: '/tmp/implicit-run',
+      source_inputs: [],
+      source_policy: __testInternals.normalizeSourcePolicy(undefined),
+    },
+    '/tmp/implicit-run/input/flow.json',
+  ) as Record<string, unknown>;
+  assert.equal(
+    ((implicitReferencePlan.flow_property_plan as Record<string, unknown>) ?? {})
+      .reference_property,
+    'Implicit property',
+  );
+  assert.equal(
+    ((implicitReferencePlan.name_plan as Record<string, unknown>) ?? {}).base_name,
+    'Treatment of Implicit property flow',
+  );
+
+  const produceFallbackPlan = __testInternals.buildInitialProcessBuildPlan(
+    {
+      schema_version: 1,
+      request_path: '/tmp/request.json',
+      request_id: 'req-produce-fallback',
+      flow_file: '/tmp/flow.json',
+      flow_summary: {
+        wrapper: 'direct',
+        uuid: null,
+        version: null,
+        base_name: null,
+        permanent_uri: null,
+      },
+      flow_dataset: {},
+      operation: 'produce',
+      run_id: 'produce-fallback-run',
+      run_root: '/tmp/produce-fallback-run',
+      source_inputs: [],
+      source_policy: __testInternals.normalizeSourcePolicy(undefined),
+    },
+    '/tmp/produce-fallback-run/input/flow.json',
+  ) as Record<string, unknown>;
+  assert.equal(
+    ((produceFallbackPlan.name_plan as Record<string, unknown>) ?? {}).base_name,
+    'Production process from reference flow',
+  );
 });
 
 test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff summary', async () => {
@@ -484,6 +646,7 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
     assert.equal(existsSync(report.files.state), true);
     assert.equal(existsSync(report.files.handoff_summary), true);
     assert.equal(existsSync(report.files.run_manifest), true);
+    assert.equal(existsSync(report.files.build_plan), true);
     assert.equal(existsSync(report.files.request_snapshot), true);
     assert.equal(
       readFileSync(path.join(path.dirname(report.run_root), '.latest_run_id'), 'utf8'),
@@ -493,6 +656,18 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
     const inputManifest = readJson(report.files.input_manifest);
     assert.equal(inputManifest.run_id, report.run_id);
     assert.equal(inputManifest.flow_path, flowPath);
+    assert.equal(inputManifest.build_plan_path, report.files.build_plan);
+
+    const buildPlan = readJson(report.files.build_plan);
+    assert.equal(buildPlan.kind, 'process');
+    assert.equal(
+      ((buildPlan.identity_decision as Record<string, unknown>) ?? {}).decision,
+      'create_new',
+    );
+    assert.equal(
+      ((buildPlan.quantitative_reference_plan as Record<string, unknown>) ?? {}).reference_flow_id,
+      '4d8a3345-51fd-44ac-87e0-59bc8d3b0fdc',
+    );
 
     const runManifest = readJson(report.files.run_manifest);
     assert.deepEqual(runManifest.command, ['process', 'auto-build', '--input', requestPath]);
@@ -509,6 +684,10 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
     assert.equal(handoff.command, 'process auto-build');
     assert.equal((handoff.extra as Record<string, unknown>).status, report.status);
     assert.equal(Array.isArray(handoff.next_actions), true);
+    assert.equal(
+      ((handoff.artifacts as Record<string, unknown>) ?? {}).build_plan,
+      report.files.build_plan,
+    );
 
     const reportArtifact = readJson(report.files.report);
     assert.equal(reportArtifact.run_id, report.run_id);

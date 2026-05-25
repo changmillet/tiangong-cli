@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,11 @@ import {
   __testInternals,
 } from '../src/lib/identity-preflight.js';
 import type { SafeParseSchema } from '../src/lib/tidas-sdk-validation.js';
+import {
+  buildSupabaseTestEnv,
+  isSupabaseAuthTokenUrl,
+  makeSupabaseAuthResponse,
+} from './helpers/supabase-auth.js';
 
 const now = new Date('2026-05-22T00:00:00.000Z');
 
@@ -294,6 +299,386 @@ test('process identity preflight queues manual review for weaker process similar
   assert.deepEqual(nameOnly.candidates[0]?.match_reasons, ['overlapping_name']);
 });
 
+test('process identity preflight blocks exact exchange fingerprints with local candidate scans', async () => {
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-local-scan-'));
+  const inputPath = path.join(workDir, 'process-preflight.json');
+  const candidateDir = path.join(workDir, 'candidates');
+  const nestedDir = path.join(candidateDir, 'nested');
+  const candidateJsonl = path.join(candidateDir, 'existing.jsonl');
+  const hiddenJson = path.join(candidateDir, '.hidden.json');
+  const candidateJson = path.join(nestedDir, 'more.json');
+  try {
+    writeFileSync(
+      inputPath,
+      JSON.stringify({
+        target: {
+          name_en: 'market for electricity, medium voltage, renewable adjustment',
+          reference_flow_id: 'flow-electricity',
+          geography: 'CN',
+          exchanges: [{ flow_id: 'flow-wind', direction: 'Input', mean_amount: '1.0' }],
+        },
+      }),
+      'utf8',
+    );
+    mkdirSync(nestedDir, { recursive: true });
+    writeFileSync(
+      candidateJsonl,
+      `${JSON.stringify({
+        process_id: 'existing-process',
+        name_en: 'electricity supply candidate with different wording',
+        reference_flow_id: 'flow-electricity',
+        geography: 'CN',
+        exchanges: [{ flow_id: 'flow-wind', direction: 'Input', mean_amount: '1.0' }],
+      })}\n`,
+      'utf8',
+    );
+    writeFileSync(
+      candidateJson,
+      JSON.stringify({
+        rows: [{ process_id: 'unrelated', name_en: 'unrelated process' }],
+      }),
+      'utf8',
+    );
+    writeFileSync(
+      hiddenJson,
+      JSON.stringify({
+        rows: [{ process_id: 'hidden', name_en: 'hidden process' }],
+      }),
+      'utf8',
+    );
+
+    const report = await runProcessIdentityPreflight({
+      inputPath,
+      candidateInputPaths: [candidateDir],
+      now,
+    });
+
+    assert.equal(report.status, 'blocked');
+    assert.equal(report.decision, 'block_duplicate');
+    assert.equal(report.candidates.length, 2);
+    assert.equal(report.candidate_sources[0]?.kind, 'directory');
+    assert.equal(report.candidate_sources[0]?.row_count, 2);
+    assert.ok(report.candidate_sources[0]?.scanned_files.includes(candidateJsonl));
+    assert.ok(report.candidate_sources[0]?.scanned_files.includes(candidateJson));
+    assert.equal(report.candidate_sources[0]?.scanned_files.includes(hiddenJson), false);
+    assert.ok(report.candidates[0]?.match_reasons.includes('same_exchange_fingerprint'));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test('process identity preflight can block duplicates from remote hybrid search', async () => {
+  const observed: {
+    url: string | null;
+    headers: Record<string, string> | null;
+    body: Record<string, unknown> | null;
+  } = {
+    url: null,
+    headers: null,
+    body: null,
+  };
+
+  const report = await runProcessIdentityPreflight({
+    inputPath: '/tmp/process-preflight.json',
+    rawInput: {
+      target: {
+        name_en: 'market for electricity, medium voltage',
+        reference_flow_id: 'flow-electricity',
+        geography: 'CN',
+        exchanges: [{ flow_id: 'flow-grid', direction: 'Input', mean_amount: '1.0' }],
+      },
+      remote_candidate_search: {
+        enabled: true,
+        query: 'electricity medium voltage',
+        limit: 1,
+      },
+    },
+    env: buildSupabaseTestEnv({
+      TIANGONG_LCA_API_BASE_URL: 'https://example.com/functions/v1',
+      TIANGONG_LCA_REGION: 'cn-east-1',
+    }),
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+      if (isSupabaseAuthTokenUrl(url)) {
+        return makeSupabaseAuthResponse();
+      }
+
+      observed.url = url;
+      observed.headers = init?.headers as Record<string, string>;
+      observed.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string): string | null {
+            return name.toLowerCase() === 'content-type' ? 'application/json' : null;
+          },
+        },
+        async text(): Promise<string> {
+          return JSON.stringify({
+            data: [
+              {
+                id: 'existing-process',
+                version: '01.00.000',
+                state_code: 100,
+                name_en: 'market for electricity, medium voltage',
+                reference_flow_id: 'flow-electricity',
+                geography: 'CN',
+                exchanges: [{ flow_id: 'flow-grid', direction: 'Input', mean_amount: '1.0' }],
+              },
+            ],
+          });
+        },
+      };
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.equal(report.candidate_sources[0]?.kind, 'remote_search');
+  assert.equal(report.candidate_sources[0]?.endpoint, 'process_hybrid_search');
+  assert.equal(report.candidate_sources[0]?.query, 'electricity medium voltage');
+  assert.equal(report.candidate_sources[0]?.row_count, 1);
+  assert.equal(observed.url, 'https://example.com/functions/v1/process_hybrid_search');
+  assert.equal(observed.headers?.Authorization, 'Bearer access-token');
+  assert.equal(observed.headers?.['x-region'], 'cn-east-1');
+  assert.equal(observed.body?.limit, 1);
+});
+
+test('flow identity preflight sends type filters to remote hybrid search', async () => {
+  const observed: {
+    url: string | null;
+    body: Record<string, unknown> | null;
+  } = {
+    url: null,
+    body: null,
+  };
+
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        name_en: 'electricity, medium voltage',
+        type_of_dataset: ['Product flow'],
+      },
+    },
+    remoteCandidateSearch: true,
+    remoteQuery: 'electricity flow',
+    remoteLimit: 2,
+    env: buildSupabaseTestEnv({
+      TIANGONG_LCA_API_BASE_URL: 'https://example.com/functions/v1',
+    }),
+    fetchImpl: async (input, init) => {
+      const url = String(input);
+      if (isSupabaseAuthTokenUrl(url)) {
+        return makeSupabaseAuthResponse();
+      }
+
+      observed.url = url;
+      observed.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string): string | null {
+            return name.toLowerCase() === 'content-type' ? 'application/json' : null;
+          },
+        },
+        async text(): Promise<string> {
+          return JSON.stringify({ rows: [] });
+        },
+      };
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'passed');
+  assert.equal(report.candidate_sources[0]?.kind, 'remote_search');
+  assert.equal(report.candidate_sources[0]?.endpoint, 'flow_hybrid_search');
+  assert.equal(observed.url, 'https://example.com/functions/v1/flow_hybrid_search');
+  assert.deepEqual(observed.body?.filter, { flowType: 'Product flow' });
+  assert.equal(observed.body?.limit, 2);
+});
+
+test('identity preflight requires a remote query when the target has no identity text', async () => {
+  await assert.rejects(
+    () =>
+      runProcessIdentityPreflight({
+        inputPath: '/tmp/process-preflight.json',
+        rawInput: {
+          target: {},
+          remote_candidate_search: true,
+        },
+        now,
+      }),
+    /Remote identity candidate search requires a query/u,
+  );
+});
+
+test('identity preflight can use process env and global fetch for remote candidates', async () => {
+  const envKeys = [
+    'TIANGONG_LCA_API_BASE_URL',
+    'TIANGONG_LCA_API_KEY',
+    'TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY',
+    'TIANGONG_LCA_DISABLE_SESSION_CACHE',
+    'TIANGONG_LCA_REGION',
+  ] as const;
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  const observed: {
+    body: Record<string, unknown> | null;
+  } = {
+    body: null,
+  };
+
+  try {
+    const testEnv = buildSupabaseTestEnv({
+      TIANGONG_LCA_API_BASE_URL: 'https://env.example.com/functions/v1',
+      TIANGONG_LCA_DISABLE_SESSION_CACHE: '1',
+      TIANGONG_LCA_REGION: '',
+    });
+    for (const key of envKeys) {
+      const value = testEnv[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      if (isSupabaseAuthTokenUrl(url)) {
+        return makeSupabaseAuthResponse();
+      }
+
+      observed.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get(name: string): string | null {
+            return name.toLowerCase() === 'content-type' ? 'application/json' : null;
+          },
+        },
+        async text(): Promise<string> {
+          return JSON.stringify({
+            data: [
+              { id: 'candidate-a', name_en: 'candidate a' },
+              { id: 'candidate-b', name_en: 'candidate b' },
+            ],
+          });
+        },
+      };
+    }) as typeof fetch;
+
+    const report = await runProcessIdentityPreflight({
+      inputPath: '/tmp/process-preflight.json',
+      rawInput: {
+        target: {
+          name_en: 'market for heat',
+        },
+        remote_candidate_search: true,
+      },
+      now,
+    });
+
+    assert.equal(report.candidate_sources[0]?.row_count, 2);
+    assert.equal(observed.body?.query, 'market for heat');
+    assert.equal('limit' in (observed.body ?? {}), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      const value = originalEnv[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
+});
+
+test('identity preflight reads file candidate sources and rejects invalid source paths', async () => {
+  const workDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-candidate-file-'));
+  const candidatePath = path.join(workDir, 'candidates.json');
+  try {
+    writeFileSync(
+      candidatePath,
+      JSON.stringify({
+        rows: [{ name_en: 'same flow', type_of_dataset: 'Product flow' }],
+      }),
+      'utf8',
+    );
+
+    const report = await runFlowIdentityPreflight({
+      inputPath: '/tmp/flow-preflight.json',
+      rawInput: {
+        flow: { name_en: 'target flow' },
+      },
+      candidateInputPaths: [candidatePath],
+      now,
+    });
+
+    assert.equal(report.candidate_sources[0]?.kind, 'file');
+    assert.equal(report.candidate_sources[0]?.row_count, 1);
+    assert.deepEqual(report.candidate_sources[0]?.scanned_files, [candidatePath]);
+
+    const requestPathReport = await runFlowIdentityPreflight({
+      inputPath: '/tmp/flow-preflight.json',
+      rawInput: {
+        flow: { name_en: 'target flow' },
+        candidate_inputs: `${candidatePath}, , ${candidatePath}`,
+      },
+      now,
+    });
+
+    assert.equal(requestPathReport.candidate_sources.length, 2);
+    assert.equal(requestPathReport.candidate_sources[0]?.path, candidatePath);
+
+    await assert.rejects(
+      () =>
+        runFlowIdentityPreflight({
+          inputPath: '/tmp/flow-preflight.json',
+          rawInput: { flow: {} },
+          candidateInputPaths: [path.join(workDir, 'missing.jsonl')],
+          now,
+        }),
+      /Candidate input not found/u,
+    );
+
+    const unsupportedPath = path.join(workDir, 'unsupported.txt');
+    writeFileSync(unsupportedPath, 'not a candidate payload', 'utf8');
+    assert.throws(
+      () => __testInternals.readCandidateSource(unsupportedPath),
+      /Candidate input must be a JSON\/JSONL file or directory/u,
+    );
+    assert.throws(
+      () =>
+        __testInternals.collectCandidateFilesFromStats(unsupportedPath, {
+          isFile: () => false,
+          isDirectory: () => false,
+        }),
+      /Candidate input must be a JSON\/JSONL file or directory/u,
+    );
+
+    await assert.rejects(
+      () =>
+        runFlowIdentityPreflight({
+          inputPath: '/tmp/flow-preflight.json',
+          rawInput: {
+            flow: {},
+            candidate_inputs: [1],
+          },
+          now,
+        }),
+      /candidate_inputs\[0\] must be a string path/u,
+    );
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test('flow identity preflight blocks equivalent flow identities and writes artifacts', async () => {
   const outDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-'));
   try {
@@ -332,8 +717,13 @@ test('flow identity preflight blocks equivalent flow identities and writes artif
       report.files.candidates,
       path.join(outDir, 'outputs', 'identity-candidates.jsonl'),
     );
+    assert.equal(
+      report.files.candidate_sources,
+      path.join(outDir, 'outputs', 'identity-candidate-sources.json'),
+    );
     assert.equal(existsSync(report.files.identity_decision as string), true);
     assert.equal(existsSync(report.files.candidates as string), true);
+    assert.equal(existsSync(report.files.candidate_sources as string), true);
 
     const artifact = JSON.parse(readFileSync(report.files.identity_decision as string, 'utf8')) as {
       files: { identity_decision: string };
@@ -344,6 +734,35 @@ test('flow identity preflight blocks equivalent flow identities and writes artif
   } finally {
     rmSync(outDir, { recursive: true, force: true });
   }
+});
+
+test('flow identity preflight blocks alias-equivalent flow core fields', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Product flow',
+        name_en: ['electricity, high voltage', 'power, high voltage'],
+        reference_unit: 'kWh',
+        flow_property: 'Energy',
+        category: 'energy carrier',
+      },
+      candidates: [
+        {
+          type_of_dataset: 'Product flow',
+          name_en: 'power, high voltage',
+          reference_unit: 'kWh',
+          flow_property: 'Energy',
+          category: 'energy carrier',
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
 });
 
 test('flow identity preflight accepts sparse file input and numeric text fields', async () => {
@@ -541,6 +960,134 @@ test('identity preflight internals cover schema lookup and decision confidence e
   );
   assert.equal(weakReuse.decision, 'reuse');
   assert.equal(weakReuse.confidence, 'medium');
+});
+
+test('identity preflight internals normalize remote search inputs', () => {
+  assert.deepEqual(__testInternals.normalizeRemoteCandidateSearch(undefined), {
+    enabled: false,
+    query: null,
+    filter: null,
+    limit: null,
+  });
+  assert.deepEqual(__testInternals.normalizeRemoteCandidateSearch(true), {
+    enabled: true,
+    query: null,
+    filter: null,
+    limit: null,
+  });
+  assert.deepEqual(
+    __testInternals.normalizeRemoteCandidateSearch({
+      enabled: false,
+      search_query: 'grid electricity',
+      filter: { flowType: 'Product flow' },
+      limit: '2',
+    }),
+    {
+      enabled: false,
+      query: 'grid electricity',
+      filter: { flowType: 'Product flow' },
+      limit: 2,
+    },
+  );
+  assert.equal(__testInternals.normalizeRemoteCandidateSearch({ limit: '' }).limit, null);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse({ data: [{ id: 'a' }] }), [
+    { id: 'a' },
+  ]);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse({ results: [{ id: 'b' }] }), [
+    { id: 'b' },
+  ]);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse({ candidates: [{ id: 'c' }] }), [
+    { id: 'c' },
+  ]);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse([{ id: 'raw' }]), [{ id: 'raw' }]);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse({}), []);
+  assert.deepEqual(__testInternals.rowsFromRemoteSearchResponse(null), []);
+  assert.equal(
+    __testInternals.defaultRemoteQuery({
+      id: null,
+      version: null,
+      state_code: null,
+      names: [],
+      normalized_names: [],
+      fields: { category: 'energy carrier' },
+      exchange_signature: [],
+      identity_key: 'fallback-key',
+    }),
+    'energy carrier',
+  );
+  assert.equal(
+    __testInternals.defaultRemoteQuery({
+      id: null,
+      version: null,
+      state_code: null,
+      names: [],
+      normalized_names: [],
+      fields: {},
+      exchange_signature: [],
+      identity_key: 'fallback-key',
+    }),
+    'fallback-key',
+  );
+  assert.deepEqual(
+    __testInternals.remoteSearchFilter(
+      'flow',
+      {
+        id: null,
+        version: null,
+        state_code: null,
+        names: [],
+        normalized_names: [],
+        fields: { type_of_dataset: ['Elementary flow'] },
+        exchange_signature: [],
+        identity_key: '',
+      },
+      null,
+    ),
+    { flowType: 'Elementary flow' },
+  );
+  assert.deepEqual(
+    __testInternals.remoteSearchFilter(
+      'flow',
+      {
+        id: null,
+        version: null,
+        state_code: null,
+        names: [],
+        normalized_names: [],
+        fields: { type_of_dataset: 'Product flow' },
+        exchange_signature: [],
+        identity_key: '',
+      },
+      { flowType: 'explicit' },
+    ),
+    { flowType: 'explicit' },
+  );
+  assert.equal(
+    __testInternals.remoteSearchFilter(
+      'flow',
+      {
+        id: null,
+        version: null,
+        state_code: null,
+        names: [],
+        normalized_names: [],
+        fields: {},
+        exchange_signature: [],
+        identity_key: '',
+      },
+      null,
+    ),
+    null,
+  );
+
+  assert.throws(
+    () => __testInternals.normalizeRemoteCandidateSearch('yes'),
+    /remote_candidate_search must be a boolean or object/u,
+  );
+  assert.throws(
+    () => __testInternals.normalizeRemoteCandidateSearch({ limit: 0 }),
+    /positive integer/u,
+  );
 });
 
 test('identity preflight internals normalize candidate input aliases', () => {

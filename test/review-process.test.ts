@@ -190,11 +190,18 @@ test('runProcessReview writes artifact-first local review outputs without LLM', 
     assert.equal(report.totals.product_plus_byproduct_plus_waste, 5);
     assert.equal(report.totals.energy_excluded, 1);
     assert.equal(report.totals.relative_deviation, 0);
+    assert.equal(report.ruleset_id, 'process-authoring/strict');
+    assert.equal(report.ruleset_version, '1');
+    assert.equal(report.ruleset_gate?.status, 'blocked');
+    assert.equal(report.rule_finding_count, 1);
+    assert.equal(report.blocker_count, 1);
     assert.equal(report.generated_at_utc, '2026-03-30T00:00:00.000Z');
     assert.ok(existsSync(report.files.review_zh));
     assert.ok(existsSync(report.files.review_en));
     assert.ok(existsSync(report.files.timing));
     assert.ok(existsSync(report.files.unit_issue_log));
+    assert.ok(existsSync(report.files.rule_findings ?? ''));
+    assert.ok(existsSync(report.files.ruleset_gate ?? ''));
     assert.ok(existsSync(report.files.review_input_summary));
     assert.ok(existsSync(report.files.summary));
     assert.ok(existsSync(report.files.report));
@@ -211,6 +218,12 @@ test('runProcessReview writes artifact-first local review outputs without LLM', 
     const unitLog = readFileSync(report.files.unit_issue_log, 'utf8');
     assert.match(unitLog, /flow-electric/u);
     assert.match(unitLog, /kWh/u);
+
+    const findings = readFileSync(report.files.rule_findings ?? '', 'utf8')
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonRecord);
+    assert.equal(findings[0]?.methodology_rule_id, 'tidas.process.exchange.amount.required');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -549,6 +562,72 @@ test('runProcessReview covers exchange-object fallback, empty exchanges, and zer
       exchanges: 'not-an-exchange-object',
     }),
   );
+  writeJson(
+    path.join(processDir, 'proc-missing-amount.json'),
+    createProcessPayload({
+      exchanges: [
+        {
+          '@dataSetInternalID': 'missing-amount-1',
+          exchangeDirection: 'Output',
+          commonComment: '[tg_io_kind_tag=product] product without amount',
+          referenceToFlowDataSet: {
+            '@refObjectId': 'flow-product-missing-amount',
+          },
+        },
+        {
+          exchangeDirection: 'Input',
+          commonComment: '[tg_io_kind_tag=product] raw material without amount',
+          referenceToFlowDataSet: {
+            '@refObjectId': 'flow-raw-missing-amount',
+          },
+        },
+        {
+          commonComment: 'missing amount and direction',
+          referenceToFlowDataSet: {
+            '@refObjectId': 'flow-missing-direction',
+          },
+        },
+      ],
+    }),
+  );
+  writeJson(
+    path.join(processDir, 'proc-imbalance.json'),
+    createProcessPayload({
+      exchanges: [
+        createExchange({
+          direction: 'Input',
+          amount: 10,
+          comment: '[tg_io_kind_tag=product] raw material',
+          flowId: 'flow-raw',
+        }),
+        createExchange({
+          direction: 'Output',
+          amount: 1,
+          comment: '[tg_io_kind_tag=product] product output',
+          flowId: 'flow-product',
+        }),
+      ],
+    }),
+  );
+  writeJson(
+    path.join(processDir, 'proc-imbalance-warning.json'),
+    createProcessPayload({
+      exchanges: [
+        createExchange({
+          direction: 'Input',
+          amount: 10,
+          comment: '[tg_io_kind_tag=product] raw material',
+          flowId: 'flow-raw-warning',
+        }),
+        createExchange({
+          direction: 'Output',
+          amount: 9.4,
+          comment: '[tg_io_kind_tag=product] product output',
+          flowId: 'flow-product-warning',
+        }),
+      ],
+    }),
+  );
 
   try {
     const report = await runProcessReview({
@@ -557,10 +636,11 @@ test('runProcessReview covers exchange-object fallback, empty exchanges, and zer
       outDir,
     });
 
-    assert.equal(report.process_count, 2);
-    assert.equal(report.totals.raw_input, 0);
-    assert.equal(report.totals.relative_deviation, null);
-    assert.equal(report.totals.product_plus_byproduct_plus_waste, 3);
+    assert.equal(report.process_count, 5);
+    assert.equal(report.totals.raw_input, 20);
+    assert.equal(Number(report.totals.relative_deviation?.toFixed(2)), 0.33);
+    assert.equal(report.totals.product_plus_byproduct_plus_waste, 13.4);
+    assert.equal(report.ruleset_gate?.status, 'blocked');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -835,6 +915,25 @@ test('review-process internals cover helper branches and rendering fallbacks', a
   );
   assert.equal(minimalBase.name_zh_en_ok, false);
   assert.equal(minimalBase.completeness_score, 0);
+
+  const baseFindings = __testInternals.reviewFindingsForBase('proc.json', minimalBase);
+  assert.ok(baseFindings.some((finding) => finding.code === 'process_missing_bilingual_base_name'));
+  assert.ok(baseFindings.some((finding) => finding.code === 'process_missing_functional_unit'));
+  assert.equal(__testInternals.hasNumericAmount({ meanAmount: '0' }), true);
+  assert.equal(__testInternals.hasNumericAmount({ resultingAmount: 0 }), true);
+  assert.equal(__testInternals.hasNumericAmount({ meanAmount: 'bad' }), false);
+  assert.equal(__testInternals.processRulesetGate([]).status, 'passed');
+  assert.equal(
+    __testInternals.processRulesetGate([
+      __testInternals.createProcessReviewFinding({
+        processFile: 'proc.json',
+        severity: 'warning',
+        code: 'unknown_warning',
+        message: 'review only',
+      }),
+    ]).status,
+    'needs_review',
+  );
 
   assert.equal(
     __testInternals.unwrapProcessPayload(

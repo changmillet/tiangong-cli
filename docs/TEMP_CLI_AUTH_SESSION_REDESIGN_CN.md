@@ -15,8 +15,8 @@ checkPaths:
   - src/lib/user-api-key.ts
   - src/lib/supabase-session.ts
   - src/lib/supabase-client.ts
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: 1a0713ac6ed7abb26ca9e4c45f8b8b56920b8d07
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: b5f9d561e9fca8d67189fa2dc7c4397f5d553e07
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -232,6 +232,8 @@ TIANGONG_LCA_FORCE_REAUTH=false
 - `flow list`
 - `flow publish-version`
 - `flow publish-reviewed-data --commit`
+- `process identity-preflight --remote-candidates`
+- `flow identity-preflight --remote-candidates`
 - `lifecyclemodel build-resulting-process`（当 request 开启 remote lookup）
 - 其他所有 direct Supabase 读写 helper
 
@@ -241,6 +243,7 @@ TIANGONG_LCA_FORCE_REAUTH=false
 
 - `doctor`
 - 本地 build / review / validation / artifact 命令
+- 未启用 remote candidate search 的 `process identity-preflight` / `flow identity-preflight`
 - 任何不访问 remote 的命令
 
 ## 5. Session cache 设计

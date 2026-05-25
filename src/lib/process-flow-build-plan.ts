@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact } from './artifacts.js';
@@ -20,6 +21,12 @@ import {
 type BuildPlanKind = 'process' | 'flow';
 type BuildPlanAction = 'validate' | 'materialize';
 type BuildPlanStatus = 'passed' | 'blocked';
+type ProcessTypeOfDataSet =
+  | 'Unit process, single operation'
+  | 'Unit process, black box'
+  | 'LCI result'
+  | 'Partly terminated system'
+  | 'Avoided product system';
 type BuildPlanDecision =
   | 'reuse'
   | 'update_same_row'
@@ -218,6 +225,722 @@ function firstToken(root: JsonObject, paths: string[]): string | null {
     }
   }
   return null;
+}
+
+function valueAsObject(root: JsonObject, paths: string[]): JsonObject | null {
+  for (const candidate of paths) {
+    const value = valueAtPath(root, candidate);
+    if (isRecord(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function valueAsArray(root: JsonObject, paths: string[]): unknown[] {
+  for (const candidate of paths) {
+    const value = valueAtPath(root, candidate);
+    if (Array.isArray(value)) {
+      return value;
+    }
+  }
+  return [];
+}
+
+function normalizeAmount(value: unknown, fallback = '1.0'): string {
+  const token = textToken(value);
+  if (!token) {
+    return fallback;
+  }
+  const numeric = Number(token);
+  return Number.isFinite(numeric) ? String(numeric) : token;
+}
+
+function normalizeVersion(value: unknown, fallback = '00.00.001'): string {
+  return textToken(value) ?? fallback;
+}
+
+function normalizeYear(value: unknown, fallback = 1970): number {
+  const token = textToken(value);
+  if (!token) {
+    return fallback;
+  }
+  const year = Number.parseInt(token, 10);
+  return Number.isFinite(year) ? year : fallback;
+}
+
+function deterministicUuid(seed: string): string {
+  const hex = createHash('sha256').update(seed).digest('hex');
+  const chars = hex.slice(0, 32).split('');
+  chars[12] = '5';
+  chars[16] = ((Number.parseInt(chars[16] as string, 16) & 0x3) | 0x8).toString(16);
+  return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
+    .slice(12, 16)
+    .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
+}
+
+function uuidFromPlan(plan: JsonObject, paths: string[], seed: string): string {
+  const token = firstToken(plan, paths);
+  return token ?? deterministicUuid(seed);
+}
+
+function localizedText(text: string, lang = 'en'): JsonObject {
+  return { '#text': text, '@xml:lang': lang };
+}
+
+function multiLangFromValue(value: unknown, fallback: string, fallbackLang = 'en'): JsonObject[] {
+  if (Array.isArray(value)) {
+    const normalized = value
+      .map((entry) => {
+        if (isRecord(entry)) {
+          const text = textToken(entry['#text'] ?? entry.text ?? entry.value);
+          if (!text) {
+            return null;
+          }
+          return localizedText(text, textToken(entry['@xml:lang'] ?? entry.lang) ?? fallbackLang);
+        }
+        const text = textToken(entry);
+        return text ? localizedText(text, fallbackLang) : null;
+      })
+      .filter((entry): entry is JsonObject => Boolean(entry));
+    if (normalized.length) {
+      return normalized;
+    }
+  }
+  if (isRecord(value)) {
+    const text = textToken(value['#text'] ?? value.text ?? value.value);
+    if (text) {
+      return [localizedText(text, textToken(value['@xml:lang'] ?? value.lang) ?? fallbackLang)];
+    }
+    const en = textToken(value.en);
+    const zh = textToken(value.zh);
+    const rows = [en ? localizedText(en, 'en') : null, zh ? localizedText(zh, 'zh') : null].filter(
+      (entry): entry is JsonObject => Boolean(entry),
+    );
+    if (rows.length) {
+      return rows;
+    }
+  }
+  const token = textToken(value);
+  return [localizedText(token ?? fallback, fallbackLang)];
+}
+
+function firstMultiLang(plan: JsonObject, paths: string[], fallback: string): JsonObject[] {
+  for (const candidate of paths) {
+    const value = valueAtPath(plan, candidate);
+    if (value !== undefined && value !== null) {
+      return multiLangFromValue(value, fallback);
+    }
+  }
+  return multiLangFromValue(undefined, fallback);
+}
+
+function globalReference(options: {
+  type: string;
+  refObjectId: string;
+  version?: string | null;
+  uri?: string | null;
+  shortDescription: string;
+}): JsonObject {
+  const version = normalizeVersion(options.version, '00.00.000');
+  return {
+    '@type': options.type,
+    '@refObjectId': options.refObjectId,
+    '@version': version,
+    '@uri': options.uri ?? `../${options.type.replaceAll(' ', '-')}/${options.refObjectId}.xml`,
+    'common:shortDescription': localizedText(options.shortDescription),
+  };
+}
+
+function evidenceSourceReference(plan: JsonObject): JsonObject {
+  const evidence = valueAsObject(plan, ['evidence_manifest', 'evidenceManifest']) ?? {};
+  const sources = Array.isArray(evidence.sources) ? evidence.sources : [];
+  const firstSource = sources.find(isRecord);
+  const sourceId =
+    textToken(firstSource?.id ?? firstSource?.source_id ?? firstSource?.ref_object_id) ??
+    deterministicUuid(`${JSON.stringify(plan)}:source`);
+  const sourceVersion = textToken(firstSource?.version) ?? '00.00.000';
+  const shortDescription =
+    textToken(firstSource?.title ?? firstSource?.name ?? firstSource?.short_description) ??
+    'Build plan evidence source';
+  return globalReference({
+    type: 'source data set',
+    refObjectId: sourceId,
+    version: sourceVersion,
+    uri: textToken(firstSource?.uri),
+    shortDescription,
+  });
+}
+
+function contactReference(plan: JsonObject, role: string): JsonObject {
+  const explicit = valueAsObject(plan, [
+    `administrative_information.${role}`,
+    `administrativeInformation.${role}`,
+  ]);
+  const id =
+    textToken(explicit?.id ?? explicit?.ref_object_id ?? explicit?.refObjectId) ??
+    deterministicUuid(`${JSON.stringify(plan)}:${role}`);
+  return globalReference({
+    type: 'contact data set',
+    refObjectId: id,
+    version: textToken(explicit?.version) ?? '00.00.000',
+    uri: textToken(explicit?.uri),
+    shortDescription:
+      textToken(explicit?.short_description ?? explicit?.shortDescription ?? explicit?.name) ??
+      `Build plan ${role}`,
+  });
+}
+
+function complianceReference(plan: JsonObject): JsonObject {
+  const explicit = valueAsObject(plan, [
+    'compliance_reference',
+    'complianceReference',
+    'administrative_information.compliance_reference',
+    'administrativeInformation.complianceReference',
+  ]);
+  return globalReference({
+    type: 'source data set',
+    refObjectId:
+      textToken(explicit?.id ?? explicit?.ref_object_id ?? explicit?.refObjectId) ??
+      deterministicUuid(`${JSON.stringify(plan)}:compliance`),
+    version: textToken(explicit?.version) ?? '00.00.000',
+    uri: textToken(explicit?.uri),
+    shortDescription:
+      textToken(explicit?.short_description ?? explicit?.shortDescription ?? explicit?.name) ??
+      'Build plan compliance system',
+  });
+}
+
+function dataSetFormatReference(plan: JsonObject): JsonObject {
+  const explicit = valueAsObject(plan, [
+    'format_reference',
+    'formatReference',
+    'administrative_information.format_reference',
+    'administrativeInformation.formatReference',
+  ]);
+  return globalReference({
+    type: 'source data set',
+    refObjectId:
+      textToken(explicit?.id ?? explicit?.ref_object_id ?? explicit?.refObjectId) ??
+      deterministicUuid('tiangong-lca-tidas-format-reference'),
+    version: textToken(explicit?.version) ?? '00.00.000',
+    uri: textToken(explicit?.uri),
+    shortDescription:
+      textToken(explicit?.short_description ?? explicit?.shortDescription ?? explicit?.name) ??
+      'TIDAS / ILCD data set format',
+  });
+}
+
+function classificationClasses(plan: JsonObject, kind: BuildPlanKind): JsonObject[] {
+  const pathValues =
+    valueAsArray(plan, ['target.classification_path', 'target.classificationPath']).length > 0
+      ? valueAsArray(plan, ['target.classification_path', 'target.classificationPath'])
+      : valueAsArray(plan, ['classification_path', 'classificationPath']);
+  const labels = pathValues
+    .map((entry) => textToken(entry))
+    .filter((entry): entry is string => Boolean(entry));
+  const fallback =
+    kind === 'process'
+      ? ['Technosphere', 'Unspecified sector', 'Unspecified activity', 'Unspecified process']
+      : ['Technosphere flows', 'Product flows', 'Unspecified category', 'Unspecified flow'];
+  const requiredCount = kind === 'process' ? 4 : Math.max(labels.length, 1);
+  const values = Array.from(
+    { length: requiredCount },
+    (_, index) => labels[index] ?? (fallback[index] as string),
+  );
+  return values.map((label, index) => ({
+    '@level': String(index),
+    '@classId': deterministicUuid(`${kind}:classification:${index}:${label}`),
+    '#text': label,
+  }));
+}
+
+function normalizeFlowType(
+  value: string | null,
+): 'Elementary flow' | 'Product flow' | 'Waste flow' {
+  const lower = (value ?? '').toLowerCase();
+  if (lower.includes('elementary')) {
+    return 'Elementary flow';
+  }
+  if (lower.includes('waste')) {
+    return 'Waste flow';
+  }
+  return 'Product flow';
+}
+
+function normalizeProcessType(value: string | null): ProcessTypeOfDataSet {
+  const allowed = new Set([
+    'Unit process, single operation',
+    'Unit process, black box',
+    'LCI result',
+    'Partly terminated system',
+    'Avoided product system',
+  ]);
+  return value && allowed.has(value)
+    ? (value as ProcessTypeOfDataSet)
+    : 'Unit process, single operation';
+}
+
+function flowPropertyReference(plan: JsonObject): JsonObject {
+  const propertyName =
+    firstToken(plan, [
+      'flow_property_plan.reference_property',
+      'flowPropertyPlan.referenceProperty',
+    ]) ?? 'Reference flow property';
+  const propertyId =
+    firstToken(plan, [
+      'flow_property_plan.reference_property_id',
+      'flowPropertyPlan.referencePropertyId',
+    ]) ??
+    (propertyName.toLowerCase() === 'mass'
+      ? '93a60a56-a3c8-11da-a746-0800200b9a66'
+      : deterministicUuid(`flow-property:${propertyName}`));
+  return globalReference({
+    type: 'flow property data set',
+    refObjectId: propertyId,
+    version:
+      firstToken(plan, [
+        'flow_property_plan.reference_property_version',
+        'flowPropertyPlan.referencePropertyVersion',
+      ]) ?? '00.00.000',
+    uri: firstToken(plan, [
+      'flow_property_plan.reference_property_uri',
+      'flowPropertyPlan.referencePropertyUri',
+    ]),
+    shortDescription: propertyName,
+  });
+}
+
+function referenceFlowRef(plan: JsonObject): JsonObject {
+  const referenceFlowId =
+    firstToken(plan, [
+      'quantitative_reference_plan.reference_flow_id',
+      'quantitativeReferencePlan.referenceFlowId',
+      'target.intended_reference_flow',
+    ]) ?? deterministicUuid(`${JSON.stringify(plan)}:reference-flow`);
+  return globalReference({
+    type: 'flow data set',
+    refObjectId: referenceFlowId,
+    version:
+      firstToken(plan, [
+        'quantitative_reference_plan.reference_flow_version',
+        'quantitativeReferencePlan.referenceFlowVersion',
+      ]) ?? '00.00.000',
+    uri: firstToken(plan, [
+      'quantitative_reference_plan.reference_flow_uri',
+      'quantitativeReferencePlan.referenceFlowUri',
+    ]),
+    shortDescription:
+      firstToken(plan, [
+        'quantitative_reference_plan.reference_flow_name',
+        'quantitativeReferencePlan.referenceFlowName',
+        'name_plan.functional_unit_flow_properties',
+        'namePlan.functionalUnitFlowProperties',
+      ]) ?? 'Quantitative reference flow',
+  });
+}
+
+function buildAnnualSupply(plan: JsonObject, referenceExchange: JsonObject): JsonObject[] {
+  const explicit = firstValue(plan, [
+    'required_fields.annualSupplyOrProductionVolume',
+    'requiredFields.annualSupplyOrProductionVolume',
+    'authoring.required_fields.annualSupplyOrProductionVolume',
+    'authoring.requiredFields.annualSupplyOrProductionVolume',
+    'modelling_and_validation.annualSupplyOrProductionVolume',
+    'modellingAndValidation.annualSupplyOrProductionVolume',
+  ]);
+  if (explicit !== undefined && explicit !== null) {
+    return multiLangFromValue(explicit, String(explicit));
+  }
+
+  const amount =
+    textToken(referenceExchange.meanAmount) ??
+    textToken(referenceExchange.resultingAmount) ??
+    '1.0';
+  const unit =
+    firstToken(plan, [
+      'quantitative_reference_plan.reference_unit',
+      'quantitativeReferencePlan.referenceUnit',
+      'flow_property_plan.reference_unit',
+      'flowPropertyPlan.referenceUnit',
+    ]) ?? 'unit';
+  return [
+    localizedText(`${amount} ${unit}/year`, 'en'),
+    localizedText(`${amount} ${unit}/年`, 'zh'),
+  ];
+}
+
+function normalizeExchangeDirection(value: string | null): 'Input' | 'Output' {
+  return value === 'Input' ? 'Input' : 'Output';
+}
+
+function exchangeFromPlan(plan: JsonObject, entry: unknown, index: number): JsonObject | null {
+  if (!isRecord(entry)) {
+    return null;
+  }
+  const flowId =
+    textToken(entry.flow_id ?? entry.flowId ?? entry.reference_flow_id ?? entry.referenceFlowId) ??
+    deterministicUuid(`${JSON.stringify(plan)}:exchange:${index}`);
+  const internalId =
+    textToken(entry.internal_id ?? entry.internalId ?? entry['@dataSetInternalID']) ??
+    String(index + 1);
+  const meanAmount = normalizeAmount(entry.mean_amount ?? entry.meanAmount);
+  return {
+    '@dataSetInternalID': internalId,
+    referenceToFlowDataSet: globalReference({
+      type: 'flow data set',
+      refObjectId: flowId,
+      version: normalizeVersion(entry.version, '00.00.000'),
+      uri: textToken(entry.uri),
+      shortDescription:
+        textToken(entry.short_description ?? entry.shortDescription ?? entry.name) ??
+        `Exchange flow ${internalId}`,
+    }),
+    exchangeDirection: normalizeExchangeDirection(
+      textToken(entry.direction ?? entry.exchangeDirection),
+    ),
+    meanAmount,
+    resultingAmount: normalizeAmount(entry.resulting_amount ?? entry.resultingAmount, meanAmount),
+    dataDerivationTypeStatus:
+      textToken(entry.data_derivation_type_status ?? entry.dataDerivationTypeStatus) ?? 'Estimated',
+    quantitativeReference: Boolean(entry.quantitative_reference ?? entry.quantitativeReference),
+    referencesToDataSource: {
+      referenceToDataSource: evidenceSourceReference(plan),
+    },
+  };
+}
+
+function exchangePlanEntries(plan: JsonObject): JsonObject[] {
+  return valueAsArray(plan, ['exchange_plan.exchanges', 'exchangePlan.exchanges'])
+    .map((entry, index) => exchangeFromPlan(plan, entry, index))
+    .filter((entry): entry is JsonObject => Boolean(entry));
+}
+
+function referenceExchange(plan: JsonObject): JsonObject {
+  const internalId =
+    firstToken(plan, [
+      'quantitative_reference_plan.reference_flow_internal_id',
+      'quantitativeReferencePlan.referenceFlowInternalId',
+    ]) ?? '1';
+  const meanAmount =
+    firstToken(plan, [
+      'quantitative_reference_plan.mean_amount',
+      'quantitativeReferencePlan.meanAmount',
+      'quantitative_reference_plan.resulting_amount',
+      'quantitativeReferencePlan.resultingAmount',
+    ]) ?? '1.0';
+  const resultingAmount =
+    firstToken(plan, [
+      'quantitative_reference_plan.resulting_amount',
+      'quantitativeReferencePlan.resultingAmount',
+    ]) ?? meanAmount;
+  return {
+    '@dataSetInternalID': internalId,
+    referenceToFlowDataSet: referenceFlowRef(plan),
+    exchangeDirection: 'Output',
+    meanAmount: normalizeAmount(meanAmount),
+    resultingAmount: normalizeAmount(resultingAmount, normalizeAmount(meanAmount)),
+    dataDerivationTypeStatus:
+      firstToken(plan, [
+        'quantitative_reference_plan.data_derivation_type_status',
+        'quantitativeReferencePlan.dataDerivationTypeStatus',
+      ]) ?? 'Estimated',
+    quantitativeReference: true,
+    referencesToDataSource: {
+      referenceToDataSource: evidenceSourceReference(plan),
+    },
+  };
+}
+
+function buildCanonicalFlowPayload(plan: JsonObject, inputPath: string): JsonObject {
+  const baseName = firstToken(plan, ['name_plan.base_name', 'namePlan.baseName']) ?? 'Unnamed flow';
+  const flowId = uuidFromPlan(
+    plan,
+    ['target.uuid', 'target.id', 'identity_decision.target_id', 'identityDecision.targetId'],
+    `flow:${baseName}:${inputPath}`,
+  );
+  const version = normalizeVersion(
+    firstToken(plan, [
+      'target.version',
+      'publication.version',
+      'administrative_information.version',
+    ]),
+  );
+  const propertyMean =
+    firstToken(plan, ['flow_property_plan.mean_value', 'flowPropertyPlan.meanValue']) ?? '1.0';
+  const flowType = normalizeFlowType(
+    firstToken(plan, [
+      'target.flow_type',
+      'target.flowType',
+      'modelling_and_validation.typeOfDataSet',
+    ]),
+  );
+  const location = firstToken(plan, ['target.geography', 'target.location']);
+
+  return {
+    flowDataSet: {
+      '@xmlns': 'http://lca.jrc.it/ILCD/Flow',
+      '@xmlns:common': 'http://lca.jrc.it/ILCD/Common',
+      '@xmlns:ecn': 'http://eplca.jrc.ec.europa.eu/ILCD/Extensions/2018/ECNumber',
+      '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+      '@version': '1.1',
+      '@locations': '../ILCDLocations.xml',
+      '@xsi:schemaLocation': 'http://lca.jrc.it/ILCD/Flow ../../schemas/ILCD_FlowDataSet.xsd',
+      flowInformation: {
+        dataSetInformation: {
+          'common:UUID': flowId,
+          name: {
+            baseName: firstMultiLang(plan, ['name_plan.base_name', 'namePlan.baseName'], baseName),
+            treatmentStandardsRoutes: firstMultiLang(
+              plan,
+              ['name_plan.treatment_standards_routes', 'namePlan.treatmentStandardsRoutes'],
+              'Reference flow',
+            ),
+            mixAndLocationTypes: firstMultiLang(
+              plan,
+              ['name_plan.mix_and_location_types', 'namePlan.mixAndLocationTypes'],
+              location ?? 'Global',
+            ),
+          },
+          classificationInformation: {
+            'common:classification': {
+              'common:class': classificationClasses(plan, 'flow'),
+            },
+          },
+          ...(firstToken(plan, ['target.cas_number', 'target.CASNumber'])
+            ? { CASNumber: firstToken(plan, ['target.cas_number', 'target.CASNumber']) }
+            : {}),
+          'common:generalComment': firstMultiLang(
+            plan,
+            ['target.general_comment', 'target.generalComment', 'evidence_manifest.summary'],
+            `Flow materialized from build plan ${inputPath}.`,
+          ),
+        },
+        quantitativeReference: {
+          referenceToReferenceFlowProperty: '0',
+        },
+        ...(location ? { geography: { locationOfSupply: location } } : {}),
+      },
+      modellingAndValidation: {
+        LCIMethod: {
+          typeOfDataSet: flowType,
+        },
+        complianceDeclarations: {
+          compliance: {
+            'common:referenceToComplianceSystem': complianceReference(plan),
+            'common:approvalOfOverallCompliance': 'Not defined',
+          },
+        },
+      },
+      administrativeInformation: {
+        dataEntryBy: {
+          'common:timeStamp':
+            firstToken(plan, [
+              'administrative_information.time_stamp',
+              'administrativeInformation.timeStamp',
+            ]) ?? '1970-01-01T00:00:00.000Z',
+          'common:referenceToDataSetFormat': dataSetFormatReference(plan),
+        },
+        publicationAndOwnership: {
+          'common:dataSetVersion': version,
+          'common:permanentDataSetURI':
+            firstToken(plan, ['target.permanent_uri', 'target.permanentDataSetURI']) ??
+            `https://data.tiangong.earth/flows/${flowId}.xml`,
+          'common:referenceToOwnershipOfDataSet': contactReference(plan, 'owner'),
+        },
+      },
+      flowProperties: {
+        flowProperty: {
+          '@dataSetInternalID': '0',
+          referenceToFlowPropertyDataSet: flowPropertyReference(plan),
+          meanValue: normalizeAmount(propertyMean),
+        },
+      },
+    },
+  };
+}
+
+function buildCanonicalProcessPayload(plan: JsonObject, inputPath: string): JsonObject {
+  const baseName =
+    firstToken(plan, ['name_plan.base_name', 'namePlan.baseName']) ?? 'Unnamed process';
+  const processId = uuidFromPlan(
+    plan,
+    ['target.uuid', 'target.id', 'identity_decision.target_id', 'identityDecision.targetId'],
+    `process:${baseName}:${inputPath}`,
+  );
+  const location = firstToken(plan, ['target.geography', 'target.location']) ?? 'GLO';
+  const reference = referenceExchange(plan);
+  const exchangeEntries = exchangePlanEntries(plan);
+  const exchanges = [reference, ...exchangeEntries.filter((entry) => !entry.quantitativeReference)];
+  const annualSupply = buildAnnualSupply(plan, reference);
+  const sourceRef = evidenceSourceReference(plan);
+
+  return {
+    processDataSet: {
+      '@xmlns': 'http://lca.jrc.it/ILCD/Process',
+      '@xmlns:common': 'http://lca.jrc.it/ILCD/Common',
+      '@xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+      '@version': '1.1',
+      '@locations': '../ILCDLocations.xml',
+      '@xsi:schemaLocation': 'http://lca.jrc.it/ILCD/Process ../../schemas/ILCD_ProcessDataSet.xsd',
+      processInformation: {
+        dataSetInformation: {
+          'common:UUID': processId,
+          name: {
+            baseName: firstMultiLang(plan, ['name_plan.base_name', 'namePlan.baseName'], baseName),
+            treatmentStandardsRoutes: firstMultiLang(
+              plan,
+              ['name_plan.treatment_standards_routes', 'namePlan.treatmentStandardsRoutes'],
+              firstToken(plan, ['target.technology_route', 'target.technologyRoute']) ??
+                'Technology route documented in build plan',
+            ),
+            mixAndLocationTypes: firstMultiLang(
+              plan,
+              ['name_plan.mix_and_location_types', 'namePlan.mixAndLocationTypes'],
+              location,
+            ),
+            functionalUnitFlowProperties: firstMultiLang(
+              plan,
+              [
+                'name_plan.functional_unit_flow_properties',
+                'namePlan.functionalUnitFlowProperties',
+              ],
+              firstToken(plan, [
+                'quantitative_reference_plan.reference_unit',
+                'quantitativeReferencePlan.referenceUnit',
+              ]) ?? 'reference unit',
+            ),
+          },
+          classificationInformation: {
+            'common:classification': {
+              'common:class': classificationClasses(plan, 'process'),
+            },
+          },
+          'common:generalComment': firstMultiLang(
+            plan,
+            ['target.general_comment', 'target.generalComment', 'evidence_manifest.summary'],
+            `Process materialized from build plan ${inputPath}.`,
+          ),
+        },
+        quantitativeReference: {
+          '@type': 'Reference flow(s)',
+          referenceToReferenceFlow: String(reference['@dataSetInternalID']),
+        },
+        time: {
+          'common:referenceYear': normalizeYear(
+            firstToken(plan, [
+              'target.reference_year',
+              'target.referenceYear',
+              'time.reference_year',
+            ]),
+          ),
+          'common:timeRepresentativenessDescription': firstMultiLang(
+            plan,
+            ['time.description', 'time.timeRepresentativenessDescription'],
+            'Reference year documented in build plan evidence.',
+          ),
+        },
+        geography: {
+          locationOfOperationSupplyOrProduction: {
+            '@location': location,
+            descriptionOfRestrictions: firstMultiLang(
+              plan,
+              ['target.geography_description', 'target.geographyDescription'],
+              `Operation location: ${location}.`,
+            ),
+          },
+        },
+        technology: {
+          technologyDescriptionAndIncludedProcesses: firstMultiLang(
+            plan,
+            ['technology.description', 'technology.technologyDescriptionAndIncludedProcesses'],
+            firstToken(plan, ['target.technology_route', 'target.technologyRoute']) ??
+              'Technology route documented in build plan evidence.',
+          ),
+        },
+      },
+      modellingAndValidation: {
+        LCIMethodAndAllocation: {
+          typeOfDataSet: normalizeProcessType(
+            firstToken(plan, [
+              'modelling_and_validation.type_of_dataset',
+              'modellingAndValidation.typeOfDataSet',
+            ]),
+          ),
+          LCIMethodPrinciple:
+            firstToken(plan, [
+              'modelling_and_validation.lci_method_principle',
+              'modellingAndValidation.lciMethodPrinciple',
+            ]) ?? 'Attributional',
+        },
+        dataSourcesTreatmentAndRepresentativeness: {
+          dataCutOffAndCompletenessPrinciples: firstMultiLang(
+            plan,
+            ['modelling_and_validation.data_cutoff', 'modellingAndValidation.dataCutoff'],
+            'Cut-off and completeness principles are documented in the build plan evidence.',
+          ),
+          referenceToDataSource: sourceRef,
+          annualSupplyOrProductionVolume: annualSupply,
+        },
+        validation: {
+          review: {
+            '@type': 'Not reviewed',
+          },
+        },
+        complianceDeclarations: {
+          compliance: {
+            'common:referenceToComplianceSystem': complianceReference(plan),
+            'common:approvalOfOverallCompliance': 'Not defined',
+            'common:nomenclatureCompliance': 'Not defined',
+            'common:methodologicalCompliance': 'Not defined',
+            'common:reviewCompliance': 'Not defined',
+            'common:documentationCompliance': 'Not defined',
+            'common:qualityCompliance': 'Not defined',
+          },
+        },
+      },
+      administrativeInformation: {
+        'common:commissionerAndGoal': {
+          'common:referenceToCommissioner': contactReference(plan, 'commissioner'),
+          'common:intendedApplications': firstMultiLang(
+            plan,
+            [
+              'administrative_information.intended_applications',
+              'administrativeInformation.intendedApplications',
+            ],
+            'Automated LCA data production draft for expert review.',
+          ),
+        },
+        dataEntryBy: {
+          'common:timeStamp':
+            firstToken(plan, [
+              'administrative_information.time_stamp',
+              'administrativeInformation.timeStamp',
+            ]) ?? '1970-01-01T00:00:00.000Z',
+          'common:referenceToDataSetFormat': dataSetFormatReference(plan),
+          'common:referenceToPersonOrEntityEnteringTheData': contactReference(plan, 'data_entry'),
+        },
+        publicationAndOwnership: {
+          'common:dataSetVersion': normalizeVersion(
+            firstToken(plan, [
+              'target.version',
+              'publication.version',
+              'administrative_information.version',
+            ]),
+          ),
+          'common:permanentDataSetURI':
+            firstToken(plan, ['target.permanent_uri', 'target.permanentDataSetURI']) ??
+            `https://data.tiangong.earth/processes/${processId}.xml`,
+          'common:referenceToOwnershipOfDataSet': contactReference(plan, 'owner'),
+          'common:copyright': 'false',
+          'common:licenseType': 'Free of charge for all users and uses',
+        },
+      },
+      exchanges: {
+        exchange: exchanges,
+      },
+    },
+  };
 }
 
 function isNonEmptyArray(value: unknown): value is unknown[] {
@@ -517,22 +1240,9 @@ function materializePlan(plan: JsonObject, kind: BuildPlanKind, inputPath: strin
   if (isRecord(payload)) {
     return cloneJson(payload);
   }
-  return {
-    schema_version: 1,
-    kind,
-    source_build_plan: inputPath,
-    target: cloneJson(firstValue(plan, ['target']) ?? {}),
-    identity_decision: cloneJson(firstValue(plan, ['identity_decision', 'identityDecision']) ?? {}),
-    evidence_manifest: cloneJson(firstValue(plan, ['evidence_manifest', 'evidenceManifest']) ?? {}),
-    name_plan: cloneJson(firstValue(plan, ['name_plan', 'namePlan']) ?? {}),
-    quantitative_reference_plan: cloneJson(
-      firstValue(plan, ['quantitative_reference_plan', 'quantitativeReferencePlan']) ?? {},
-    ),
-    flow_property_plan: cloneJson(
-      firstValue(plan, ['flow_property_plan', 'flowPropertyPlan']) ?? {},
-    ),
-    exchange_plan: cloneJson(firstValue(plan, ['exchange_plan', 'exchangePlan']) ?? {}),
-  };
+  return kind === 'process'
+    ? buildCanonicalProcessPayload(plan, inputPath)
+    : buildCanonicalFlowPayload(plan, inputPath);
 }
 
 function emptySchemaValidation(): SchemaValidationSummary {
@@ -681,4 +1391,8 @@ export const __testInternals = {
   loadBuildPlan,
   materializePlan,
   validateMaterializedSchema,
+  buildCanonicalFlowPayload,
+  buildCanonicalProcessPayload,
+  buildAnnualSupply,
+  multiLangFromValue,
 };

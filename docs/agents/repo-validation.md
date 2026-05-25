@@ -27,8 +27,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-05-22
-lastReviewedCommit: 1a0713ac6ed7abb26ca9e4c45f8b8b56920b8d07
+lastReviewedAt: 2026-05-23
+lastReviewedCommit: b5f9d561e9fca8d67189fa2dc7c4397f5d553e07
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -67,8 +67,8 @@ scripts/docpact lint --root . --base <base> --head <head> --mode enforce
 | Change type | Minimum local proof | Additional proof when risk is higher | Notes |
 | --- | --- | --- | --- |
 | `bin/**`, `src/main.ts`, or `src/cli.ts` | `npm run lint`; `npm test`; `npm run build` | run the relevant `tiangong-lca --help` or subcommand help path after build | Launcher and dispatch changes affect the public command surface directly. |
-| session, auth, env, or remote adapter helpers under `src/lib/{dotenv,env,user-api-key,supabase-*,remote,http}*` | `npm run lint`; `npm test`; `npm run build` | run focused tests for the touched helper plus one command that exercises the changed path | Record any required live env assumptions in the PR note. |
-| flow, process, dataset, lifecyclemodel, review, publish, or run command families | `npm run lint`; `npm test`; `npm run build` | run focused tests for the touched command family; run `npm run test:coverage:assert-full` if the change touched uncovered branches; prefer `npm run prepush:gate` when the change adds new command paths | Preserve the low-entropy command contract and structured artifact outputs, including BuildPlan gate reports when authoring commands are involved. |
+| session, auth, env, or remote adapter helpers under `src/lib/{dotenv,env,user-api-key,supabase-*,remote,http}*`, plus command-local remote adapters such as explicit identity-preflight hybrid search | `npm run lint`; `npm test`; `npm run build` | run focused tests for the touched helper plus one command that exercises the changed path | Record any required live env assumptions in the PR note. |
+| flow, process, dataset, lifecyclemodel, review, publish, or run command families | `npm run lint`; `npm test`; `npm run build` | run focused tests for the touched command family; run `npm run test:coverage:assert-full` if the change touched uncovered branches; prefer `npm run prepush:gate` when the change adds new command paths | Preserve the low-entropy command contract and structured artifact outputs, including BuildPlan, review/dedup ruleset, publish schema, and verification gate reports when authoring or publish commands are involved. |
 | artifact, IO, or state-lock behavior | `npm run lint`; `npm test`; `npm run build` | run one representative command path that writes the changed artifact layout, if safe | Path and file layout regressions matter for downstream automation. |
 | `test/**` or coverage gate scripts | `npm run lint`; `npm test`; `npm run test:coverage`; `npm run test:coverage:assert-full` | run `npm run prepush:gate` when the change affects the protected-branch gate directly | Coverage for `src/**/*.ts` is expected to remain at `100%`. |
 | `package.json`, `.nvmrc`, `scripts/ci/**`, or `.github/workflows/**` | `npm run lint`; `npm test`; `npm run build` | run `npm run prepush:gate`; run `docpact lint` when the change affects release or documentation gates | Release-tag checks, workflow guards, and dependency baselines change the repo contract. |
@@ -81,7 +81,7 @@ Facts that matter:
 - `npm run test:coverage` is the full coverage proof
 - `npm run test:coverage:assert-full` verifies the latest coverage artifact without rerunning coverage
 - `npm run prepush:gate` is the exact protected-branch gate
-- `process save-draft`, `lifecyclemodel save-draft`, dataset governance commands, BuildPlan gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, or fallback branches
+- `process save-draft`, `lifecyclemodel save-draft`, dataset governance commands, BuildPlan gates, publish schema/verification gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, or fallback branches
 - release-tag and docpact lint workflow changes should be described in the PR note when they alter the local or protected-branch proof
 
 If the task changes control flow, add or update tests instead of using coverage-ignore pragmas.

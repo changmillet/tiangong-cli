@@ -283,6 +283,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
     /tiangong-lca flow identity-preflight --input <file>/u,
   );
   assert.match(flowIdentityPreflightHelp.stdout, /identity-candidates\.jsonl/u);
+  assert.match(flowIdentityPreflightHelp.stdout, /identity-candidate-sources\.json/u);
   assert.doesNotMatch(flowIdentityPreflightHelp.stdout, /Planned command/u);
 
   const flowBuildPlanHelp = await executeCli(['flow', 'build-plan', '--help'], makeDeps());
@@ -1431,6 +1432,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
     /tiangong-lca process identity-preflight --input <file>/u,
   );
   assert.match(identityPreflightHelp.stdout, /identity-decision\.json/u);
+  assert.match(identityPreflightHelp.stdout, /identity-candidate-sources\.json/u);
   assert.doesNotMatch(identityPreflightHelp.stdout, /Planned command/u);
 
   const processBuildPlanHelp = await executeCli(['process', 'build-plan', '--help'], makeDeps());
@@ -1863,6 +1865,15 @@ test('executeCli executes process identity-preflight with injected implementatio
       '--json',
       '--input',
       '/tmp/process-preflight.json',
+      '--candidate-input',
+      '/tmp/candidates-a.jsonl',
+      '--candidate-input',
+      '/tmp/candidate-dir',
+      '--remote-candidates',
+      '--remote-query',
+      'grid electricity',
+      '--remote-limit',
+      '3',
       '--out-dir',
       '/tmp/process-preflight',
     ],
@@ -1871,6 +1882,13 @@ test('executeCli executes process identity-preflight with injected implementatio
       runProcessIdentityPreflightImpl: async (options) => {
         assert.equal(options.inputPath, '/tmp/process-preflight.json');
         assert.equal(options.outDir, '/tmp/process-preflight');
+        assert.deepEqual(options.candidateInputPaths, [
+          '/tmp/candidates-a.jsonl',
+          '/tmp/candidate-dir',
+        ]);
+        assert.equal(options.remoteCandidateSearch, true);
+        assert.equal(options.remoteQuery, 'grid electricity');
+        assert.equal(options.remoteLimit, 3);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',
@@ -1904,6 +1922,7 @@ test('executeCli executes process identity-preflight with injected implementatio
               decision_hint: 'block_duplicate',
             },
           ],
+          candidate_sources: [],
           findings: [
             {
               code: 'process_duplicate_candidate',
@@ -1924,6 +1943,7 @@ test('executeCli executes process identity-preflight with injected implementatio
           files: {
             identity_decision: null,
             candidates: null,
+            candidate_sources: null,
           },
         };
       },
@@ -1961,12 +1981,14 @@ test('executeCli maps process identity-preflight success and argument errors', a
           },
         },
         candidates: [],
+        candidate_sources: [],
         findings: [],
         blockers: [],
         next_action: 'materialize_new_payload',
         files: {
           identity_decision: null,
           candidates: null,
+          candidate_sources: null,
         },
       }),
     },
@@ -1981,6 +2003,20 @@ test('executeCli maps process identity-preflight success and argument errors', a
   );
   assert.equal(invalid.exitCode, 2);
   assert.match(invalid.stderr, /Unknown option/u);
+
+  const invalidRemoteLimit = await executeCli(
+    [
+      'process',
+      'identity-preflight',
+      '--input',
+      '/tmp/process-preflight.json',
+      '--remote-limit',
+      '0',
+    ],
+    makeDeps(),
+  );
+  assert.equal(invalidRemoteLimit.exitCode, 2);
+  assert.match(invalidRemoteLimit.stderr, /positive integer/u);
 });
 
 test('executeCli executes process build-plan validate and materialize with injected implementations', async () => {
@@ -2408,12 +2444,25 @@ test('executeCli parses non-all flow list pagination flags', async () => {
 
 test('executeCli executes flow identity-preflight with injected implementation', async () => {
   const result = await executeCli(
-    ['flow', 'identity-preflight', '--input', '/tmp/flow-preflight.json'],
+    [
+      'flow',
+      'identity-preflight',
+      '--input',
+      '/tmp/flow-preflight.json',
+      '--remote-candidates',
+      '--remote-query',
+      'electricity flow',
+      '--remote-limit',
+      '2',
+    ],
     {
       ...makeDeps(),
       runFlowIdentityPreflightImpl: async (options) => {
         assert.equal(options.inputPath, '/tmp/flow-preflight.json');
         assert.equal(options.outDir, null);
+        assert.equal(options.remoteCandidateSearch, true);
+        assert.equal(options.remoteQuery, 'electricity flow');
+        assert.equal(options.remoteLimit, 2);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',
@@ -2436,6 +2485,7 @@ test('executeCli executes flow identity-preflight with injected implementation',
             },
           },
           candidates: [],
+          candidate_sources: [],
           findings: [
             {
               code: 'flow_no_duplicate_candidate',
@@ -2448,6 +2498,7 @@ test('executeCli executes flow identity-preflight with injected implementation',
           files: {
             identity_decision: null,
             candidates: null,
+            candidate_sources: null,
           },
         };
       },
@@ -2485,6 +2536,7 @@ test('executeCli maps flow identity-preflight blocker reports to exit code 1', a
           },
         },
         candidates: [],
+        candidate_sources: [],
         findings: [],
         blockers: [
           {
@@ -2497,6 +2549,7 @@ test('executeCli maps flow identity-preflight blocker reports to exit code 1', a
         files: {
           identity_decision: null,
           candidates: null,
+          candidate_sources: null,
         },
       }),
     },
@@ -2639,6 +2692,7 @@ test('executeCli executes process auto-build with injected implementation', asyn
               source_policy: path.join(dir, 'run-root', 'request', 'source-policy.json'),
               flow_summary: path.join(dir, 'run-root', 'manifests', 'flow-summary.json'),
               input_manifest: path.join(dir, 'run-root', 'input', 'input_manifest.json'),
+              build_plan: path.join(dir, 'run-root', 'manifests', 'process-build-plan.json'),
               assembly_plan: path.join(dir, 'run-root', 'manifests', 'assembly-plan.json'),
               lineage_manifest: path.join(dir, 'run-root', 'manifests', 'lineage-manifest.json'),
               invocation_index: path.join(dir, 'run-root', 'manifests', 'invocation-index.json'),
@@ -3728,7 +3782,29 @@ test('executeCli executes publish run with mode overrides and compact JSON outpu
               normalized_request: path.join(dir, 'out', 'normalized-request.json'),
               collected_inputs: path.join(dir, 'out', 'collected-inputs.json'),
               relation_manifest: path.join(dir, 'out', 'relation-manifest.json'),
+              verification_report: path.join(dir, 'out', 'verification-report.json'),
               publish_report: path.join(dir, 'out', 'publish-report.json'),
+            },
+            verification: {
+              schema_version: 1,
+              generated_at_utc: '2026-03-28T00:00:00.000Z',
+              command: 'publish run',
+              status: 'passed',
+              ruleset_id: 'publish-run/default',
+              ruleset_version: '1',
+              ruleset_source_version: '2026.05.23',
+              ruleset_rule_ids: ['tidas.publish.verification.required'],
+              commit: true,
+              findings: [],
+              blockers: [],
+              next_action: 'ready_for_commit_or_publish',
+              counts: {
+                findings: 0,
+                blockers: 0,
+                failed: 0,
+                deferred: 0,
+                executed: 0,
+              },
             },
             lifecyclemodels: [],
             processes: [],
@@ -3784,7 +3860,29 @@ test('executeCli maps publish dry-run override and completed_with_failures exit 
             normalized_request: path.join(dir, 'out', 'normalized-request.json'),
             collected_inputs: path.join(dir, 'out', 'collected-inputs.json'),
             relation_manifest: path.join(dir, 'out', 'relation-manifest.json'),
+            verification_report: path.join(dir, 'out', 'verification-report.json'),
             publish_report: path.join(dir, 'out', 'publish-report.json'),
+          },
+          verification: {
+            schema_version: 1,
+            generated_at_utc: '2026-03-28T00:00:00.000Z',
+            command: 'publish run',
+            status: 'blocked',
+            ruleset_id: 'publish-run/default',
+            ruleset_version: '1',
+            ruleset_source_version: '2026.05.23',
+            ruleset_rule_ids: ['tidas.publish.verification.required'],
+            commit: false,
+            findings: [],
+            blockers: [],
+            next_action: 'fix_blockers',
+            counts: {
+              findings: 0,
+              blockers: 0,
+              failed: 1,
+              deferred: 0,
+              executed: 0,
+            },
           },
           lifecyclemodels: [],
           processes: [],
@@ -4705,6 +4803,18 @@ test('executeCli dispatches flow publish-version to the implemented CLI module',
               success_count: 2,
               failure_count: 0,
             },
+            flow_gate: {
+              status: 'passed',
+              ruleset_id: 'flow-publish/default',
+              ruleset_version: '1',
+              counts: {
+                total: 2,
+                valid: 2,
+                invalid: 0,
+              },
+              blocker_count: 0,
+              next_action: 'query_remote_write_plan',
+            },
             operation_counts: {
               insert: 1,
               update_existing: 1,
@@ -4722,6 +4832,11 @@ test('executeCli dispatches flow publish-version to the implemented CLI module',
                 dir,
                 'publish-version',
                 'flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl',
+              ),
+              gate_report: path.join(
+                dir,
+                'publish-version',
+                'flow-publish-version-gate-report.json',
               ),
               report: path.join(
                 dir,
@@ -5415,6 +5530,18 @@ test('executeCli maps flow publish-version failure reports to exit code 1', asyn
             success_count: 0,
             failure_count: 1,
           },
+          flow_gate: {
+            status: 'blocked',
+            ruleset_id: 'flow-publish/default',
+            ruleset_version: '1',
+            counts: {
+              total: 1,
+              valid: 0,
+              invalid: 1,
+            },
+            blocker_count: 1,
+            next_action: 'fix_flow_payloads',
+          },
           operation_counts: {},
           max_workers: 4,
           limit: null,
@@ -5430,6 +5557,7 @@ test('executeCli maps flow publish-version failure reports to exit code 1', asyn
               'publish-version',
               'flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl',
             ),
+            gate_report: path.join(dir, 'publish-version', 'flow-publish-version-gate-report.json'),
             report: path.join(
               dir,
               'publish-version',

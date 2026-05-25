@@ -207,6 +207,16 @@ import {
   type RunDatasetReferencesRewriteOptions,
 } from './lib/dataset-references-rewrite.js';
 import {
+  runDatasetRemoteRefresh,
+  type DatasetRemoteRefreshReport,
+  type RunDatasetRemoteRefreshOptions,
+} from './lib/dataset-remote-refresh.js';
+import {
+  runDatasetRemoteVerify,
+  type DatasetRemoteVerificationReport,
+  type RunDatasetRemoteVerifyOptions,
+} from './lib/dataset-remote-verify.js';
+import {
   runDatasetBilingualApply,
   runDatasetBilingualExtract,
   runDatasetBilingualValidate,
@@ -338,6 +348,12 @@ export type CliDeps = {
   runDatasetReferencesRewriteImpl?: (
     options: RunDatasetReferencesRewriteOptions,
   ) => Promise<DatasetReferencesRewriteReport>;
+  runDatasetRemoteRefreshImpl?: (
+    options: RunDatasetRemoteRefreshOptions,
+  ) => Promise<DatasetRemoteRefreshReport>;
+  runDatasetRemoteVerifyImpl?: (
+    options: RunDatasetRemoteVerifyOptions,
+  ) => Promise<DatasetRemoteVerificationReport>;
   runDatasetBilingualExtractImpl?: (
     options: RunDatasetBilingualExtractOptions,
   ) => Promise<DatasetBilingualExtractReport>;
@@ -379,7 +395,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    validate | bilingual extract/apply/validate | references rewrite
+  dataset    validate | verify-remote | bilingual extract/apply/validate | references rewrite/refresh-remote
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
@@ -412,6 +428,7 @@ Examples:
   tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
   tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir /abs/path/to/dataset-validate
+  tiangong-lca dataset verify-remote --input ./rows.jsonl --out-dir /abs/path/to/dataset-remote-verify
   tiangong-lca dataset bilingual extract --input ./rows/processes.jsonl --type process --out-dir ./translation
   tiangong-lca dataset bilingual apply --input ./rows/processes.jsonl --translations ./translation/trans-reviewed.jsonl --out ./rows/processes.translated.jsonl
   tiangong-lca dataset bilingual validate --input ./rows/processes.translated.jsonl --type process --out-dir ./translation-validate
@@ -524,6 +541,13 @@ Options:
 
 Path rule:
   Relative out_dir values from the request body or --out-dir resolve from the request file directory.
+
+Outputs written under out_dir:
+  - normalized-request.json
+  - collected-inputs.json
+  - relation-manifest.json
+  - verification-report.json
+  - publish-report.json
 `.trim();
 }
 
@@ -546,17 +570,42 @@ function renderDatasetHelp(): string {
 
 Implemented Subcommands:
   validate             Validate local flow / process / lifecyclemodel rows with the TIDAS SDK
+  verify-remote        Verify dataset roots and TIDAS references against remote published versions
   bilingual extract    Extract bilingual translation units from local rows
   bilingual apply      Apply reviewed bilingual translations back to local rows
   bilingual validate   Validate bilingual rows with deterministic scans and schema/review gates
   references rewrite   Rewrite flow references in local process and lifecyclemodel rows
+  references refresh-remote Refresh local TIDAS reference versions to latest reachable remote rows
 
 Examples:
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --help
+  tiangong-lca dataset verify-remote --input ./rows.jsonl --out-dir ./dataset-remote-verify --help
   tiangong-lca dataset bilingual extract --input ./rows.jsonl --type process --out-dir ./translation --help
   tiangong-lca dataset bilingual apply --input ./rows.jsonl --translations ./trans-reviewed.jsonl --out ./rows.translated.jsonl --help
   tiangong-lca dataset bilingual validate --input ./rows.translated.jsonl --type process --out-dir ./translation-validate --help
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
+  tiangong-lca dataset references refresh-remote --input ./rows.jsonl --out ./rows.refreshed.jsonl --out-dir ./dataset-reference-refresh --help
+`.trim();
+}
+
+function renderDatasetRemoteVerifyHelp(): string {
+  return `Usage:
+  tiangong-lca dataset verify-remote --input <file> --out-dir <dir> [options]
+
+Options:
+  --input <file>         Local rows as JSON or JSONL; objects with rows[] are also accepted
+  --out-dir <dir>        Artifact directory for the remote verification report
+  --root-policy <mode>   existing | candidate (default: existing)
+  --json                 Print compact JSON
+  -h, --help
+
+Environment:
+  TIANGONG_LCA_API_BASE_URL, TIANGONG_LCA_API_KEY, and TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY
+
+Outputs written under --out-dir:
+  - outputs/remote-verification-report.json
+  - outputs/remote-verification.jsonl
+  - outputs/blockers.jsonl
 `.trim();
 }
 
@@ -658,19 +707,27 @@ Outputs written under --out-dir:
 
 function renderDatasetReferencesHelp(): string {
   return `Usage:
+  tiangong-lca dataset references <rewrite|refresh-remote> [options]
+
+Rewrite:
   tiangong-lca dataset references rewrite --input <file> --from flow:<id>[@<version>] --to flow:<id>[@<version>] [options]
+
+Refresh remote versions:
+  tiangong-lca dataset references refresh-remote --input <file> --out <file> --out-dir <dir> [options]
 
 Options:
   --input <file>   Local rows as JSON or JSONL; process and lifecyclemodel rows are supported
   --from <ref>     Source flow reference, for example flow:<old-id>@01.00.000
   --to <ref>       Target flow reference, for example flow:<new-id>@01.01.000
-  --type <type>    Repeatable row type filter: process | lifecyclemodel (default: both)
-  --types <csv>    Comma-separated alias for one or more row types
-  --scope <label>  Optional artifact label for the already-frozen input scope
-  --out-dir <dir>  Artifact directory for rewrite plan and patched rows
-  --commit         Execute state-aware save-draft writes for patched rows
-  --dry-run        Keep the command local-only (default)
-  --json           Print compact JSON
+  --out <file>           Output JSONL path for refresh-remote patched rows
+  --root-policy <mode>   existing | candidate for refresh-remote root rows (default: existing)
+  --type <type>          Repeatable row type filter: process | lifecyclemodel (default: both)
+  --types <csv>          Comma-separated alias for one or more row types
+  --scope <label>        Optional artifact label for the already-frozen input scope
+  --out-dir <dir>        Artifact directory for rewrite plan and patched rows
+  --commit               Execute state-aware save-draft writes for patched rows
+  --dry-run              Keep the command local-only (default)
+  --json                 Print compact JSON
   -h, --help
 
 Environment:
@@ -682,6 +739,10 @@ Outputs written under --out-dir:
   - outputs/patched-rows.jsonl
   - outputs/rewrite-plan.json
   - outputs/summary.json
+  - outputs/remote-refresh-report.json
+  - outputs/remote-refresh-patches.jsonl
+  - pre-refresh-verify/outputs/remote-verification-report.json
+  - post-refresh-verify/outputs/remote-verification-report.json
 `.trim();
 }
 
@@ -731,7 +792,7 @@ function renderFlowBuildPlanHelp(): string {
   tiangong-lca flow build-plan <validate|materialize> --input <file> [options]
 
 Options:
-  --input <file>     JSON flow build plan
+  --input <file>     JSON flow build plan; materialize writes a canonical flowDataSet
   --out-dir <dir>    Optional artifact directory for gate outputs
   --report-only      Print blocker reports with exit code 0
   --json             Print compact JSON
@@ -749,6 +810,14 @@ function renderFlowIdentityPreflightHelp(): string {
 
 Options:
   --input <file>   JSON preflight request with target flow and optional candidates
+  --candidate-input <path>
+                   Optional JSON/JSONL file or directory of candidate flow rows; repeatable
+  --remote-candidates
+                   Also fetch candidate rows from flow_hybrid_search
+  --remote-query <text>
+                   Override the remote search query; defaults to target identity text
+  --remote-limit <n>
+                   Limit remote candidate rows after fetch
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -762,6 +831,7 @@ Input contract:
 Outputs written under --out-dir:
   - outputs/identity-decision.json
   - outputs/identity-candidates.jsonl
+  - outputs/identity-candidate-sources.json
 `.trim();
 }
 
@@ -906,6 +976,7 @@ Environment:
 Outputs written under --out-dir:
   - flows_tidas_sdk_plus_classification_mcp_success_list.json
   - flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl
+  - flow-publish-version-gate-report.json
   - flows_tidas_sdk_plus_classification_mcp_sync_report.json
 `.trim();
 }
@@ -942,6 +1013,7 @@ Outputs written under --out-dir:
   - publish-report.json
   - flows_tidas_sdk_plus_classification_mcp_success_list.json
   - flows_tidas_sdk_plus_classification_remote_validation_failed.jsonl
+  - flow-publish-version-gate-report.json
   - flows_tidas_sdk_plus_classification_mcp_sync_report.json
 `.trim();
 }
@@ -1451,6 +1523,14 @@ function renderProcessIdentityPreflightHelp(): string {
 
 Options:
   --input <file>   JSON preflight request with target process and optional candidates
+  --candidate-input <path>
+                   Optional JSON/JSONL file or directory of candidate process rows; repeatable
+  --remote-candidates
+                   Also fetch candidate rows from process_hybrid_search
+  --remote-query <text>
+                   Override the remote search query; defaults to target identity text
+  --remote-limit <n>
+                   Limit remote candidate rows after fetch
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -1464,6 +1544,7 @@ Input contract:
 Outputs written under --out-dir:
   - outputs/identity-decision.json
   - outputs/identity-candidates.jsonl
+  - outputs/identity-candidate-sources.json
 `.trim();
 }
 
@@ -1702,7 +1783,7 @@ function renderProcessBuildPlanHelp(): string {
   tiangong-lca process build-plan <validate|materialize> --input <file> [options]
 
 Options:
-  --input <file>     JSON process build plan
+  --input <file>     JSON process build plan; materialize writes a canonical processDataSet
   --out-dir <dir>    Optional artifact directory for gate outputs
   --report-only      Print blocker reports with exit code 0
   --json             Print compact JSON
@@ -2001,6 +2082,53 @@ function parseDatasetValidateFlags(args: string[]): {
   };
 }
 
+function parseDatasetRemoteVerifyFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string;
+  rootPolicy: 'existing' | 'candidate';
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'root-policy': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const rawRootPolicy =
+    typeof values['root-policy'] === 'string' ? values['root-policy'] : 'existing';
+  if (!['existing', 'candidate'].includes(rawRootPolicy)) {
+    throw new CliError("--root-policy must be 'existing' or 'candidate'.", {
+      code: 'DATASET_REMOTE_VERIFY_ROOT_POLICY_INVALID',
+      exitCode: 2,
+    });
+  }
+  const rootPolicy = rawRootPolicy as 'existing' | 'candidate';
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    rootPolicy,
+  };
+}
+
 function parseDatasetBilingualExtractFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -2189,11 +2317,13 @@ function parseDatasetReferencesRewriteFlags(args: string[]): {
   };
 }
 
-function parseIdentityPreflightFlags(args: string[]): {
+function parseDatasetReferencesRefreshRemoteFlags(args: string[]): {
   help: boolean;
   json: boolean;
   inputPath: string;
-  outDir: string | null;
+  outPath: string;
+  outDir: string;
+  rootPolicy: 'existing' | 'candidate';
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -2205,6 +2335,62 @@ function parseIdentityPreflightFlags(args: string[]): {
         help: { type: 'boolean', short: 'h' },
         json: { type: 'boolean' },
         input: { type: 'string' },
+        out: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'root-policy': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const rawRootPolicy =
+    typeof values['root-policy'] === 'string' ? values['root-policy'] : 'existing';
+  if (!['existing', 'candidate'].includes(rawRootPolicy)) {
+    throw new CliError("--root-policy must be 'existing' or 'candidate'.", {
+      code: 'DATASET_REMOTE_REFRESH_ROOT_POLICY_INVALID',
+      exitCode: 2,
+    });
+  }
+  const rootPolicy = rawRootPolicy as 'existing' | 'candidate';
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    outPath: typeof values.out === 'string' ? values.out : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    rootPolicy,
+  };
+}
+
+function parseIdentityPreflightFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  outDir: string | null;
+  candidateInputPaths: string[];
+  remoteCandidateSearch: boolean;
+  remoteQuery: string | null;
+  remoteLimit: number | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'candidate-input': { type: 'string', multiple: true },
+        'remote-candidates': { type: 'boolean' },
+        'remote-query': { type: 'string' },
+        'remote-limit': { type: 'string' },
         'out-dir': { type: 'string' },
       },
     }));
@@ -2215,11 +2401,31 @@ function parseIdentityPreflightFlags(args: string[]): {
     });
   }
 
+  const candidateInputValue = values['candidate-input'];
+  const parseRemoteLimit = (value: unknown): number | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new CliError('Expected --remote-limit to be a positive integer.', {
+        code: 'INVALID_IDENTITY_PREFLIGHT_REMOTE_LIMIT',
+        exitCode: 2,
+      });
+    }
+    return parsed;
+  };
   return {
     help: Boolean(values.help),
     json: Boolean(values.json),
     inputPath: typeof values.input === 'string' ? values.input : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    candidateInputPaths: Array.isArray(candidateInputValue)
+      ? candidateInputValue.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+    remoteCandidateSearch: Boolean(values['remote-candidates']),
+    remoteQuery: typeof values['remote-query'] === 'string' ? values['remote-query'] : null,
+    remoteLimit: parseRemoteLimit(values['remote-limit']),
   };
 }
 
@@ -4384,6 +4590,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
     const datasetReferencesRewriteImpl =
       deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
+    const datasetRemoteRefreshImpl = deps.runDatasetRemoteRefreshImpl ?? runDatasetRemoteRefresh;
+    const datasetRemoteVerifyImpl = deps.runDatasetRemoteVerifyImpl ?? runDatasetRemoteVerify;
     const datasetBilingualExtractImpl =
       deps.runDatasetBilingualExtractImpl ?? runDatasetBilingualExtract;
     const datasetBilingualApplyImpl = deps.runDatasetBilingualApplyImpl ?? runDatasetBilingualApply;
@@ -4461,6 +4669,27 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
+    if (command === 'dataset' && subcommand === 'verify-remote') {
+      const datasetFlags = parseDatasetRemoteVerifyFlags(commandArgs);
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetRemoteVerifyHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetRemoteVerifyImpl({
+        inputPath: datasetFlags.inputPath,
+        outDir: datasetFlags.outDir,
+        rootPolicy: datasetFlags.rootPolicy,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode: report.status === 'blocked_remote_verification' ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
     if (command === 'dataset' && subcommand === 'bilingual') {
       const action = commandArgs[0] ?? '';
       if (!action || action === '--help' || action === '-h') {
@@ -4533,11 +4762,31 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       if (!action || action === '--help' || action === '-h') {
         return { exitCode: 0, stdout: `${renderDatasetReferencesHelp()}\n`, stderr: '' };
       }
-      if (action !== 'rewrite') {
-        throw new CliError("dataset references action must be 'rewrite'.", {
+      if (!['rewrite', 'refresh-remote'].includes(action)) {
+        throw new CliError("dataset references action must be 'rewrite' or 'refresh-remote'.", {
           code: 'INVALID_ARGS',
           exitCode: 2,
         });
+      }
+
+      if (action === 'refresh-remote') {
+        const datasetFlags = parseDatasetReferencesRefreshRemoteFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetReferencesHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetRemoteRefreshImpl({
+          inputPath: datasetFlags.inputPath,
+          outPath: datasetFlags.outPath,
+          outDir: datasetFlags.outDir,
+          rootPolicy: datasetFlags.rootPolicy,
+          env: deps.env,
+          fetchImpl: deps.fetchImpl,
+        });
+        return {
+          exitCode: report.status === 'completed_with_blockers' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
       }
 
       const datasetFlags = parseDatasetReferencesRewriteFlags(commandArgs.slice(1));
@@ -4847,6 +5096,12 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       const report = await processIdentityPreflightImpl({
         inputPath: processFlags.inputPath,
         outDir: processFlags.outDir,
+        candidateInputPaths: processFlags.candidateInputPaths,
+        remoteCandidateSearch: processFlags.remoteCandidateSearch,
+        remoteQuery: processFlags.remoteQuery,
+        remoteLimit: processFlags.remoteLimit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
       });
 
       return {
@@ -5203,6 +5458,12 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       const report = await flowIdentityPreflightImpl({
         inputPath: flowFlags.inputPath,
         outDir: flowFlags.outDir,
+        candidateInputPaths: flowFlags.candidateInputPaths,
+        remoteCandidateSearch: flowFlags.remoteCandidateSearch,
+        remoteQuery: flowFlags.remoteQuery,
+        remoteLimit: flowFlags.remoteLimit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
       });
 
       return {

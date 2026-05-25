@@ -1,7 +1,7 @@
 version: 1
 layout: repo
-lastReviewedAt: "2026-05-22"
-lastReviewedCommit: "a9d1104a9e28f6675bf942639f03db450daf9e0a"
+lastReviewedAt: "2026-05-23"
+lastReviewedCommit: "b5f9d561e9fca8d67189fa2dc7c4397f5d553e07"
 
 catalog:
   repos:
@@ -59,6 +59,7 @@ ownership:
           - src/lib/publish.ts
           - src/lib/review-*.ts
           - src/lib/run.ts
+          - src/lib/runtime-rulesets.ts
           - src/lib/state-lock.ts
           - src/lib/tidas-sdk-validation.ts
           - src/lib/tidas-sdk-package-validator.ts
@@ -142,7 +143,7 @@ coverage:
     - dist/**
     - coverage/**
     - artifacts/**
-    - "*.log"
+    - '*.log'
     - package-lock.json
 
 freshness:
@@ -194,6 +195,7 @@ routing:
         - src/lib/publish.ts
         - src/lib/review-*.ts
         - src/lib/run.ts
+        - src/lib/runtime-rulesets.ts
         - src/lib/state-lock.ts
         - docs/IMPLEMENTATION_GUIDE_CN.md
     tidas-sdk-validation:
@@ -381,6 +383,8 @@ rules:
       - path: src/lib/review-*.ts
         kind: command-logic
       - path: src/lib/run.ts
+        kind: command-logic
+      - path: src/lib/runtime-rulesets.ts
         kind: command-logic
       - path: src/lib/state-lock.ts
         kind: artifact-runtime
