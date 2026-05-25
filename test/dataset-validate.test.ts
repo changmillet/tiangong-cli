@@ -36,6 +36,42 @@ function readJsonl(filePath: string): unknown[] {
     .map((line) => JSON.parse(line));
 }
 
+function validProcessPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    processDataSet: {
+      modellingAndValidation: {
+        dataSourcesTreatmentAndRepresentativeness: {
+          annualSupplyOrProductionVolume: [
+            { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
+            { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
+          ],
+        },
+        validation: {
+          review: {
+            '@type': 'Not reviewed',
+          },
+        },
+        complianceDeclarations: {
+          compliance: {
+            'common:referenceToComplianceSystem': {
+              '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+              '@type': 'source data set',
+              '@version': '00.00.001',
+            },
+            'common:approvalOfOverallCompliance': 'Not defined',
+            'common:nomenclatureCompliance': 'Not defined',
+            'common:methodologicalCompliance': 'Not defined',
+            'common:reviewCompliance': 'Not defined',
+            'common:documentationCompliance': 'Not defined',
+            'common:qualityCompliance': 'Not defined',
+          },
+        },
+      },
+    },
+    ...overrides,
+  };
+}
+
 const schemas = {
   flow: {
     safeParse: (value: unknown) => ({ success: !(value as { invalid?: boolean }).invalid }),
@@ -59,12 +95,12 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
     {
       id: 'proc-ok',
       version: '01.01.000',
-      json_ordered: { processDataSet: {} },
+      json_ordered: validProcessPayload(),
     },
     {
       id: 'proc-bad',
       version: '01.01.000',
-      json_ordered: { processDataSet: {}, invalid: true },
+      json_ordered: validProcessPayload({ invalid: true }),
     },
     {
       id: 'flow-ok',
@@ -100,6 +136,63 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('runDatasetValidate treats process placeholders as invalid authoring content', async () => {
+  const report = await runDatasetValidate({
+    inputPath: 'memory',
+    type: 'process',
+    rawInput: [
+      {
+        id: 'proc-placeholder',
+        json_ordered: validProcessPayload({
+          processDataSet: {
+            modellingAndValidation: {
+              dataSourcesTreatmentAndRepresentativeness: {
+                annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
+              },
+              validation: {
+                review: {
+                  '@type': 'Not reviewed',
+                },
+                reviewDetails: {
+                  '#text': 'Review summary pending confirmation.',
+                  '@xml:lang': 'en',
+                },
+              },
+              complianceDeclarations: {
+                compliance: {
+                  'common:referenceToComplianceSystem': {
+                    '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
+                    '@type': 'source data set',
+                    '@version': '00.00.001',
+                  },
+                  'common:approvalOfOverallCompliance': 'Not defined',
+                  'common:nomenclatureCompliance': 'Not defined',
+                  'common:methodologicalCompliance': 'Not defined',
+                  'common:reviewCompliance': 'Not defined',
+                  'common:documentationCompliance': 'Not defined',
+                  'common:qualityCompliance': 'Not defined',
+                },
+              },
+            },
+          },
+        }),
+      },
+    ],
+    schemas,
+  });
+
+  assert.equal(report.status, 'completed_with_failures');
+  assert.equal(report.counts.invalid, 1);
+  assert.deepEqual(report.rows[0]?.issues, [
+    {
+      path: 'processDataSet.modellingAndValidation.validation.reviewDetails.#text',
+      message:
+        'Process payload contains placeholder or pending-confirmation content that must be replaced before save or publish.',
+      code: 'process_placeholder_content',
+    },
+  ]);
 });
 
 test('dataset local helpers cover input parsing, wrappers, identities, and errors', () => {
@@ -236,7 +329,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const aliases = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: {} } }],
+    rawInput: [{ json_ordered: validProcessPayload() }],
     type: 'processes',
     schemas,
   });
@@ -261,7 +354,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const fallbackIssue = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+    rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
     type: 'process',
     schemas: {
       process: {
@@ -275,7 +368,7 @@ test('runDatasetValidate covers aliases, unsupported rows, default schemas, and 
 
   const issueLessFailure = await runDatasetValidate({
     inputPath: 'memory',
-    rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+    rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
     type: 'process',
     schemas: {
       process: {
@@ -316,7 +409,7 @@ test('runDatasetValidate uses deep SDK fallback for default schema failures', as
 
     const report = await runDatasetValidate({
       inputPath: 'memory',
-      rawInput: [{ json_ordered: { processDataSet: { invalid: true } } }],
+      rawInput: [{ json_ordered: validProcessPayload({ invalid: true }) }],
       type: 'process',
     });
 

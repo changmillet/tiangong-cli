@@ -51,6 +51,7 @@ ownership:
           - src/lib/dataset-*.ts
           - src/lib/errors.ts
           - src/lib/flow-*.ts
+          - src/lib/identity-preflight.ts
           - src/lib/io.ts
           - src/lib/lifecyclemodel-*.ts
           - src/lib/package-version.ts
@@ -185,6 +186,7 @@ routing:
         - src/lib/dataset-*.ts
         - src/lib/errors.ts
         - src/lib/flow-*.ts
+        - src/lib/identity-preflight.ts
         - src/lib/io.ts
         - src/lib/lifecyclemodel-*.ts
         - src/lib/package-version.ts
@@ -363,6 +365,8 @@ rules:
       - path: src/lib/errors.ts
         kind: shared-runtime
       - path: src/lib/flow-*.ts
+        kind: command-logic
+      - path: src/lib/identity-preflight.ts
         kind: command-logic
       - path: src/lib/io.ts
         kind: shared-runtime

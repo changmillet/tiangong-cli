@@ -7,6 +7,11 @@ import {
   syncLifecyclemodelBundleRecord,
   type LifecyclemodelPublishMetadata,
 } from './lifecyclemodel-bundle-save.js';
+import {
+  summarizeProcessPayloadValidation,
+  validateProcessPayload,
+  type ProcessPayloadValidationResult,
+} from './process-payload-validation.js';
 import { syncStateAwareProcessRecord } from './process-save-draft.js';
 import { buildRunId, resolveRunLayout } from './run.js';
 import {
@@ -227,6 +232,7 @@ export type PublishDatasetReport = {
   source: 'bundle' | 'input';
   bundle_path: string | null;
   reason?: string;
+  validation?: ProcessPayloadValidationResult;
   execution?: unknown;
   error?: { message: string };
 };
@@ -288,6 +294,7 @@ export type RunPublishOptions = {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   now?: Date;
+  validateProcessPayloadImpl?: (payload: JsonObject) => ProcessPayloadValidationResult;
 };
 
 type PreparedPublishDatasetReport = PublishDatasetReport & {
@@ -310,6 +317,10 @@ type PublishRequestOptions = {
     | PublishExecutors['sources']
     | undefined;
   publish: PublishRequest['publish'];
+};
+
+type ProcessPublishRequestOptions = PublishRequestOptions & {
+  validateProcessPayloadImpl?: (payload: JsonObject) => ProcessPayloadValidationResult;
 };
 
 type LoadedLifecyclemodelPublishEntry = {
@@ -694,13 +705,31 @@ async function publish_lifecyclemodels(
 
 async function publish_processes(
   entries: PublishCollectedDatasetEntry[],
-  options: PublishRequestOptions,
+  options: ProcessPublishRequestOptions,
 ): Promise<PublishDatasetReport[]> {
   const reports: PublishDatasetReport[] = [];
+  const validate = options.validateProcessPayloadImpl ?? validateProcessPayload;
   for (const item of entries) {
     const payload = load_dataset_entry(item.entry, item.origin.base_dir);
     try {
       const [datasetId, version] = extract_process_identity(payload);
+      const validation = validate(payload);
+      if (!validation.ok) {
+        reports.push({
+          table: 'processes',
+          id: datasetId,
+          version,
+          status: 'failed',
+          source: item.origin.source,
+          bundle_path: item.origin.bundle_path,
+          validation,
+          error: {
+            message: summarizeProcessPayloadValidation(validation),
+          },
+        });
+        continue;
+      }
+
       const report: PreparedPublishDatasetReport = {
         table: 'processes',
         id: datasetId,
@@ -708,6 +737,7 @@ async function publish_processes(
         status: 'prepared',
         source: item.origin.source,
         bundle_path: item.origin.bundle_path,
+        validation,
       };
       reports.push(
         await maybe_execute_dataset(report, payload, {
@@ -962,6 +992,7 @@ export async function runPublish(options: RunPublishOptions): Promise<PublishRep
         commit: normalized.publish.commit,
         executor: executors.processes,
         publish: normalized.publish,
+        validateProcessPayloadImpl: options.validateProcessPayloadImpl,
       })
     : [];
   const sources = normalized.publish.publish_sources

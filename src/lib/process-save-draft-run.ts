@@ -101,7 +101,7 @@ function looksLikePublishRequest(value: unknown): boolean {
 
 function loadProcessPayloadFromDatasetEntry(entry: unknown, baseDir: string): JsonObject {
   if (isRecord(entry)) {
-    for (const key of ['json_ordered', 'jsonOrdered', 'payload'] as const) {
+    for (const key of ['json_ordered', 'jsonOrdered', 'payload', 'process'] as const) {
       const candidate = entry[key];
       if (isRecord(candidate)) {
         return candidate;
@@ -178,6 +178,10 @@ function processPayloadFromRow(row: JsonObject): JsonObject {
 
   if (isRecord(row.json)) {
     return row.json;
+  }
+
+  if (isRecord(row.process)) {
+    return row.process;
   }
 
   return row;

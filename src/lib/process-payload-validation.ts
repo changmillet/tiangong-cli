@@ -5,10 +5,15 @@ import {
   type SdkValidationFactory,
   validateSchemaWithDeepFallback,
 } from './tidas-sdk-validation.js';
+import {
+  collectProcessPlaceholderIssues,
+  collectProcessRequiredFieldIssues,
+} from './process-required-fields.js';
 
 type JsonObject = Record<string, unknown>;
 
-const PROCESS_SCHEMA_VALIDATOR = '@tiangong-lca/tidas-sdk/ProcessSchema';
+const PROCESS_SCHEMA_VALIDATOR =
+  '@tiangong-lca/tidas-sdk/ProcessSchema+tiangong/process-authoring-required-fields';
 
 export type ProcessPayloadValidationIssue = {
   path: string;
@@ -63,8 +68,10 @@ export function validateProcessPayload(
   createEntity: SdkValidationFactory | null = getProcessFactory(),
 ): ProcessPayloadValidationResult {
   const outcome = validateSchemaWithDeepFallback(schema, payload, createEntity);
+  const requiredFieldIssues = collectProcessRequiredFieldIssues(payload);
+  const placeholderIssues = collectProcessPlaceholderIssues(payload);
 
-  if (outcome.success) {
+  if (outcome.success && requiredFieldIssues.length === 0 && placeholderIssues.length === 0) {
     return {
       ok: true,
       validator: PROCESS_SCHEMA_VALIDATOR,
@@ -73,11 +80,15 @@ export function validateProcessPayload(
     };
   }
 
-  const issues = outcome.issues.map((issue) => ({
-    path: normalizeIssuePath(issue.path),
-    message: issue.message ?? 'Validation failed',
-    code: issue.code ?? 'custom',
-  }));
+  const issues = [
+    ...outcome.issues.map((issue) => ({
+      path: normalizeIssuePath(issue.path),
+      message: issue.message ?? 'Validation failed',
+      code: issue.code ?? 'custom',
+    })),
+    ...requiredFieldIssues,
+    ...placeholderIssues,
+  ];
 
   return {
     ok: false,

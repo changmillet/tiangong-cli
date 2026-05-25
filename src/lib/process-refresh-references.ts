@@ -181,6 +181,14 @@ const TABLE_BY_TYPE = new Map<string, string>([
   ['LCIA method data set', 'lciamethods'],
 ] as const);
 
+function normalizeReferenceType(type: string): string {
+  return type.trim().toLowerCase();
+}
+
+function tableForReferenceType(type: string): string | null {
+  return TABLE_BY_TYPE.get(type) ?? TABLE_BY_TYPE.get(normalizeReferenceType(type)) ?? null;
+}
+
 function isRecord(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -415,7 +423,8 @@ function normalizeDatasetPayload(payload: unknown, label: string): JsonObject {
 }
 
 function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
-  if (type === 'flow data set') {
+  const normalizedType = normalizeReferenceType(type);
+  if (normalizedType === 'flow data set') {
     const flowDataSet = isRecord(payload.flowDataSet) ? payload.flowDataSet : {};
     const info = isRecord(flowDataSet.flowInformation) ? flowDataSet.flowInformation : {};
     const dataSetInformation = isRecord(info.dataSetInformation) ? info.dataSetInformation : {};
@@ -423,7 +432,7 @@ function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
     return genFlowNameJson(name);
   }
 
-  if (type === 'process data set') {
+  if (normalizedType === 'process data set') {
     const processDataSet = isRecord(payload.processDataSet) ? payload.processDataSet : {};
     const info = isRecord(processDataSet.processInformation)
       ? processDataSet.processInformation
@@ -433,7 +442,7 @@ function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
     return genProcessNameJson(name);
   }
 
-  if (type === 'contact data set') {
+  if (normalizedType === 'contact data set') {
     const contactDataSet = isRecord(payload.contactDataSet) ? payload.contactDataSet : {};
     const info = isRecord(contactDataSet.contactInformation)
       ? contactDataSet.contactInformation
@@ -442,14 +451,14 @@ function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
     return getLangList(dataSetInformation['common:shortName']);
   }
 
-  if (type === 'source data set') {
+  if (normalizedType === 'source data set') {
     const sourceDataSet = isRecord(payload.sourceDataSet) ? payload.sourceDataSet : {};
     const info = isRecord(sourceDataSet.sourceInformation) ? sourceDataSet.sourceInformation : {};
     const dataSetInformation = isRecord(info.dataSetInformation) ? info.dataSetInformation : {};
     return getLangList(dataSetInformation['common:shortName']);
   }
 
-  if (type === 'flow property data set') {
+  if (normalizedType === 'flow property data set') {
     const flowPropertyDataSet = isRecord(payload.flowPropertyDataSet)
       ? payload.flowPropertyDataSet
       : {};
@@ -460,7 +469,7 @@ function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
     return getLangList(dataSetInformation['common:shortName']);
   }
 
-  if (type === 'unit group data set') {
+  if (normalizedType === 'unit group data set') {
     const unitGroupDataSet = isRecord(payload.unitGroupDataSet) ? payload.unitGroupDataSet : {};
     const info = isRecord(unitGroupDataSet.unitGroupInformation)
       ? unitGroupDataSet.unitGroupInformation
@@ -469,7 +478,7 @@ function getShortDescription(payload: JsonObject, type: string): JsonObject[] {
     return getLangList(dataSetInformation['common:shortName']);
   }
 
-  if (type === 'LCIA method data set') {
+  if (normalizedType === 'lcia method data set') {
     const lciaMethodDataSet = isRecord(payload.lciaMethodDataSet) ? payload.lciaMethodDataSet : {};
     const info = isRecord(lciaMethodDataSet.LCIAMethodInformation)
       ? lciaMethodDataSet.LCIAMethodInformation
@@ -831,7 +840,7 @@ function collectRefs(root: JsonObject): CollectedReference[] {
       typeof current['@refObjectId'] === 'string' &&
       typeof current['@version'] === 'string' &&
       typeof current['@type'] === 'string' &&
-      TABLE_BY_TYPE.has(current['@type'])
+      tableForReferenceType(current['@type'])
     ) {
       refs.push({
         node: current as ReferenceNode,
@@ -864,7 +873,7 @@ async function fetchLatestRefs(options: {
   const missingByTable = new Map<string, Set<string>>();
 
   for (const ref of options.refs) {
-    const table = TABLE_BY_TYPE.get(ref.node['@type']);
+    const table = tableForReferenceType(ref.node['@type']);
     const id = ref.node['@refObjectId'];
     const cacheKey = table ? `${table}:${id}` : '';
     if (!table || options.cache.has(cacheKey)) {
@@ -960,7 +969,7 @@ function updateProcessJson(
   const unresolvedRefs: UnresolvedReference[] = [];
 
   for (const ref of refs) {
-    const table = TABLE_BY_TYPE.get(ref.node['@type']);
+    const table = tableForReferenceType(ref.node['@type']);
     const cacheKey = table ? `${table}:${ref.node['@refObjectId']}` : '';
     const latest = cacheKey ? cache.get(cacheKey) : null;
 
@@ -1390,6 +1399,7 @@ export const __testInternals = {
   getLangList,
   getLangText,
   getShortDescription,
+  normalizeReferenceType,
   normalizeDatasetPayload,
   normalizeManifestRow,
   parseJsonResponse,
@@ -1397,5 +1407,6 @@ export const __testInternals = {
   readCompleted,
   readManifest,
   recordKey,
+  tableForReferenceType,
   updateProcessJson,
 };
