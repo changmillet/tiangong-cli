@@ -16,8 +16,8 @@ checkPaths:
   - src/lib/supabase-client.ts
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
-lastReviewedAt: 2026-05-23
-lastReviewedCommit: b5f9d561e9fca8d67189fa2dc7c4397f5d553e07
+lastReviewedAt: 2026-05-25
+lastReviewedCommit: 906fed4c1e8b2d2c0df30dfd854b3168b8dabdd5
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml

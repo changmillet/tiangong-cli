@@ -60,6 +60,7 @@ function processPlan(overrides: Record<string, unknown> = {}) {
       field_bindings: [
         { field_path: 'target' },
         { field_path: 'identity_decision.decision' },
+        { field_path: 'unit_of_analysis' },
         { field_path: 'name_plan.base_name' },
         { field_path: 'target.geography' },
         { field_path: 'target.technology_route' },
@@ -68,6 +69,23 @@ function processPlan(overrides: Record<string, unknown> = {}) {
     },
     name_plan: {
       base_name: '3kWp facade installation, multi-Si, laminated, integrated, at building {CN}',
+    },
+    unit_of_analysis: {
+      target_kind: 'countable_installation',
+      decision: 'ready_for_materialization',
+      functional_unit: {
+        what: 'provide installed photovoltaic generation capacity',
+        how_much: 'one 3 kWp facade-integrated installation',
+        how_well: 'multi-Si laminated facade-integrated photovoltaic technology',
+        how_long: 'service lifetime documented in source evidence',
+      },
+      reference_flow: {
+        flow_identity: '3 kWp facade-integrated photovoltaic installation',
+        reference_unit: 'unit',
+        reference_amount: 1,
+        flow_property: 'Number of items',
+      },
+      scaling_evidence_status: 'not_required_for_fixture',
     },
     quantitative_reference_plan: {
       reference_flow_id: '190f39ca-0ec8-5aab-b2d9-c91fc55ee58d',
@@ -94,6 +112,7 @@ function flowPlan(overrides: Record<string, unknown> = {}) {
       fieldBindings: [
         { fieldPath: 'target' },
         { fieldPath: 'identity_decision.decision' },
+        { fieldPath: 'unit_of_analysis' },
         { fieldPath: 'name_plan.base_name' },
         { fieldPath: 'target.flow_type' },
         { fieldPath: 'flow_property_plan.reference_property' },
@@ -102,6 +121,22 @@ function flowPlan(overrides: Record<string, unknown> = {}) {
     },
     namePlan: {
       baseName: 'Fluoroethylene carbonate',
+    },
+    unitOfAnalysis: {
+      targetKind: 'bulk_material',
+      decision: 'declared_unit_dataset',
+      declaredUnit: {
+        amount: 1,
+        unit: 'kg',
+        basis: 'flow reference property',
+      },
+      referenceFlow: {
+        flowIdentity: 'Fluoroethylene carbonate',
+        referenceUnit: 'kg',
+        referenceAmount: 1,
+        flowProperty: 'Mass',
+      },
+      scalingEvidenceStatus: 'not_required',
     },
     flowPropertyPlan: {
       referenceProperty: 'mass',
@@ -129,6 +164,7 @@ test('process build-plan validate passes and writes a gate report', async () => 
     assert.equal(report.ruleset_id, 'process-authoring/strict');
     assert.equal(report.inputs.plan_schema_version, '1');
     assert.equal(report.inputs.identity_decision, 'create_new');
+    assert.equal(report.inputs.unit_of_analysis_decision, 'ready_for_materialization');
     assert.equal(report.required_fields.missing.length, 0);
     assert.equal(
       report.files.materialized_artifact,
@@ -400,6 +436,96 @@ test('build-plan validation blocks unsupported or absent identity decisions', as
   assert.equal(absentDecision.inputs.identity_decision, null);
   assert.ok(
     absentDecision.blockers.some((finding) => finding.code === 'identity_decision_missing'),
+  );
+});
+
+test('build-plan validation requires a skill-authored unit-of-analysis artifact', async () => {
+  const missingArtifactPlan = processPlan() as Record<string, unknown>;
+  delete missingArtifactPlan.unit_of_analysis;
+  const missingArtifact = await runProcessBuildPlanValidate({
+    inputPath: '/tmp/process-build-plan.json',
+    rawInput: missingArtifactPlan,
+    now,
+  });
+  assert.equal(missingArtifact.status, 'blocked');
+  assert.equal(missingArtifact.inputs.unit_of_analysis_decision, null);
+  assert.ok(
+    missingArtifact.blockers.some((finding) => finding.code === 'unit_of_analysis_missing'),
+  );
+
+  const manualReview = await runProcessBuildPlanValidate({
+    inputPath: '/tmp/process-build-plan.json',
+    rawInput: processPlan({
+      unit_of_analysis: {
+        target_kind: 'countable_product',
+        decision: 'manual_review',
+        functional_unit: {
+          what: 'provide display service',
+        },
+        reference_flow: {
+          reference_unit: 'item',
+          reference_amount: 1,
+          flow_property: 'Number of items',
+        },
+        scaling_evidence_status: 'source_required',
+      },
+    }),
+    now,
+  });
+  assert.equal(manualReview.inputs.unit_of_analysis_decision, 'manual_review');
+  assert.ok(
+    manualReview.blockers.some((finding) => finding.code === 'unit_of_analysis_not_automatic'),
+  );
+
+  const incompleteArtifact = await runFlowBuildPlanValidate({
+    inputPath: '/tmp/flow-build-plan.json',
+    rawInput: flowPlan({
+      unitOfAnalysis: {
+        decision: 'unsupported',
+        referenceFlow: {
+          referenceUnit: 'kg',
+        },
+      },
+    }),
+    now,
+  });
+  assert.equal(incompleteArtifact.inputs.unit_of_analysis_decision, null);
+  assert.ok(
+    incompleteArtifact.blockers.some(
+      (finding) => finding.code === 'unit_of_analysis_decision_missing',
+    ),
+  );
+  assert.ok(
+    incompleteArtifact.blockers.some(
+      (finding) => finding.code === 'unit_of_analysis_required_field_missing',
+    ),
+  );
+  assert.ok(
+    incompleteArtifact.blockers.some(
+      (finding) => finding.code === 'unit_of_analysis_basis_missing',
+    ),
+  );
+
+  const missingScalingEvidence = await runProcessBuildPlanValidate({
+    inputPath: '/tmp/process-build-plan.json',
+    rawInput: processPlan({
+      unit_of_analysis: {
+        target_kind: 'countable_product',
+        decision: 'ready_for_materialization',
+        functional_unit: {
+          what: 'provide display service',
+        },
+        reference_flow: {
+          reference_unit: 'item',
+          reference_amount: 1,
+          flow_property: 'Number of items',
+        },
+      },
+    }),
+    now,
+  });
+  assert.ok(
+    missingScalingEvidence.blockers.some((finding) => finding.code === 'scaling_evidence_missing'),
   );
 });
 

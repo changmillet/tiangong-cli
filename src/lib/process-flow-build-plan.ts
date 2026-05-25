@@ -34,6 +34,11 @@ type BuildPlanDecision =
   | 'create_new'
   | 'block_duplicate'
   | 'manual_review';
+type UnitOfAnalysisDecision =
+  | 'ready_for_materialization'
+  | 'declared_unit_dataset'
+  | 'blocked_until_scaling_evidence'
+  | 'manual_review';
 
 type GateFinding = {
   code: string;
@@ -78,6 +83,7 @@ export type BuildPlanGateReport = {
   inputs: {
     plan_schema_version: number | string | null;
     identity_decision: BuildPlanDecision | null;
+    unit_of_analysis_decision: UnitOfAnalysisDecision | null;
   };
   required_fields: BuildPlanRequiredFields;
   schema_validation: SchemaValidationSummary;
@@ -110,6 +116,7 @@ type Evaluation = {
   blockers: GateFinding[];
   requiredFields: BuildPlanRequiredFields;
   decision: BuildPlanDecision | null;
+  unitOfAnalysisDecision: UnitOfAnalysisDecision | null;
 };
 
 type SchemaSpec = {
@@ -131,6 +138,18 @@ const ALL_DECISIONS = new Set<BuildPlanDecision>([
   'version_bump',
   'create_new',
   'block_duplicate',
+  'manual_review',
+]);
+
+const AUTOMATIC_UNIT_OF_ANALYSIS_DECISIONS = new Set<UnitOfAnalysisDecision>([
+  'ready_for_materialization',
+  'declared_unit_dataset',
+]);
+
+const ALL_UNIT_OF_ANALYSIS_DECISIONS = new Set<UnitOfAnalysisDecision>([
+  'ready_for_materialization',
+  'declared_unit_dataset',
+  'blocked_until_scaling_evidence',
   'manual_review',
 ]);
 
@@ -986,6 +1005,17 @@ function decisionFromPlan(plan: JsonObject): BuildPlanDecision | null {
   return raw && ALL_DECISIONS.has(raw as BuildPlanDecision) ? (raw as BuildPlanDecision) : null;
 }
 
+function unitOfAnalysisFromPlan(plan: JsonObject): JsonObject | null {
+  return valueAsObject(plan, ['unit_of_analysis', 'unitOfAnalysis']);
+}
+
+function unitOfAnalysisDecisionFromArtifact(artifact: JsonObject): UnitOfAnalysisDecision | null {
+  const raw = textToken(artifact.decision);
+  return raw && ALL_UNIT_OF_ANALYSIS_DECISIONS.has(raw as UnitOfAnalysisDecision)
+    ? (raw as UnitOfAnalysisDecision)
+    : null;
+}
+
 function buildPlanRuleset(plan: JsonObject, kind: BuildPlanKind): { id: string; version: string } {
   const ruleset = firstValue(plan, ['ruleset']);
   const id =
@@ -1006,6 +1036,7 @@ function requiredFieldSpecs(kind: BuildPlanKind): Array<{ path: string; aliases:
       path: 'identity_decision.decision',
       aliases: ['identity_decision.decision', 'identityDecision.decision', 'decision'],
     },
+    { path: 'unit_of_analysis', aliases: ['unit_of_analysis', 'unitOfAnalysis'] },
     { path: 'name_plan.base_name', aliases: ['name_plan.base_name', 'namePlan.baseName'] },
   ];
   const process = [
@@ -1046,6 +1077,121 @@ function makeFinding(
   return pathExpression
     ? { code, severity, message, path: pathExpression }
     : { code, severity, message };
+}
+
+function evaluateUnitOfAnalysis(plan: JsonObject): {
+  findings: GateFinding[];
+  blockers: GateFinding[];
+  decision: UnitOfAnalysisDecision | null;
+} {
+  const findings: GateFinding[] = [];
+  const blockers: GateFinding[] = [];
+  const artifact = unitOfAnalysisFromPlan(plan);
+  if (!artifact) {
+    blockers.push(
+      makeFinding(
+        'unit_of_analysis_missing',
+        'blocker',
+        'Build plan must include the skill-authored unit_of_analysis artifact.',
+        'unit_of_analysis',
+      ),
+    );
+    return { findings, blockers, decision: null };
+  }
+
+  const decision = unitOfAnalysisDecisionFromArtifact(artifact);
+  if (!decision) {
+    blockers.push(
+      makeFinding(
+        'unit_of_analysis_decision_missing',
+        'blocker',
+        'unit_of_analysis must include a supported decision.',
+        'unit_of_analysis.decision',
+      ),
+    );
+  } else if (!AUTOMATIC_UNIT_OF_ANALYSIS_DECISIONS.has(decision)) {
+    blockers.push(
+      makeFinding(
+        'unit_of_analysis_not_automatic',
+        'blocker',
+        `unit_of_analysis decision ${decision} cannot proceed to materialization.`,
+        'unit_of_analysis.decision',
+      ),
+    );
+  }
+
+  for (const spec of [
+    { path: 'unit_of_analysis.target_kind', aliases: ['target_kind', 'targetKind'] },
+    { path: 'unit_of_analysis.reference_flow', aliases: ['reference_flow', 'referenceFlow'] },
+    {
+      path: 'unit_of_analysis.reference_flow.reference_unit',
+      aliases: ['reference_flow.reference_unit', 'referenceFlow.referenceUnit'],
+    },
+    {
+      path: 'unit_of_analysis.reference_flow.reference_amount',
+      aliases: ['reference_flow.reference_amount', 'referenceFlow.referenceAmount'],
+    },
+    {
+      path: 'unit_of_analysis.reference_flow.flow_property',
+      aliases: ['reference_flow.flow_property', 'referenceFlow.flowProperty'],
+    },
+  ]) {
+    if (!pathIsSatisfied(artifact, spec.aliases)) {
+      blockers.push(
+        makeFinding(
+          'unit_of_analysis_required_field_missing',
+          'blocker',
+          `unit_of_analysis is missing ${spec.path}.`,
+          spec.path,
+        ),
+      );
+    }
+  }
+
+  const hasBasis =
+    pathIsSatisfied(artifact, ['functional_unit', 'functionalUnit']) ||
+    pathIsSatisfied(artifact, ['declared_unit', 'declaredUnit']);
+  if (!hasBasis) {
+    blockers.push(
+      makeFinding(
+        'unit_of_analysis_basis_missing',
+        'blocker',
+        'unit_of_analysis must describe either functional_unit or declared_unit.',
+        'unit_of_analysis.functional_unit',
+      ),
+    );
+  }
+
+  if (
+    decision === 'ready_for_materialization' &&
+    !pathIsSatisfied(artifact, [
+      'scaling_evidence',
+      'scalingEvidence',
+      'scaling_evidence_status',
+      'scalingEvidenceStatus',
+    ])
+  ) {
+    blockers.push(
+      makeFinding(
+        'scaling_evidence_missing',
+        'blocker',
+        'ready_for_materialization requires scaling evidence or an explicit scaling evidence status.',
+        'unit_of_analysis.scaling_evidence',
+      ),
+    );
+  }
+
+  if (blockers.length === 0) {
+    findings.push(
+      makeFinding(
+        'unit_of_analysis_contract_satisfied',
+        'info',
+        'unit_of_analysis artifact is present and complete enough for deterministic validation.',
+      ),
+    );
+  }
+
+  return { findings, blockers, decision };
 }
 
 function evaluateBuildPlan(plan: JsonObject, kind: BuildPlanKind): Evaluation {
@@ -1094,6 +1240,10 @@ function evaluateBuildPlan(plan: JsonObject, kind: BuildPlanKind): Evaluation {
       ),
     );
   }
+
+  const unitOfAnalysis = evaluateUnitOfAnalysis(plan);
+  findings.push(...unitOfAnalysis.findings);
+  blockers.push(...unitOfAnalysis.blockers);
 
   const bindingPaths = evidenceBindingPaths(plan);
   const required = requiredFieldSpecs(kind);
@@ -1145,6 +1295,7 @@ function evaluateBuildPlan(plan: JsonObject, kind: BuildPlanKind): Evaluation {
       missing,
     },
     decision,
+    unitOfAnalysisDecision: unitOfAnalysis.decision,
   };
 }
 
@@ -1308,6 +1459,7 @@ function makeReport(options: {
         textToken(options.evaluation.plan.schema_version) ??
         textToken(options.evaluation.plan.schemaVersion),
       identity_decision: options.evaluation.decision,
+      unit_of_analysis_decision: options.evaluation.unitOfAnalysisDecision,
     },
     required_fields: options.evaluation.requiredFields,
     schema_validation: options.schemaValidation,

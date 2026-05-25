@@ -789,6 +789,7 @@ function buildInitialProcessBuildPlan(
       field_bindings: [
         { field_path: 'target', source_id: `flow:${referenceFlowId}` },
         { field_path: 'identity_decision.decision', source_id: `flow:${referenceFlowId}` },
+        { field_path: 'unit_of_analysis', source_id: `flow:${referenceFlowId}` },
         { field_path: 'name_plan.base_name', source_id: `flow:${referenceFlowId}` },
         { field_path: 'target.geography', source_id: `flow:${referenceFlowId}` },
         { field_path: 'target.technology_route', source_id: `flow:${referenceFlowId}` },
@@ -796,6 +797,30 @@ function buildInitialProcessBuildPlan(
           field_path: 'quantitative_reference_plan.reference_flow_id',
           source_id: `flow:${referenceFlowId}`,
         },
+      ],
+    },
+    unit_of_analysis: {
+      target_kind: normalized.operation === 'treat' ? 'treatment' : 'process_from_flow_scaffold',
+      decision: 'manual_review',
+      functional_unit: {
+        what:
+          normalized.operation === 'treat'
+            ? `treat ${normalized.flow_summary.base_name ?? 'the reference flow'}`
+            : `produce ${normalized.flow_summary.base_name ?? 'the reference flow'}`,
+        how_much: `1 ${flowProperty.reference_unit ?? flowProperty.reference_property}`,
+        how_well: 'to be determined from source evidence before materialization',
+        how_long: 'not determined in the initial scaffold',
+      },
+      reference_flow: {
+        flow_identity: normalized.flow_summary.base_name ?? referenceFlowId,
+        reference_unit: flowProperty.reference_unit ?? flowProperty.reference_property,
+        reference_amount: 1,
+        flow_property: flowProperty.reference_property,
+      },
+      declared_unit_allowed: false,
+      scaling_evidence_status: 'source_required',
+      notes: [
+        'Initial scaffold only. A skill/Codex workflow must revise unit_of_analysis before build-plan materialize.',
       ],
     },
     name_plan: {
@@ -822,6 +847,7 @@ function buildInitialProcessBuildPlan(
     materialization_readiness: {
       status: 'scaffold_only',
       next_required_steps: [
+        'replace scaffold unit_of_analysis with a skill-authored decision artifact',
         'run process identity-preflight with local and remote candidates',
         'replace scaffold geography, technology, classification, exchange values, and annual volume with evidence-backed values',
         'run process build-plan validate/materialize before save-draft or publish-build',
