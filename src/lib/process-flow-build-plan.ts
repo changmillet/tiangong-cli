@@ -455,23 +455,36 @@ function classificationClasses(plan: JsonObject, kind: BuildPlanKind): JsonObjec
     valueAsArray(plan, ['target.classification_path', 'target.classificationPath']).length > 0
       ? valueAsArray(plan, ['target.classification_path', 'target.classificationPath'])
       : valueAsArray(plan, ['classification_path', 'classificationPath']);
-  const labels = pathValues
-    .map((entry) => textToken(entry))
-    .filter((entry): entry is string => Boolean(entry));
   const fallback =
     kind === 'process'
       ? ['Technosphere', 'Unspecified sector', 'Unspecified activity', 'Unspecified process']
       : ['Technosphere flows', 'Product flows', 'Unspecified category', 'Unspecified flow'];
-  const requiredCount = kind === 'process' ? 4 : Math.max(labels.length, 1);
+  const requiredCount = kind === 'process' ? 4 : Math.max(pathValues.length, 1);
   const values = Array.from(
     { length: requiredCount },
-    (_, index) => labels[index] ?? (fallback[index] as string),
+    (_, index) => pathValues[index] ?? (fallback[index] as string),
   );
-  return values.map((label, index) => ({
-    '@level': String(index),
-    '@classId': deterministicUuid(`${kind}:classification:${index}:${label}`),
-    '#text': label,
-  }));
+  return values.map((entry, index) => {
+    if (isRecord(entry)) {
+      const text =
+        textToken(entry['#text'] ?? entry.text ?? entry.name ?? entry['@name']) ??
+        (fallback[index] as string);
+      return {
+        '@level': textToken(entry['@level'] ?? entry.level) ?? String(index),
+        '@classId':
+          textToken(entry['@classId'] ?? entry.class_id ?? entry.classId ?? entry['@id']) ??
+          deterministicUuid(`${kind}:classification:${index}:${text}`),
+        '#text': text,
+      };
+    }
+
+    const label = textToken(entry) ?? (fallback[index] as string);
+    return {
+      '@level': String(index),
+      '@classId': deterministicUuid(`${kind}:classification:${index}:${label}`),
+      '#text': label,
+    };
+  });
 }
 
 function normalizeFlowType(

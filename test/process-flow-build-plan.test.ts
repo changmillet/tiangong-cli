@@ -243,7 +243,28 @@ test('process build-plan materialize builds canonical payloads from name, qref, 
           geography: 'CN-HB',
           technology_route: 'electricity production mix',
           reference_year: '2025',
-          classification_path: ['Energy', 'Electricity', 'Grid mix', 'Hubei'],
+          classification_path: [
+            {
+              '@level': '0',
+              '@classId': 'D',
+              '#text': 'Electricity, gas, steam and air conditioning supply',
+            },
+            {
+              '@level': '1',
+              '@classId': '35',
+              '#text': 'Electricity, gas, steam and air conditioning supply',
+            },
+            {
+              '@level': '2',
+              '@classId': '351',
+              '#text': 'Electric power generation, transmission and distribution activities',
+            },
+            {
+              '@level': '3',
+              '@classId': '3513',
+              '#text': 'Electric power transmission and distribution activities',
+            },
+          ],
         },
         name_plan: {
           base_name: [
@@ -284,7 +305,16 @@ test('process build-plan materialize builds canonical payloads from name, qref, 
       readFileSync(path.join(outDir, 'outputs', 'materialized-process.json'), 'utf8'),
     ) as {
       processDataSet: {
-        processInformation: { quantitativeReference: { referenceToReferenceFlow: string } };
+        processInformation: {
+          dataSetInformation: {
+            classificationInformation: {
+              'common:classification': {
+                'common:class': Array<{ '@classId': string; '@level': string; '#text': string }>;
+              };
+            };
+          };
+          quantitativeReference: { referenceToReferenceFlow: string };
+        };
         modellingAndValidation: {
           dataSourcesTreatmentAndRepresentativeness: {
             annualSupplyOrProductionVolume: Array<{ '#text': string; '@xml:lang': string }>;
@@ -302,6 +332,12 @@ test('process build-plan materialize builds canonical payloads from name, qref, 
     assert.equal(
       materialized.processDataSet.processInformation.quantitativeReference.referenceToReferenceFlow,
       '5',
+    );
+    assert.equal(
+      materialized.processDataSet.processInformation.dataSetInformation.classificationInformation[
+        'common:classification'
+      ]['common:class'][3]?.['@classId'],
+      '3513',
     );
     assert.equal(materialized.processDataSet.exchanges.exchange[0]?.['@dataSetInternalID'], '5');
     assert.equal(materialized.processDataSet.exchanges.exchange[1]?.meanAmount, '0.42');
