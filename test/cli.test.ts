@@ -455,6 +455,15 @@ test('executeCli exposes dataset and lifecyclemodel friction-fix commands', asyn
   assert.match(datasetReferencesHelp.stdout, /--commit/u);
   assert.doesNotMatch(datasetReferencesHelp.stdout, /Planned command/u);
 
+  const datasetEvidenceHelp = await executeCli(
+    ['dataset', 'evidence-search', 'plan', '--help'],
+    makeDeps(),
+  );
+  assert.equal(datasetEvidenceHelp.exitCode, 0);
+  assert.match(datasetEvidenceHelp.stdout, /tiangong-lca dataset evidence-search <plan\|run>/u);
+  assert.match(datasetEvidenceHelp.stdout, /--provider-url/u);
+  assert.doesNotMatch(datasetEvidenceHelp.stdout, /Planned command/u);
+
   const lifecyclemodelSaveDraftHelp = await executeCli(
     ['lifecyclemodel', 'save-draft', '--help'],
     makeDeps(),
@@ -668,6 +677,175 @@ test('executeCli dispatches dataset and lifecyclemodel friction-fix commands', a
   );
   assert.equal(datasetReferencesModeError.exitCode, 2);
   assert.match(datasetReferencesModeError.stderr, /Cannot pass both/u);
+
+  const datasetEvidencePlan = await executeCli(
+    [
+      'dataset',
+      'evidence-search',
+      'plan',
+      '--json',
+      '--query',
+      '中国2026年电力结构数据',
+      '--profile',
+      'shallow',
+      '--max-queries',
+      '2',
+      '--max-results-per-query',
+      '3',
+      '--out-dir',
+      'evidence-out',
+    ],
+    {
+      ...makeDeps(),
+      runDatasetEvidenceSearchImpl: async (options) => {
+        assert.equal(options.mode, 'plan');
+        assert.equal(options.query, '中国2026年电力结构数据');
+        assert.equal(options.profile, 'shallow');
+        assert.equal(options.maxQueries, 2);
+        assert.equal(options.maxResultsPerQuery, 3);
+        assert.equal(options.outDir, 'evidence-out');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-27T00:00:00.000Z',
+          mode: 'plan',
+          status: 'planned',
+          question: '中国2026年电力结构数据',
+          field: { dataset_type: null, field_path: null },
+          profile: 'shallow',
+          budget: { max_queries: 2, max_results_per_query: 3, max_provider_calls: 2 },
+          plan: { query_count: 0, queries: [] },
+          run: {
+            provider_count: 0,
+            provider_call_count: 0,
+            normalized_result_count: 0,
+            authoritative_result_count: 0,
+            high_confidence_result_count: 0,
+            stop_reason: 'plan_only',
+          },
+          evidence_quality: {
+            sufficient: false,
+            temporal_coverage_status: 'not_required',
+            requested_year: null,
+            required_complete_year: false,
+          },
+          files: { plan: null, results: null, report: null, declaration: null },
+        };
+      },
+    },
+  );
+  assert.equal(datasetEvidencePlan.exitCode, 0);
+
+  const datasetEvidenceNumericFallback = await executeCli(
+    ['dataset', 'evidence-search', 'plan', '--query', 'x', '--max-queries', 'nope'],
+    {
+      ...makeDeps(),
+      runDatasetEvidenceSearchImpl: async (options) => {
+        assert.equal(Number.isNaN(options.maxQueries), true);
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-27T00:00:00.000Z',
+          mode: 'plan',
+          status: 'planned',
+          question: 'x',
+          field: { dataset_type: null, field_path: null },
+          profile: 'balanced',
+          budget: { max_queries: 1, max_results_per_query: 1, max_provider_calls: 1 },
+          plan: { query_count: 0, queries: [] },
+          run: {
+            provider_count: 0,
+            provider_call_count: 0,
+            normalized_result_count: 0,
+            authoritative_result_count: 0,
+            high_confidence_result_count: 0,
+            stop_reason: 'plan_only',
+          },
+          evidence_quality: {
+            sufficient: false,
+            temporal_coverage_status: 'not_required',
+            requested_year: null,
+            required_complete_year: false,
+          },
+          files: { plan: null, results: null, report: null, declaration: null },
+        };
+      },
+    },
+  );
+  assert.equal(datasetEvidenceNumericFallback.exitCode, 0);
+
+  const datasetEvidenceRun = await executeCli(
+    [
+      'dataset',
+      'evidence-search',
+      'run',
+      '--json',
+      '--input',
+      'request.json',
+      '--results',
+      'results.json',
+      '--provider-url',
+      'https://search.example/query',
+      '--provider-key',
+      'secret',
+      '--timeout-ms',
+      '25',
+    ],
+    {
+      ...makeDeps(),
+      runDatasetEvidenceSearchImpl: async (options) => {
+        assert.equal(options.mode, 'run');
+        assert.equal(options.inputPath, 'request.json');
+        assert.equal(options.resultsPath, 'results.json');
+        assert.equal(options.providerUrl, 'https://search.example/query');
+        assert.equal(options.providerKey, 'secret');
+        assert.equal(options.timeoutMs, 25);
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-27T00:00:00.000Z',
+          mode: 'run',
+          status: 'completed_no_sufficient_evidence',
+          question: 'x',
+          field: { dataset_type: null, field_path: null },
+          profile: 'balanced',
+          budget: { max_queries: 1, max_results_per_query: 1, max_provider_calls: 1 },
+          plan: { query_count: 0, queries: [] },
+          run: {
+            provider_count: 1,
+            provider_call_count: 0,
+            normalized_result_count: 0,
+            authoritative_result_count: 0,
+            high_confidence_result_count: 0,
+            stop_reason: 'budget_exhausted_without_sufficient_evidence',
+          },
+          evidence_quality: {
+            sufficient: false,
+            temporal_coverage_status: 'not_required',
+            requested_year: null,
+            required_complete_year: false,
+          },
+          files: { plan: null, results: null, report: null, declaration: null },
+        };
+      },
+    },
+  );
+  assert.equal(datasetEvidenceRun.exitCode, 1);
+
+  const datasetEvidenceRootHelp = await executeCli(['dataset', 'evidence-search'], makeDeps());
+  assert.equal(datasetEvidenceRootHelp.exitCode, 0);
+  assert.match(datasetEvidenceRootHelp.stdout, /evidence-search <plan\|run>/u);
+
+  const invalidDatasetEvidenceAction = await executeCli(
+    ['dataset', 'evidence-search', 'scan'],
+    makeDeps(),
+  );
+  assert.equal(invalidDatasetEvidenceAction.exitCode, 2);
+  assert.match(invalidDatasetEvidenceAction.stderr, /must be 'plan' or 'run'/u);
+
+  const datasetEvidenceParseError = await executeCli(
+    ['dataset', 'evidence-search', 'plan', '--wat'],
+    makeDeps(),
+  );
+  assert.equal(datasetEvidenceParseError.exitCode, 2);
+  assert.match(datasetEvidenceParseError.stderr, /Unknown option/u);
 
   const datasetReferencesParseError = await executeCli(
     ['dataset', 'references', 'rewrite', '--wat'],
