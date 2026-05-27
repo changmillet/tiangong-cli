@@ -145,13 +145,13 @@ If a task changes output layout, locking, or local run roots, inspect these firs
 
 Repo-level maintenance gates are now split across:
 
-- `.github/workflows/quality-gate.yml`
+- `.github/workflows/quality-gate.yml` for manual remote reproduction of the local gate
 - `.github/workflows/ai-doc-lint.yml`
 - `.github/workflows/tag-release-from-merge.yml`
 
 Important constraints:
 
-- `npm run prepush:gate` remains the authoritative protected-branch proof for code changes
+- `npm run prepush:gate` remains the authoritative local proof for code changes and runs from the local pre-push hook
 - `ai-doc-lint` keeps the historical check identity, but its implementation should run `docpact`
 - `docpact` enforces that command-surface and release-gate changes also refresh or review the governed source docs
 - the merge-tag workflow is guarded so only the upstream repository can execute release tagging
@@ -171,4 +171,4 @@ Important constraints:
 
 ## Local Docpact Push Gate
 
-This repository has a versioned local `pre-push` hook under `.githooks/pre-push` that delegates to `scripts/docpact-gate.sh`. The gate resolves the CLI through `scripts/docpact`, so local agent shells do not need bare `docpact` on `PATH`. The hook is a local developer guard for docpact config validation and enforced doc-governance linting; CI remains the authoritative PR enforcement path.
+This repository has a versioned local `pre-push` hook under `.githooks/pre-push` that delegates to `scripts/docpact-gate.sh` and then runs `npm run prepush:gate`. The gate resolves the CLI through `scripts/docpact`, so local agent shells do not need bare `docpact` on `PATH`. The hook is the local guard for docpact config validation, enforced doc-governance linting, and the CLI test gate; ordinary GitHub push tests are replaced by this local gate plus release-time gates.

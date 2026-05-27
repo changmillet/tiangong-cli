@@ -47,6 +47,14 @@ jobs:
         if: steps.release.outputs.any_changed != 'true'
         run: echo "No package version changes detected on main."
 
+      - name: Install dependencies
+        if: steps.release.outputs.cli_changed == 'true'
+        run: npm ci
+
+      - name: Run release gate before tag
+        if: steps.release.outputs.cli_changed == 'true'
+        run: npm run prepush:gate
+
       - name: Check npm registry version availability
         if: steps.release.outputs.cli_changed == 'true'
         env:
