@@ -15,7 +15,7 @@ checkPaths:
   - src/lib/user-api-key.ts
   - src/lib/supabase-session.ts
   - src/lib/supabase-client.ts
-lastReviewedAt: 2026-05-25
+lastReviewedAt: 2026-05-27
 lastReviewedCommit: 906fed4c1e8b2d2c0df30dfd854b3168b8dabdd5
 related:
   - ../AGENTS.md

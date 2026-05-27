@@ -340,6 +340,7 @@ tiangong-lca admin embedding-run
 tiangong-lca search flow --input ./request.json --json
 tiangong-lca publish run --input ./publish-request.json --dry-run
 tiangong-lca validation run --input-dir ./tidas-package --engine auto
+tiangong-lca dataset evidence-search plan --query "中国2026年电力结构数据" --out-dir ./evidence-search --json
 tiangong-lca admin embedding-run --input ./jobs.json --dry-run
 ```
 
@@ -368,6 +369,50 @@ tiangong-lca admin embedding-run --input ./jobs.json --dry-run
 ```
 
 更完整的请求体示例：
+
+### 4.3.2 `dataset evidence-search` 的最小 contract
+
+`dataset evidence-search` 固定的是字段级证据检索留痕契约，不是答案生成器。
+
+它负责：
+
+- `plan` 生成 query matrix、source tier 和预算；
+- `run` 接收 browser/web-search 工具导出的规范化结果，或调用一个通用 JSON provider endpoint；
+- 去重、打分、归类 source tier；
+- 记录 evidence-search report；
+- 当没有足够证据，或当前年只能找到阶段性/预测性证据时，写出 declaration。
+
+它不负责判断 LCA 字段最终该写什么。Codex/skill 必须读取 evidence-search artifacts 后，再结合 TIDAS/ILCD/PEF 语境和 process/flow review 规则做语义判断。
+
+最小请求体：
+
+```json
+{
+  "question": "中国2026年电力结构数据",
+  "field": {
+    "dataset_type": "process",
+    "field_path": "/processInformation/time/referenceYear"
+  },
+  "preferred_domains": ["stats.gov.cn", "nea.gov.cn", "chinapower.org.cn"],
+  "required_evidence": {
+    "temporal_scope": "2026 full-year electricity generation mix",
+    "require_complete_year": true
+  },
+  "budget": {
+    "max_queries": 8,
+    "max_results_per_query": 8
+  }
+}
+```
+
+输出：
+
+```text
+outputs/evidence-search-plan.json
+outputs/evidence-search-results.jsonl
+outputs/evidence-search-report.json
+outputs/evidence-search-declaration.json
+```
 
 ```json
 {
@@ -852,6 +897,7 @@ TIANGONG_LCA_COVERAGE=0
 | --- | --- | --- | --- | --- |
 | `doctor` | 无 |
 | `search flow | process | lifecyclemodel` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
+| `dataset evidence-search` | 默认无；若使用 `--provider-url`，认证由 `--provider-key` 显式传入 |
 | `admin embedding-run` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `process get` | `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `process identity-preflight` | 默认无；若启用 `--remote-candidates` 或输入 `remote_candidate_search.enabled=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |

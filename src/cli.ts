@@ -227,6 +227,11 @@ import {
   type RunDatasetBilingualExtractOptions,
   type RunDatasetBilingualValidateOptions,
 } from './lib/dataset-bilingual.js';
+import {
+  runDatasetEvidenceSearch,
+  type EvidenceSearchReport,
+  type RunDatasetEvidenceSearchOptions,
+} from './lib/dataset-evidence-search.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
@@ -363,6 +368,9 @@ export type CliDeps = {
   runDatasetBilingualValidateImpl?: (
     options: RunDatasetBilingualValidateOptions,
   ) => Promise<DatasetBilingualValidateReport>;
+  runDatasetEvidenceSearchImpl?: (
+    options: RunDatasetEvidenceSearchOptions,
+  ) => Promise<EvidenceSearchReport>;
 };
 
 export type CliResult = {
@@ -395,7 +403,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    validate | verify-remote | bilingual extract/apply/validate | references rewrite/refresh-remote
+  dataset    validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   review     process | flow | lifecyclemodel
@@ -432,6 +440,8 @@ Examples:
   tiangong-lca dataset bilingual extract --input ./rows/processes.jsonl --type process --out-dir ./translation
   tiangong-lca dataset bilingual apply --input ./rows/processes.jsonl --translations ./translation/trans-reviewed.jsonl --out ./rows/processes.translated.jsonl
   tiangong-lca dataset bilingual validate --input ./rows/processes.translated.jsonl --type process --out-dir ./translation-validate
+  tiangong-lca dataset evidence-search plan --query "中国2026年电力结构数据" --out-dir ./evidence-search
+  tiangong-lca dataset evidence-search run --input ./evidence-search.request.json --results ./search-results.json --out-dir ./evidence-search
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir /abs/path/to/dataset-rewrite
   tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
@@ -574,6 +584,7 @@ Implemented Subcommands:
   bilingual extract    Extract bilingual translation units from local rows
   bilingual apply      Apply reviewed bilingual translations back to local rows
   bilingual validate   Validate bilingual rows with deterministic scans and schema/review gates
+  evidence-search      Plan or record field-level public evidence retrieval
   references rewrite   Rewrite flow references in local process and lifecyclemodel rows
   references refresh-remote Refresh local TIDAS reference versions to latest reachable remote rows
 
@@ -583,6 +594,8 @@ Examples:
   tiangong-lca dataset bilingual extract --input ./rows.jsonl --type process --out-dir ./translation --help
   tiangong-lca dataset bilingual apply --input ./rows.jsonl --translations ./trans-reviewed.jsonl --out ./rows.translated.jsonl --help
   tiangong-lca dataset bilingual validate --input ./rows.translated.jsonl --type process --out-dir ./translation-validate --help
+  tiangong-lca dataset evidence-search plan --query "中国2026年电力结构数据" --out-dir ./evidence-search --help
+  tiangong-lca dataset evidence-search run --input ./request.json --results ./search-results.json --out-dir ./evidence-search --help
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
   tiangong-lca dataset references refresh-remote --input ./rows.jsonl --out ./rows.refreshed.jsonl --out-dir ./dataset-reference-refresh --help
 `.trim();
@@ -702,6 +715,39 @@ Outputs written under --out-dir:
   - outputs/bilingual-findings.jsonl
   - schema/outputs/validation-report.json
   - review/process/... and/or review/flow/... when applicable
+`.trim();
+}
+
+function renderDatasetEvidenceSearchHelp(): string {
+  return `Usage:
+  tiangong-lca dataset evidence-search <plan|run> [options]
+
+Plan:
+  tiangong-lca dataset evidence-search plan --query <text> --out-dir <dir>
+
+Run:
+  tiangong-lca dataset evidence-search run --input <request.json> --results <search-results.json> --out-dir <dir>
+  tiangong-lca dataset evidence-search run --query <text> --provider-url <url> --out-dir <dir>
+
+Options:
+  --query <text>             Evidence question when no --input is supplied
+  --input <file>             JSON request with question, field, budget, preferred_domains, and required_evidence
+  --results <file>           Normalized external search results JSON/JSONL captured from web/search tools
+  --provider-url <url>       Optional generic JSON search provider endpoint
+  --provider-key <key>       Optional bearer token for --provider-url
+  --profile <profile>        shallow | balanced | deep (default: balanced)
+  --max-queries <n>          Override query budget
+  --max-results-per-query <n> Override per-query result budget
+  --timeout-ms <n>           Provider request timeout in milliseconds
+  --out-dir <dir>            Artifact directory
+  --json                     Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/evidence-search-plan.json
+  - outputs/evidence-search-results.jsonl
+  - outputs/evidence-search-report.json
+  - outputs/evidence-search-declaration.json when evidence is absent or only partial
 `.trim();
 }
 
@@ -2249,6 +2295,72 @@ function parseDatasetBilingualValidateFlags(args: string[]): {
     inputPath: typeof values.input === 'string' ? values.input : '',
     type: typeof values.type === 'string' ? values.type : undefined,
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetEvidenceSearchFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  query: string | null;
+  inputPath: string | null;
+  resultsPath: string | null;
+  providerUrl: string | null;
+  providerKey: string | null;
+  profile: string | null;
+  outDir: string | null;
+  maxQueries: number | null;
+  maxResultsPerQuery: number | null;
+  timeoutMs: number | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        query: { type: 'string' },
+        input: { type: 'string' },
+        results: { type: 'string' },
+        'provider-url': { type: 'string' },
+        'provider-key': { type: 'string' },
+        profile: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'max-queries': { type: 'string' },
+        'max-results-per-query': { type: 'string' },
+        'timeout-ms': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const readNumber = (value: unknown): number | null => {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  };
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    query: typeof values.query === 'string' ? values.query : null,
+    inputPath: typeof values.input === 'string' ? values.input : null,
+    resultsPath: typeof values.results === 'string' ? values.results : null,
+    providerUrl: typeof values['provider-url'] === 'string' ? values['provider-url'] : null,
+    providerKey: typeof values['provider-key'] === 'string' ? values['provider-key'] : null,
+    profile: typeof values.profile === 'string' ? values.profile : null,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    maxQueries: readNumber(values['max-queries']),
+    maxResultsPerQuery: readNumber(values['max-results-per-query']),
+    timeoutMs: readNumber(values['timeout-ms']),
   };
 }
 
@@ -4597,6 +4709,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetBilingualApplyImpl = deps.runDatasetBilingualApplyImpl ?? runDatasetBilingualApply;
     const datasetBilingualValidateImpl =
       deps.runDatasetBilingualValidateImpl ?? runDatasetBilingualValidate;
+    const datasetEvidenceSearchImpl = deps.runDatasetEvidenceSearchImpl ?? runDatasetEvidenceSearch;
 
     if (flags.version) {
       return { exitCode: 0, stdout: `${loadCliPackageVersion(import.meta.url)}\n`, stderr: '' };
@@ -4755,6 +4868,43 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         code: 'INVALID_ARGS',
         exitCode: 2,
       });
+    }
+
+    if (command === 'dataset' && subcommand === 'evidence-search') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetEvidenceSearchHelp()}\n`, stderr: '' };
+      }
+      if (action !== 'plan' && action !== 'run') {
+        throw new CliError("dataset evidence-search action must be 'plan' or 'run'.", {
+          code: 'INVALID_ARGS',
+          exitCode: 2,
+        });
+      }
+
+      const datasetFlags = parseDatasetEvidenceSearchFlags(commandArgs.slice(1));
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetEvidenceSearchHelp()}\n`, stderr: '' };
+      }
+      const report = await datasetEvidenceSearchImpl({
+        mode: action,
+        query: datasetFlags.query,
+        inputPath: datasetFlags.inputPath,
+        resultsPath: datasetFlags.resultsPath,
+        providerUrl: datasetFlags.providerUrl,
+        providerKey: datasetFlags.providerKey,
+        profile: datasetFlags.profile,
+        outDir: datasetFlags.outDir,
+        maxQueries: datasetFlags.maxQueries,
+        maxResultsPerQuery: datasetFlags.maxResultsPerQuery,
+        timeoutMs: datasetFlags.timeoutMs,
+        fetchImpl: deps.fetchImpl,
+      });
+      return {
+        exitCode: report.status === 'completed_no_sufficient_evidence' ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
     }
 
     if (command === 'dataset' && subcommand === 'references') {
