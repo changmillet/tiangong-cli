@@ -496,6 +496,10 @@ test('process auto-build internals cover source-policy and empty-stage fallbacks
     ((fallbackPlan.name_plan as Record<string, unknown>) ?? {}).base_name,
     'Treatment process from reference flow',
   );
+  assert.equal(
+    ((fallbackPlan.unit_of_analysis as Record<string, unknown>) ?? {}).decision,
+    'manual_review',
+  );
 
   const arrayPropertyPlan = __testInternals.buildInitialProcessBuildPlan(
     {
@@ -667,6 +671,10 @@ test('runProcessAutoBuild writes the local artifact scaffold, state, and handoff
     assert.equal(
       ((buildPlan.quantitative_reference_plan as Record<string, unknown>) ?? {}).reference_flow_id,
       '4d8a3345-51fd-44ac-87e0-59bc8d3b0fdc',
+    );
+    assert.equal(
+      ((buildPlan.unit_of_analysis as Record<string, unknown>) ?? {}).decision,
+      'manual_review',
     );
 
     const runManifest = readJson(report.files.run_manifest);

@@ -2210,6 +2210,7 @@ test('executeCli executes process build-plan validate and materialize with injec
     inputs: {
       plan_schema_version: '1',
       identity_decision: 'create_new' as const,
+      unit_of_analysis_decision: 'ready_for_materialization' as const,
     },
     required_fields: {
       required: ['target'],
@@ -2353,6 +2354,7 @@ test('executeCli executes flow build-plan and maps blockers to exit code 1', asy
           inputs: {
             plan_schema_version: '1',
             identity_decision: 'manual_review',
+            unit_of_analysis_decision: 'manual_review',
           },
           required_fields: {
             required: ['target'],
@@ -2405,6 +2407,7 @@ test('executeCli executes flow build-plan and maps blockers to exit code 1', asy
           inputs: {
             plan_schema_version: '1',
             identity_decision: 'create_new',
+            unit_of_analysis_decision: 'declared_unit_dataset',
           },
           required_fields: {
             required: ['target'],
