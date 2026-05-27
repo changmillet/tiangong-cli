@@ -93,10 +93,10 @@ Leave the environment name unset unless the workflow is explicitly updated to us
 ## Operational Notes
 
 - `publish.yml` validates that the Git tag matches the package version before upload.
-- `tag-release-from-merge.yml` only creates a tag when `package.json` version changes on `main`.
+- `tag-release-from-merge.yml` only creates a tag when `package.json` version changes on `main`, and it runs `npm run prepush:gate` before creating that tag.
 - The release-prep PR should update only the intended versioned release metadata for the CLI package.
 - Adding CLI command families such as dataset or lifecyclemodel maintenance commands does not require release setup changes by itself; those feature PRs are covered by the normal quality and docpact gates before a later version bump.
 
 ## Local Docpact Push Gate
 
-The repository now includes a local pre-push docpact gate in `scripts/docpact-gate.sh`. The gate resolves the CLI through `scripts/docpact`. It is a lightweight documentation-governance guard and does not replace the release or protected-branch validation gates.
+The repository now includes a local pre-push gate that runs `scripts/docpact-gate.sh` and then `npm run prepush:gate`. It is the ordinary local validation path; release workflows still run release gates before tag creation or npm publishing.

@@ -51,7 +51,7 @@ Before starting a release:
 - work from the latest `main`
 - keep the release-prep change scoped to CLI package version metadata
 - confirm npm has not already published the target version
-- confirm any command-surface feature PRs that will be included in the release have passed `npm run prepush:gate` and the docpact CI gate before preparing the version bump
+- confirm any command-surface feature PRs that will be included in the release have passed the local pre-push gate, including `npm run prepush:gate` and docpact, before preparing the version bump
 
 Useful commands:
 
@@ -76,7 +76,7 @@ npm pack --dry-run >/dev/null
    - `package.json`
    - `package-lock.json`
 3. Keep the PR focused on the release bump.
-4. Open a normal PR and wait for `quality-gate` to pass.
+4. Open a normal PR with local pre-push gate evidence. Use the manual `quality-gate` workflow only when remote reproduction is needed.
 5. Merge the PR into `main`.
 
 Release automation starts only after the version bump PR is merged into `main`.
@@ -101,6 +101,7 @@ gh api repos/tiangong-lca/tiangong-cli/git/ref/tags/cli-v<x.y.z>
 Expected result:
 
 - the workflow finishes successfully
+- `npm run prepush:gate` runs inside the tag workflow before tag creation when a CLI version change is detected
 - tag `cli-v<x.y.z>` exists
 
 ### 2. Publish workflow
@@ -182,4 +183,4 @@ For the CLI repo, that helper defaults to:
 
 ## Local Docpact Push Gate
 
-The repository now includes a local pre-push docpact gate in `scripts/docpact-gate.sh`. The gate resolves the CLI through `scripts/docpact`. It is a lightweight documentation-governance guard and does not replace the release or protected-branch validation gates.
+The repository now includes a local pre-push gate that runs `scripts/docpact-gate.sh` and then `npm run prepush:gate`. It is the ordinary local validation path; release workflows still run their own release gates before creating tags or publishing.

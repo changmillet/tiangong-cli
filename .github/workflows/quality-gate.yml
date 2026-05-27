@@ -1,10 +1,7 @@
 name: quality-gate
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   quality-gate:

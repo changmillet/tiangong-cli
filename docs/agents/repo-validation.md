@@ -80,7 +80,9 @@ Facts that matter:
 
 - `npm run test:coverage` is the full coverage proof
 - `npm run test:coverage:assert-full` verifies the latest coverage artifact without rerunning coverage
-- `npm run prepush:gate` is the exact protected-branch gate
+- `npm run prepush:gate` is the exact local test gate
+- the local `pre-push` hook runs docpact first and then `npm run prepush:gate`
+- `.github/workflows/quality-gate.yml` is manual-dispatch only for remote reproduction, not an ordinary push-triggered test runner
 - `process save-draft`, `lifecyclemodel save-draft`, dataset governance commands, BuildPlan gates, publish schema/verification gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, or fallback branches
 - release-tag and docpact lint workflow changes should be described in the PR note when they alter the local or protected-branch proof
 
@@ -102,4 +104,4 @@ Install the versioned local hook once per checkout:
 ./scripts/install-git-hooks.sh
 ```
 
-The `pre-push` hook runs `scripts/docpact-gate.sh`, which delegates CLI lookup to `scripts/docpact` and performs strict config validation plus enforced lint before the push leaves the machine. The wrapper checks `DOCPACT_BIN`, Cargo install locations, Homebrew install locations, and then `PATH`, so local agent shells should not fail only because bare `docpact` is unavailable. The default comparison base is `origin/main`. Override it for unusual stacks with `DOCPACT_BASE_REF=<ref>` or `scripts/docpact-gate.sh --base <ref>`. The gate writes its detailed report to a temporary file so normal pushes do not create `.docpact/runs/` artifacts.
+The `pre-push` hook runs `scripts/docpact-gate.sh`, which delegates CLI lookup to `scripts/docpact` and performs strict config validation plus enforced lint before the push leaves the machine. It then runs `npm run prepush:gate` as the local test gate. The wrapper checks `DOCPACT_BIN`, Cargo install locations, Homebrew install locations, and then `PATH`, so local agent shells should not fail only because bare `docpact` is unavailable. The default comparison base is `origin/main`. Override it for unusual stacks with `DOCPACT_BASE_REF=<ref>` or `scripts/docpact-gate.sh --base <ref>`. The gate writes its detailed report to a temporary file so normal pushes do not create `.docpact/runs/` artifacts.
