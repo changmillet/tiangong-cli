@@ -506,6 +506,7 @@ test('process placeholder issue collector blocks unfinished authoring placeholde
       processDataSet: {
         processInformation: {
           time: { 'common:referenceYear': 9999 },
+          importedTime: { 'common:referenceYear': '9999' },
           dataSetInformation: {
             name: {
               treatmentStandardsRoutes: {
@@ -525,6 +526,7 @@ test('process placeholder issue collector blocks unfinished authoring placeholde
     }).map((issue) => issue.path),
     [
       'processDataSet.processInformation.time.common:referenceYear',
+      'processDataSet.processInformation.importedTime.common:referenceYear',
       'processDataSet.processInformation.dataSetInformation.name.treatmentStandardsRoutes.#text',
       'processDataSet.processInformation.dataSetInformation.common:other.tidasimport:sourceTrace.@marker',
       'processDataSet.processInformation.dataSetInformation.common:other.tidasimport:sourceTrace.payload.sourceObject',
@@ -681,6 +683,9 @@ test('process required field internals cover evidence normalization and helper f
   assert.deepEqual(__testInternals.annualSupplyValueFromText('5 kg/year')?.value, [
     { '@xml:lang': 'en', '#text': '5 kg/year' },
   ]);
+  assert.deepEqual(__testInternals.annualSupplyValueFromText('5 kg/年')?.value, [
+    { '@xml:lang': 'zh', '#text': '5 kg/年' },
+  ]);
   assert.equal(
     __testInternals.normalizeAnnualSupplyEvidenceValue(6, { defaultUnit: 'MWh' })?.value[0]?.[
       '#text'
@@ -711,6 +716,13 @@ test('process required field internals cover evidence normalization and helper f
       { defaultUnit: 'kg' },
     )?.amount,
     '9',
+  );
+  assert.deepEqual(
+    __testInternals.normalizeAnnualSupplyEvidenceValue(
+      { source_language: 'zh', en: '9 kg/year', zh: '9 kg/年' },
+      { defaultUnit: 'kg' },
+    )?.value,
+    [{ '@xml:lang': 'zh', '#text': '9 kg/年' }],
   );
   assert.equal(
     __testInternals.normalizeAnnualSupplyEvidenceValue(

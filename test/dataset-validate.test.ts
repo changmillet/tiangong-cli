@@ -239,6 +239,28 @@ test('runDatasetValidate blocks import traces and source-gap sentinels for non-p
       'flowDataSet.flowInformation.dataSetInformation.common:other.tidasimport:sourceTrace.payload.sourceObject',
     ],
   );
+  assert.deepEqual(
+    __testInternals.collectImportContentIssues({
+      'common:referenceYear': '9999',
+      clean: 'source text',
+    }),
+    [
+      {
+        path: 'common:referenceYear',
+        message:
+          'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+        code: 'dataset_import_placeholder_content',
+      },
+    ],
+  );
+  assert.deepEqual(__testInternals.collectImportContentIssues('TIDAS_IMPORT_PLACEHOLDER:X'), [
+    {
+      path: '<root>',
+      message:
+        'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+      code: 'dataset_import_placeholder_content',
+    },
+  ]);
 });
 
 test('dataset local helpers cover input parsing, wrappers, identities, and errors', () => {

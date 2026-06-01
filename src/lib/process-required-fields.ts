@@ -660,17 +660,12 @@ function normalizeAnnualSupplyEvidenceValue(
   }
 
   if (isValidAnnualSupplyVolume(candidate)) {
-    const first = annualSupplyItems(candidate)
-      .map((item) => ({
+    const value = [
+      annualSupplyItems(candidate).map((item) => ({
         '@xml:lang': item['@xml:lang'],
         '#text': item['#text'].trim(),
-      }))
-      .find(
-        (item) =>
-          NUMERIC_TEXT_WITH_SUFFIX_PATTERN.test(item['#text']) &&
-          ANNUAL_PERIOD_PATTERN.test(item['#text']),
-      );
-    const value = first ? [first] : [];
+      }))[0]!,
+    ];
     const parts = annualSupplyTextParts(value[0]!['#text']) as { amount: string; unit: string };
     return {
       value,
