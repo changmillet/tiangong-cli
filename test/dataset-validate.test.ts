@@ -213,6 +213,7 @@ test('runDatasetValidate blocks import traces and source-gap sentinels for non-p
                     '#text': 'Not declared in source package',
                   },
                 },
+                time: { 'common:referenceYear': 9999 },
                 'common:other': {
                   'tidasimport:sourceTrace': {
                     '@marker': 'TIDAS_IMPORT_TRACE_V1',
@@ -233,6 +234,7 @@ test('runDatasetValidate blocks import traces and source-gap sentinels for non-p
     report.rows[0]?.issues.map((issue) => issue.path),
     [
       'flowDataSet.flowInformation.dataSetInformation.name.treatmentStandardsRoutes.#text',
+      'flowDataSet.flowInformation.dataSetInformation.time.common:referenceYear',
       'flowDataSet.flowInformation.dataSetInformation.common:other.tidasimport:sourceTrace.@marker',
       'flowDataSet.flowInformation.dataSetInformation.common:other.tidasimport:sourceTrace.payload.sourceObject',
     ],

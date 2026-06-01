@@ -812,6 +812,22 @@ test('process required field internals cover exchange, unit, and row wrapper fal
     }),
     { exchangeDirection: 'Output', meanAmount: '2' },
   );
+  assert.deepEqual(
+    __testInternals.selectReferenceExchange({
+      processInformation: {
+        quantitativeReference: {
+          referenceToReferenceFlow: '5',
+        },
+      },
+      exchanges: {
+        exchange: [
+          { '@dataSetInternalID': '1', exchangeDirection: 'Output', meanAmount: '1' },
+          { '@dataSetInternalID': '5', exchangeDirection: 'Input', meanAmount: '5' },
+        ],
+      },
+    }),
+    { '@dataSetInternalID': '5', exchangeDirection: 'Input', meanAmount: '5' },
+  );
   assert.equal(
     __testInternals.selectReferenceExchange({
       exchanges: { exchange: [{ meanAmount: '3' }] },
