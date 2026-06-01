@@ -314,10 +314,7 @@ test('process build-plan materialize builds canonical payloads from name, qref, 
     assert.deepEqual(
       materialized.processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness
         .annualSupplyOrProductionVolume,
-      [
-        { '#text': '3.6 MJ/year', '@xml:lang': 'en' },
-        { '#text': '3.6 MJ/年', '@xml:lang': 'zh' },
-      ],
+      [{ '#text': '3.6 MJ/year', '@xml:lang': 'en' }],
     );
   } finally {
     rmSync(outDir, { recursive: true, force: true });
@@ -740,7 +737,6 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
       required_fields: {
         annualSupplyOrProductionVolume: {
           en: '1000 kg/year',
-          zh: '1000 kg/年',
         },
       },
       exchange_plan: {
@@ -783,10 +779,7 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
   assert.deepEqual(
     (fallbackModelling.dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>)
       .annualSupplyOrProductionVolume,
-    [
-      { '#text': '1000 kg/year', '@xml:lang': 'en' },
-      { '#text': '1000 kg/年', '@xml:lang': 'zh' },
-    ],
+    [{ '#text': '1000 kg/year', '@xml:lang': 'en' }],
   );
   const fallbackExchanges = (fallbackProcessDataSet.exchanges as Record<string, unknown>)
     .exchange as Array<Record<string, unknown>>;
@@ -935,10 +928,7 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
       (defaultedProcessDataSet.modellingAndValidation as Record<string, unknown>)
         .dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>
     ).annualSupplyOrProductionVolume,
-    [
-      { '#text': '1 unit/year', '@xml:lang': 'en' },
-      { '#text': '1 unit/年', '@xml:lang': 'zh' },
-    ],
+    [{ '#text': '1 unit/year', '@xml:lang': 'en' }],
   );
 
   const resultingAmountProcess = __testInternals.buildCanonicalProcessPayload(
@@ -958,18 +948,13 @@ test('build-plan internals cover evidence path normalization and SDK schema fall
           .modellingAndValidation as Record<string, unknown>
       ).dataSourcesTreatmentAndRepresentativeness as Record<string, unknown>
     ).annualSupplyOrProductionVolume,
-    [
-      { '#text': '4.2 kg/year', '@xml:lang': 'en' },
-      { '#text': '4.2 kg/年', '@xml:lang': 'zh' },
-    ],
+    [{ '#text': '4.2 kg/year', '@xml:lang': 'en' }],
   );
   assert.deepEqual(__testInternals.buildAnnualSupply({}, { resultingAmount: '5.5' }), [
     { '#text': '5.5 unit/year', '@xml:lang': 'en' },
-    { '#text': '5.5 unit/年', '@xml:lang': 'zh' },
   ]);
   assert.deepEqual(__testInternals.buildAnnualSupply({}, {}), [
     { '#text': '1.0 unit/year', '@xml:lang': 'en' },
-    { '#text': '1.0 unit/年', '@xml:lang': 'zh' },
   ]);
 
   __testInternals.buildCanonicalProcessPayload(

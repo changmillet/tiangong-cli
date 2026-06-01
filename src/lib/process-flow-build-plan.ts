@@ -583,10 +583,7 @@ function buildAnnualSupply(plan: JsonObject, referenceExchange: JsonObject): Jso
       'flow_property_plan.reference_unit',
       'flowPropertyPlan.referenceUnit',
     ]) ?? 'unit';
-  return [
-    localizedText(`${amount} ${unit}/year`, 'en'),
-    localizedText(`${amount} ${unit}/年`, 'zh'),
-  ];
+  return [localizedText(`${amount} ${unit}/year`, 'en')];
 }
 
 function normalizeExchangeDirection(value: string | null): 'Input' | 'Output' {

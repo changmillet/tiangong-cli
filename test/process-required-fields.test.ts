@@ -98,7 +98,7 @@ function annualSupplyFrom(row: unknown) {
     .annualSupplyOrProductionVolume;
 }
 
-test('runProcessRequiredFieldsComplete completes annual volume from reference exchange amount', async () => {
+test('runProcessRequiredFieldsComplete blocks annual volume when source evidence is missing', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-required-fields-'));
   const inputPath = path.join(dir, 'processes.jsonl');
   const outPath = path.join(dir, 'completed.jsonl');
@@ -134,28 +134,23 @@ test('runProcessRequiredFieldsComplete completes annual volume from reference ex
       now: new Date('2026-05-23T00:00:00.000Z'),
     });
 
-    assert.equal(report.status, 'completed');
+    assert.equal(report.status, 'completed_with_blockers');
     assert.deepEqual(report.counts, {
       total: 2,
       processes: 1,
-      completed: 1,
+      completed: 0,
       existing: 0,
-      blocked: 0,
+      blocked: 1,
       skipped: 1,
     });
     assert.equal(existsSync(report.files.output_rows), true);
     assert.deepEqual(readJson(report.files.report ?? ''), report);
-    assert.deepEqual(annualSupplyFrom(readJsonl(outPath)[0]), [
-      { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
-      { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
-    ]);
+    assert.equal(report.rows[0]?.issues.at(-1)?.code, 'annual_supply_evidence_missing');
     const evidenceRows = readJsonl(report.files.evidence ?? '') as Array<{
       source: string;
       reference_exchange_internal_id: string;
     }>;
-    assert.equal(evidenceRows.length, 1);
-    assert.equal(evidenceRows[0]?.source, 'reference_flow_amount');
-    assert.equal(evidenceRows[0]?.reference_exchange_internal_id, '5');
+    assert.equal(evidenceRows.length, 0);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -191,7 +186,6 @@ test('runProcessRequiredFieldsComplete prefers explicit evidence values over ref
     assert.equal(report.rows[0]?.completions[0]?.source, 'evidence');
     assert.deepEqual(annualSupplyFrom(readJsonl(outPath)[0]), [
       { '@xml:lang': 'en', '#text': '125000 kWh/year' },
-      { '@xml:lang': 'zh', '#text': '125000 kWh/年' },
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -230,7 +224,7 @@ test('runProcessRequiredFieldsComplete keeps existing valid values and blocks mi
   assert.equal(report.counts.existing, 1);
   assert.equal(report.counts.blocked, 1);
   assert.equal(report.rows[0]?.status, 'existing');
-  assert.equal(report.rows[1]?.issues.at(-1)?.code, 'annual_supply_reference_amount_missing');
+  assert.equal(report.rows[1]?.issues.at(-1)?.code, 'annual_supply_evidence_missing');
 });
 
 test('runProcessRequiredFieldsComplete repairs UI-roundtripped annual reference-flow text', async () => {
@@ -280,16 +274,9 @@ test('runProcessRequiredFieldsComplete repairs UI-roundtripped annual reference-
     ],
   });
 
-  assert.equal(report.status, 'completed');
-  assert.equal(report.rows[0]?.status, 'completed');
-  assert.deepEqual(
-    report.rows[0]?.completions.map((completion) => completion.source),
-    ['reference_flow_amount'],
-  );
-  assert.deepEqual(annualSupplyFrom(readJsonl(report.files.output_rows)[0]), [
-    { '@xml:lang': 'en', '#text': '3.6 MJ/year' },
-    { '@xml:lang': 'zh', '#text': '3.6 MJ/年' },
-  ]);
+  assert.equal(report.status, 'completed_with_blockers');
+  assert.equal(report.rows[0]?.status, 'blocked');
+  assert.equal(report.rows[0]?.issues.at(-1)?.code, 'annual_supply_evidence_missing');
 });
 
 test('runProcessRequiredFieldsComplete repairs missing validation and compliance structures', async () => {
@@ -348,7 +335,7 @@ test('runProcessRequiredFieldsComplete repairs missing validation and compliance
   );
 });
 
-test('runProcessRequiredFieldsComplete validates required output flags and resultingAmount fallback', async () => {
+test('runProcessRequiredFieldsComplete validates required output flags and blocks resultingAmount-only rows without source evidence', async () => {
   await assert.rejects(
     () =>
       runProcessRequiredFieldsComplete({
@@ -375,9 +362,9 @@ test('runProcessRequiredFieldsComplete validates required output flags and resul
     rawInput: [row],
   });
 
-  assert.equal(report.status, 'completed');
-  assert.equal(report.rows[0]?.completions[0]?.amount, '4.2');
-  assert.equal(report.rows[0]?.completions[0]?.unit, 'kg');
+  assert.equal(report.status, 'completed_with_blockers');
+  assert.equal(report.rows[0]?.status, 'blocked');
+  assert.equal(report.rows[0]?.issues.at(-1)?.code, 'annual_supply_evidence_missing');
 });
 
 test('process required field issue collector detects missing and invalid annual volumes', () => {
@@ -512,6 +499,36 @@ test('process placeholder issue collector blocks unfinished authoring placeholde
       },
     }),
     [],
+  );
+
+  assert.deepEqual(
+    collectProcessPlaceholderIssues({
+      processDataSet: {
+        processInformation: {
+          time: { 'common:referenceYear': 9999 },
+          dataSetInformation: {
+            name: {
+              treatmentStandardsRoutes: {
+                '@xml:lang': 'en',
+                '#text': 'Not declared in source package',
+              },
+            },
+            'common:other': {
+              'tidasimport:sourceTrace': {
+                '@marker': 'TIDAS_IMPORT_TRACE_V1',
+                payload: { sourceObject: '/Users/example/source.spold' },
+              },
+            },
+          },
+        },
+      },
+    }).map((issue) => issue.path),
+    [
+      'processDataSet.processInformation.time.common:referenceYear',
+      'processDataSet.processInformation.dataSetInformation.name.treatmentStandardsRoutes.#text',
+      'processDataSet.processInformation.dataSetInformation.common:other.tidasimport:sourceTrace.@marker',
+      'processDataSet.processInformation.dataSetInformation.common:other.tidasimport:sourceTrace.payload.sourceObject',
+    ],
   );
 });
 
@@ -663,7 +680,6 @@ test('process required field internals cover evidence normalization and helper f
   assert.equal(__testInternals.annualSupplyValueFromText('not quantified'), null);
   assert.deepEqual(__testInternals.annualSupplyValueFromText('5 kg/year')?.value, [
     { '@xml:lang': 'en', '#text': '5 kg/year' },
-    { '@xml:lang': 'zh', '#text': '5 kg/year' },
   ]);
   assert.equal(
     __testInternals.normalizeAnnualSupplyEvidenceValue(6, { defaultUnit: 'MWh' })?.value[0]?.[
@@ -700,8 +716,8 @@ test('process required field internals cover evidence normalization and helper f
     __testInternals.normalizeAnnualSupplyEvidenceValue(
       { amount: '10', referenceUnit: 'kg' },
       { defaultUnit: 'unit' },
-    )?.value[1]?.['#text'],
-    '10 kg/年',
+    )?.value[0]?.['#text'],
+    '10 kg/year',
   );
   assert.equal(__testInternals.normalizeAnnualSupplyEvidenceValue({}, { defaultUnit: 'kg' }), null);
 
@@ -1106,6 +1122,6 @@ test('process required field internals cover exchange, unit, and row wrapper fal
   assert.equal(blockedWithoutReferenceExchange.report.status, 'blocked');
   assert.equal(
     blockedWithoutReferenceExchange.report.issues.at(-1)?.code,
-    'annual_supply_reference_amount_missing',
+    'annual_supply_evidence_missing',
   );
 });
