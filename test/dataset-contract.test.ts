@@ -251,7 +251,7 @@ test('dataset contract internals cover fallback-only branches', () => {
       __testInternals.resolveSdkRuntimeAssetsRoot([repoRoot], '/tmp/sdk/index.js'),
       repoRoot,
     );
-    assert.match(__testInternals.resolveCliRepoRoot(), /tiangong-lca-cli/u);
+    assert.equal(__testInternals.resolveCliRepoRoot(), process.cwd());
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
     rmSync(packageOnlyRoot, { recursive: true, force: true });
