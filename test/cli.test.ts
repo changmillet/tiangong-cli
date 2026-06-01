@@ -3341,9 +3341,9 @@ test('executeCli maps process complete-required-fields blockers to exit code 1',
             status: 'blocked',
             issues: [
               {
-                code: 'annual_supply_reference_amount_missing',
-                message: 'reference amount missing',
-                path: 'processDataSet.exchanges.exchange',
+                code: 'annual_supply_evidence_missing',
+                message: 'source evidence missing',
+                path: 'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume',
               },
             ],
             completions: [],
@@ -3354,7 +3354,7 @@ test('executeCli maps process complete-required-fields blockers to exit code 1',
   );
 
   assert.equal(result.exitCode, 1);
-  assert.match(result.stdout, /annual_supply_reference_amount_missing/u);
+  assert.match(result.stdout, /annual_supply_evidence_missing/u);
 });
 
 test('executeCli maps process save-draft failures to exit code 1', async () => {

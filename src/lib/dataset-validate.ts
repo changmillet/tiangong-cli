@@ -2,7 +2,12 @@ import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
-import { materializeDatasetRows, type DatasetKind, type DatasetRowInput } from './dataset-local.js';
+import {
+  isRecord,
+  materializeDatasetRows,
+  type DatasetKind,
+  type DatasetRowInput,
+} from './dataset-local.js';
 import {
   normalizeIssuePath,
   type SafeParseSchema,
@@ -74,6 +79,68 @@ const ENTITY_FACTORY_EXPORTS: Record<DatasetKind, keyof typeof tidasSdk> = {
   process: 'createProcess' as keyof typeof tidasSdk,
   lifecyclemodel: 'createLifeCycleModel' as keyof typeof tidasSdk,
 };
+
+function issuePath(pathSegments: Array<string | number>): string {
+  return pathSegments.length > 0 ? pathSegments.map(String).join('.') : '<root>';
+}
+
+function collectImportContentIssuesFromValue(
+  value: unknown,
+  pathSegments: Array<string | number>,
+  issues: DatasetValidateIssue[],
+): void {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (
+      (pathSegments.at(-1) === 'common:referenceYear' && normalized === '9999') ||
+      normalized.includes('tidas_import_placeholder') ||
+      normalized.includes('tidas_import_trace_v1') ||
+      normalized.includes('not declared in source package') ||
+      normalized.includes('source package metadata not declared') ||
+      normalized === '<null>' ||
+      /(^|[\s"'`])(?:\/users\/|\/home\/|[a-z]:\\)/iu.test(value)
+    ) {
+      issues.push({
+        path: issuePath(pathSegments),
+        message:
+          'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+        code: 'dataset_import_placeholder_content',
+      });
+    }
+    return;
+  }
+
+  if (typeof value === 'number') {
+    if (pathSegments.at(-1) === 'common:referenceYear' && value === 9999) {
+      issues.push({
+        path: issuePath(pathSegments),
+        message:
+          'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+        code: 'dataset_import_placeholder_content',
+      });
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      collectImportContentIssuesFromValue(item, [...pathSegments, index], issues),
+    );
+    return;
+  }
+
+  if (isRecord(value)) {
+    for (const [key, child] of Object.entries(value)) {
+      collectImportContentIssuesFromValue(child, [...pathSegments, key], issues);
+    }
+  }
+}
+
+function collectImportContentIssues(payload: unknown): DatasetValidateIssue[] {
+  const issues: DatasetValidateIssue[] = [];
+  collectImportContentIssuesFromValue(payload, [], issues);
+  return issues;
+}
 
 function normalizeType(value: string | null | undefined): DatasetValidateType {
   const normalized = value?.trim().toLowerCase();
@@ -174,7 +241,10 @@ function validateRow(
   const outcome = validateSchemaWithDeepFallback(schema, row.payload, createEntity);
   const requiredFieldIssues =
     kind === 'process' ? collectProcessRequiredFieldIssues(row.payload) : [];
-  const placeholderIssues = kind === 'process' ? collectProcessPlaceholderIssues(row.payload) : [];
+  const placeholderIssues =
+    kind === 'process'
+      ? collectProcessPlaceholderIssues(row.payload)
+      : collectImportContentIssues(row.payload);
   if (outcome.success && requiredFieldIssues.length === 0 && placeholderIssues.length === 0) {
     return {
       index: row.index,
@@ -290,6 +360,7 @@ export async function runDatasetValidate(
 export const __testInternals = {
   ENTITY_FACTORY_EXPORTS,
   SCHEMA_EXPORTS,
+  collectImportContentIssues,
   normalizeType,
   schemaForKind,
   validateRow,

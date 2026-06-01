@@ -18,6 +18,7 @@ const ANNUAL_SUPPLY_ROOT_FIELD =
 const NUMERIC_TEXT_WITH_SUFFIX_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?\s+\S.*$/u;
 const ANNUAL_PERIOD_PATTERN =
   /(?:\/\s*(?:year|yr|a)\b|\bper\s+(?:year|annum)\b|\/\s*年|每年|年度|年供应|年产)/iu;
+const CJK_TEXT_PATTERN = /[\p{Script=Han}]/u;
 const NET_CALORIFIC_VALUE_ID = '93a60a56-a3c8-11da-a746-0800200c9a66';
 const DEFAULT_COMPLIANCE_SYSTEM = {
   '@refObjectId': 'c84c4185-d1b0-44fc-823e-d2ec630c7906',
@@ -57,12 +58,7 @@ export type ProcessRequiredFieldIssue = {
 
 export type ProcessRequiredFieldCompletion = {
   field_path: string;
-  source:
-    | 'existing'
-    | 'evidence'
-    | 'reference_flow_amount'
-    | 'placeholder_repair'
-    | 'required_structure_repair';
+  source: 'existing' | 'evidence' | 'placeholder_repair' | 'required_structure_repair';
   value: Array<{ '#text': string; '@xml:lang': string }>;
   amount: string | null;
   unit: string | null;
@@ -129,6 +125,10 @@ type AnnualSupplyEvidenceValue = {
 function normalizeUnit(value: string | null | undefined): string {
   const token = value?.trim();
   return token || 'unit';
+}
+
+function sourceLanguageForText(value: string, fallback = 'en'): string {
+  return CJK_TEXT_PATTERN.test(value) ? 'zh' : fallback;
 }
 
 function textValue(value: unknown): string | null {
@@ -294,10 +294,29 @@ function collectPlaceholderIssuesFromValue(
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
     if (
+      (pathSegments.at(-1) === 'common:referenceYear' && normalized === '9999') ||
+      normalized.includes('tidas_import_placeholder') ||
+      normalized.includes('tidas_import_trace_v1') ||
+      normalized.includes('not declared in source package') ||
+      normalized.includes('source package metadata not declared') ||
+      normalized === '<null>' ||
+      /(^|[\s"'`])(?:\/users\/|\/home\/|[a-z]:\\)/iu.test(value) ||
       normalized.includes('placeholder.example') ||
       normalized.includes('pending confirmation') ||
       /00000000-0000-0000-0000-0000000000[0-9a-f]{2}/u.test(normalized)
     ) {
+      issues.push({
+        code: 'process_placeholder_content',
+        message:
+          'Process payload contains placeholder or pending-confirmation content that must be replaced before save or publish.',
+        path: issuePath(pathSegments),
+      });
+    }
+    return;
+  }
+
+  if (typeof value === 'number') {
+    if (pathSegments.at(-1) === 'common:referenceYear' && value === 9999) {
       issues.push({
         code: 'process_placeholder_content',
         message:
@@ -599,10 +618,7 @@ function buildAnnualSupplyValue(
   '#text': string;
   '@xml:lang': string;
 }> {
-  return [
-    { '@xml:lang': 'en', '#text': `${amount} ${unit}/year` },
-    { '@xml:lang': 'zh', '#text': `${amount} ${unit}/年` },
-  ];
+  return [{ '@xml:lang': 'en', '#text': `${amount} ${unit}/year` }];
 }
 
 function annualSupplyTextParts(value: string): { amount: string; unit: string } | null {
@@ -617,10 +633,7 @@ function annualSupplyValueFromText(value: string): AnnualSupplyEvidenceValue | n
   }
   const parts = annualSupplyTextParts(text) as { amount: string; unit: string };
   return {
-    value: [
-      { '@xml:lang': 'en', '#text': text },
-      { '@xml:lang': 'zh', '#text': text },
-    ],
+    value: [{ '@xml:lang': sourceLanguageForText(text), '#text': text }],
     amount: parts.amount,
     unit: parts.unit,
     basis: 'Evidence provided a complete annual supply / production volume text value.',
@@ -647,16 +660,19 @@ function normalizeAnnualSupplyEvidenceValue(
   }
 
   if (isValidAnnualSupplyVolume(candidate)) {
-    const value = annualSupplyItems(candidate).map((item) => ({
-      '@xml:lang': item['@xml:lang'],
-      '#text': item['#text'].trim(),
-    }));
+    const value = [
+      annualSupplyItems(candidate).map((item) => ({
+        '@xml:lang': item['@xml:lang'],
+        '#text': item['#text'].trim(),
+      }))[0]!,
+    ];
     const parts = annualSupplyTextParts(value[0]!['#text']) as { amount: string; unit: string };
     return {
       value,
       amount: parts.amount,
       unit: parts.unit,
-      basis: 'Evidence provided validated multilingual annual supply / production volume values.',
+      basis:
+        'Evidence provided a validated source-language annual supply / production volume value.',
     };
   }
 
@@ -678,6 +694,12 @@ function normalizeAnnualSupplyEvidenceValue(
     }
   }
 
+  const preferredLanguage = textValue(
+    candidate.source_language ??
+      candidate.sourceLanguage ??
+      candidate.lang ??
+      candidate['@xml:lang'],
+  )?.toLowerCase();
   const english = textValue(candidate.en ?? candidate.english);
   const chinese = textValue(candidate.zh ?? candidate.chinese ?? candidate['zh-CN']);
   const localized = [
@@ -685,15 +707,19 @@ function normalizeAnnualSupplyEvidenceValue(
     chinese ? { '@xml:lang': 'zh', '#text': chinese } : null,
   ].filter((item): item is { '#text': string; '@xml:lang': string } => Boolean(item));
   if (localized.length > 0 && isValidAnnualSupplyVolume(localized)) {
-    const parts = annualSupplyTextParts(localized[0]!['#text']) as {
+    const selected =
+      localized.find((item) => item['@xml:lang'].toLowerCase() === preferredLanguage) ??
+      localized[0]!;
+    const value = [selected];
+    const parts = annualSupplyTextParts(selected['#text']) as {
       amount: string;
       unit: string;
     };
     return {
-      value: localized,
+      value,
       amount: parts.amount,
       unit: parts.unit,
-      basis: 'Evidence provided language-specific annual supply / production volume text values.',
+      basis: 'Evidence provided a language-specific annual supply / production volume text value.',
     };
   }
 
@@ -936,49 +962,6 @@ function completeProcessRow(
     };
   }
 
-  const referenceExchange = selectReferenceExchange(root);
-  const amount = referenceExchange
-    ? firstNonEmpty(referenceExchange.meanAmount, referenceExchange.resultingAmount)
-    : null;
-  if (!referenceExchange || !amount) {
-    return {
-      row: clonedRow,
-      report: {
-        index: row.index,
-        id: row.id,
-        version: row.version,
-        type: row.kind,
-        status: 'blocked',
-        issues: [
-          ...existingIssues,
-          {
-            code: 'annual_supply_reference_amount_missing',
-            message:
-              'Could not derive annualSupplyOrProductionVolume because the reference flow meanAmount/resultingAmount is missing.',
-            path: 'processDataSet.exchanges.exchange',
-          },
-        ],
-        completions: repairCompletions,
-      },
-    };
-  }
-
-  const unit = inferUnitFromReferenceExchange(referenceExchange, context);
-  const value = buildAnnualSupplyValue(amount, unit);
-  const dataSources = ensureDataSources(root);
-  dataSources.annualSupplyOrProductionVolume = value;
-
-  const completion: ProcessRequiredFieldCompletion = {
-    field_path: ANNUAL_SUPPLY_FIELD,
-    source: 'reference_flow_amount',
-    value,
-    amount,
-    unit,
-    reference_exchange_internal_id: firstNonEmpty(referenceExchange['@dataSetInternalID']),
-    basis:
-      'No explicit annual supply evidence value was present in the payload; field completed from the quantitative reference flow meanAmount/resultingAmount per authoring policy.',
-  };
-
   return {
     row: clonedRow,
     report: {
@@ -986,9 +969,17 @@ function completeProcessRow(
       id: row.id,
       version: row.version,
       type: row.kind,
-      status: 'completed',
-      issues: [],
-      completions: [...repairCompletions, completion],
+      status: 'blocked',
+      issues: [
+        ...existingIssues,
+        {
+          code: 'annual_supply_evidence_missing',
+          message:
+            'Could not complete annualSupplyOrProductionVolume because no source evidence value was provided.',
+          path: ANNUAL_SUPPLY_FIELD,
+        },
+      ],
+      completions: repairCompletions,
     },
   };
 }

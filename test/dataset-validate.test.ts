@@ -195,6 +195,74 @@ test('runDatasetValidate treats process placeholders as invalid authoring conten
   ]);
 });
 
+test('runDatasetValidate blocks import traces and source-gap sentinels for non-process rows', async () => {
+  const report = await runDatasetValidate({
+    inputPath: 'memory',
+    type: 'flow',
+    rawInput: [
+      {
+        id: 'flow-import-gap',
+        json_ordered: {
+          flowDataSet: {
+            flowInformation: {
+              dataSetInformation: {
+                name: {
+                  baseName: { '@xml:lang': 'en', '#text': 'carbon dioxide' },
+                  treatmentStandardsRoutes: {
+                    '@xml:lang': 'en',
+                    '#text': 'Not declared in source package',
+                  },
+                },
+                time: { 'common:referenceYear': 9999 },
+                'common:other': {
+                  'tidasimport:sourceTrace': {
+                    '@marker': 'TIDAS_IMPORT_TRACE_V1',
+                    payload: { sourceObject: '/Users/example/source.json' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ],
+    schemas,
+  });
+
+  assert.equal(report.status, 'completed_with_failures');
+  assert.deepEqual(
+    report.rows[0]?.issues.map((issue) => issue.path),
+    [
+      'flowDataSet.flowInformation.dataSetInformation.name.treatmentStandardsRoutes.#text',
+      'flowDataSet.flowInformation.dataSetInformation.time.common:referenceYear',
+      'flowDataSet.flowInformation.dataSetInformation.common:other.tidasimport:sourceTrace.@marker',
+      'flowDataSet.flowInformation.dataSetInformation.common:other.tidasimport:sourceTrace.payload.sourceObject',
+    ],
+  );
+  assert.deepEqual(
+    __testInternals.collectImportContentIssues({
+      'common:referenceYear': '9999',
+      clean: 'source text',
+    }),
+    [
+      {
+        path: 'common:referenceYear',
+        message:
+          'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+        code: 'dataset_import_placeholder_content',
+      },
+    ],
+  );
+  assert.deepEqual(__testInternals.collectImportContentIssues('TIDAS_IMPORT_PLACEHOLDER:X'), [
+    {
+      path: '<root>',
+      message:
+        'Dataset payload contains import placeholder, trace, local path, or sentinel content that must be repaired before import.',
+      code: 'dataset_import_placeholder_content',
+    },
+  ]);
+});
+
 test('dataset local helpers cover input parsing, wrappers, identities, and errors', () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-local-'));
   const jsonPath = path.join(dir, 'rows.json');
