@@ -5,7 +5,14 @@ import { readJsonInput } from './io.js';
 
 export type JsonObject = Record<string, unknown>;
 
-export type DatasetKind = 'flow' | 'process' | 'lifecyclemodel';
+export type DatasetKind =
+  | 'contact'
+  | 'flow'
+  | 'flowproperty'
+  | 'lifecyclemodel'
+  | 'process'
+  | 'source'
+  | 'unitgroup';
 
 export type DatasetRowInput = {
   index: number;
@@ -115,19 +122,37 @@ export function readDatasetRowsInput(inputPath: string, rawInput?: unknown): Jso
 }
 
 export function datasetRoot(payload: JsonObject, kind: DatasetKind): JsonObject {
+  if (kind === 'contact') {
+    return isRecord(payload.contactDataSet) ? payload.contactDataSet : payload;
+  }
   if (kind === 'flow') {
     return isRecord(payload.flowDataSet) ? payload.flowDataSet : payload;
+  }
+  if (kind === 'flowproperty') {
+    return isRecord(payload.flowPropertyDataSet) ? payload.flowPropertyDataSet : payload;
   }
   if (kind === 'process') {
     return isRecord(payload.processDataSet) ? payload.processDataSet : payload;
   }
-  return isRecord(payload.lifeCycleModelDataSet) ? payload.lifeCycleModelDataSet : payload;
+  if (kind === 'lifecyclemodel') {
+    return isRecord(payload.lifeCycleModelDataSet) ? payload.lifeCycleModelDataSet : payload;
+  }
+  if (kind === 'source') {
+    return isRecord(payload.sourceDataSet) ? payload.sourceDataSet : payload;
+  }
+  return isRecord(payload.unitGroupDataSet) ? payload.unitGroupDataSet : payload;
 }
 
 export function detectDatasetKind(value: JsonObject): DatasetKind | null {
   const payload = unwrapDatasetPayload(value);
+  if (isRecord(payload.contactDataSet)) {
+    return 'contact';
+  }
   if (isRecord(payload.flowDataSet)) {
     return 'flow';
+  }
+  if (isRecord(payload.flowPropertyDataSet)) {
+    return 'flowproperty';
   }
   if (isRecord(payload.processDataSet)) {
     return 'process';
@@ -135,14 +160,32 @@ export function detectDatasetKind(value: JsonObject): DatasetKind | null {
   if (isRecord(payload.lifeCycleModelDataSet)) {
     return 'lifecyclemodel';
   }
+  if (isRecord(payload.sourceDataSet)) {
+    return 'source';
+  }
+  if (isRecord(payload.unitGroupDataSet)) {
+    return 'unitgroup';
+  }
+  if (isRecord(value.contact)) {
+    return 'contact';
+  }
   if (isRecord(value.flow)) {
     return 'flow';
+  }
+  if (isRecord(value.flowproperty)) {
+    return 'flowproperty';
   }
   if (isRecord(value.process)) {
     return 'process';
   }
   if (isRecord(value.lifecyclemodel)) {
     return 'lifecyclemodel';
+  }
+  if (isRecord(value.source)) {
+    return 'source';
+  }
+  if (isRecord(value.unitgroup)) {
+    return 'unitgroup';
   }
   return null;
 }
@@ -162,7 +205,41 @@ export function unwrapDatasetPayload(row: JsonObject): JsonObject {
   if (isRecord(row.lifecyclemodel)) {
     return row.lifecyclemodel;
   }
+  if (isRecord(row.contact)) {
+    return row.contact;
+  }
+  if (isRecord(row.source)) {
+    return row.source;
+  }
+  if (isRecord(row.unitgroup)) {
+    return row.unitgroup;
+  }
+  if (isRecord(row.flowproperty)) {
+    return row.flowproperty;
+  }
   return row;
+}
+
+function genericIdentity(
+  payload: JsonObject,
+  kind: DatasetKind,
+  informationKey: string,
+): { id: string | null; version: string | null } {
+  const root = datasetRoot(payload, kind);
+  const information = isRecord(root[informationKey]) ? root[informationKey] : {};
+  const dataSetInformation = isRecord(information.dataSetInformation)
+    ? information.dataSetInformation
+    : {};
+  const administrativeInformation = isRecord(root.administrativeInformation)
+    ? root.administrativeInformation
+    : {};
+  const publicationAndOwnership = isRecord(administrativeInformation.publicationAndOwnership)
+    ? administrativeInformation.publicationAndOwnership
+    : {};
+  return {
+    id: firstNonEmpty(dataSetInformation['common:UUID']),
+    version: firstNonEmpty(publicationAndOwnership['common:dataSetVersion']),
+  };
 }
 
 function flowIdentity(payload: JsonObject): { id: string | null; version: string | null } {
@@ -229,8 +306,22 @@ export function datasetIdentity(
   payload: JsonObject,
   kind: DatasetKind | null,
 ): { id: string | null; version: string | null } {
+  if (kind === 'contact') {
+    const identity = genericIdentity(payload, 'contact', 'contactInformation');
+    return {
+      id: firstNonEmpty(row.id, identity.id),
+      version: firstNonEmpty(row.version, identity.version),
+    };
+  }
   if (kind === 'flow') {
     const identity = flowIdentity(payload);
+    return {
+      id: firstNonEmpty(row.id, identity.id),
+      version: firstNonEmpty(row.version, identity.version),
+    };
+  }
+  if (kind === 'flowproperty') {
+    const identity = genericIdentity(payload, 'flowproperty', 'flowPropertiesInformation');
     return {
       id: firstNonEmpty(row.id, identity.id),
       version: firstNonEmpty(row.version, identity.version),
@@ -245,6 +336,20 @@ export function datasetIdentity(
   }
   if (kind === 'lifecyclemodel') {
     const identity = lifecyclemodelIdentity(payload);
+    return {
+      id: firstNonEmpty(row.id, identity.id),
+      version: firstNonEmpty(row.version, identity.version),
+    };
+  }
+  if (kind === 'source') {
+    const identity = genericIdentity(payload, 'source', 'sourceInformation');
+    return {
+      id: firstNonEmpty(row.id, identity.id),
+      version: firstNonEmpty(row.version, identity.version),
+    };
+  }
+  if (kind === 'unitgroup') {
+    const identity = genericIdentity(payload, 'unitgroup', 'unitGroupInformation');
     return {
       id: firstNonEmpty(row.id, identity.id),
       version: firstNonEmpty(row.version, identity.version),

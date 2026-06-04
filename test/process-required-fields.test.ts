@@ -399,6 +399,36 @@ test('process required field issue collector detects missing and invalid annual 
   assert.deepEqual(
     collectProcessRequiredFieldIssues({
       processDataSet: {
+        processInformation: {
+          dataSetInformation: {
+            'common:other': {
+              'tiangongfoundry:unresolvedTrace': [
+                {
+                  status: 'unresolved_deferred',
+                  action_item_code: 'annual_supply_or_production_volume_invalid',
+                  blocked_path:
+                    'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume',
+                  reason: 'No annualized source quantity is available.',
+                  evidence: {
+                    source: 'source_row',
+                    quote_or_trace: 'annualSupplyOrProductionVolume.#text = Not specified',
+                  },
+                  next_action: 'Curate an annualized quantity from explicit source evidence.',
+                },
+              ],
+            },
+          },
+        },
+        modellingAndValidation: {
+          ...validRequiredStructures,
+        },
+      },
+    }).map((issue) => issue.code),
+    [],
+  );
+  assert.deepEqual(
+    collectProcessRequiredFieldIssues({
+      processDataSet: {
         modellingAndValidation: {
           ...validRequiredStructures,
           dataSourcesTreatmentAndRepresentativeness: {},
@@ -406,6 +436,46 @@ test('process required field issue collector detects missing and invalid annual 
       },
     }).map((issue) => issue.code),
     ['annual_supply_or_production_volume_missing'],
+  );
+  assert.deepEqual(
+    collectProcessRequiredFieldIssues({
+      processDataSet: {
+        processInformation: {
+          dataSetInformation: {
+            'common:other': {
+              'tiangongfoundry:unresolvedTrace': [
+                {
+                  status: 'unresolved_deferred',
+                  action_item_code: 'annual_supply_or_production_volume_invalid',
+                  blocked_path:
+                    'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume',
+                  reason: 'No annualized source quantity is available.',
+                  evidence: {
+                    source: 'source_row',
+                    quote_or_trace: 'annualSupplyOrProductionVolume.#text = Not specified',
+                  },
+                  next_action: 'Curate an annualized quantity from explicit source evidence.',
+                },
+              ],
+            },
+          },
+        },
+        modellingAndValidation: {
+          ...validRequiredStructures,
+          dataSourcesTreatmentAndRepresentativeness: {
+            dataCutOffAndCompletenessPrinciples: {
+              '@xml:lang': 'en',
+              '#text': 'Not specified',
+            },
+            referenceToDataSource: {
+              '@type': 'source data set',
+              '@refObjectId': 'source-1',
+            },
+          },
+        },
+      },
+    }).map((issue) => issue.code),
+    [],
   );
   assert.deepEqual(
     collectProcessRequiredFieldIssues({

@@ -6,6 +6,7 @@ import {
   writeJsonLinesArtifact,
   writeTextArtifact,
 } from './artifacts.js';
+import { materializeDatasetRows } from './dataset-local.js';
 import { CliError } from './errors.js';
 import type { ValidationIssue } from './validation.js';
 
@@ -17,6 +18,7 @@ type ModelEntry = {
   summaryPath: string;
   connectionsPath: string;
   processCatalogPath: string;
+  inputMode: 'run_dir' | 'rows_file';
 };
 
 type ModelFileReviewInfo = {
@@ -95,6 +97,8 @@ export type LifecyclemodelQaReport = {
   status: 'completed_local_lifecyclemodel_qa';
   run_id: string;
   run_root: string;
+  rows_file: string;
+  input_mode: 'run_dir' | 'rows_file';
   out_dir: string;
   logic_version: string;
   model_count: number;
@@ -108,6 +112,7 @@ export type LifecyclemodelQaReport = {
   files: {
     run_manifest: string;
     invocation_index: string;
+    qa_input_summary: string | null;
     validation_report: string | null;
     model_summaries: string;
     findings: string;
@@ -122,7 +127,8 @@ export type LifecyclemodelQaReport = {
 };
 
 export type RunLifecyclemodelQaOptions = {
-  runDir: string;
+  runDir?: string;
+  rowsFile?: string;
   outDir: string;
   startTs?: string;
   endTs?: string;
@@ -134,6 +140,8 @@ export type RunLifecyclemodelQaOptions = {
 export type LifecyclemodelQaLayout = {
   runId: string;
   runRoot: string;
+  rowsFile: string;
+  inputMode: 'run_dir' | 'rows_file';
   outDir: string;
   modelsDir: string;
   reportsDir: string;
@@ -141,6 +149,7 @@ export type LifecyclemodelQaLayout = {
   runManifestPath: string;
   invocationIndexPath: string;
   validationReportPath: string;
+  qaInputSummaryPath: string | null;
   modelSummariesPath: string;
   findingsPath: string;
   summaryPath: string;
@@ -217,6 +226,14 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
 
 function copyJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function sanitizeFileName(value: unknown): string {
+  return (
+    String(value ?? 'missing')
+      .replace(/[^A-Za-z0-9._-]+/gu, '_')
+      .replace(/^_+|_+$/gu, '') || 'missing'
+  );
 }
 
 function emptySeverityCounts(): SeverityCounts {
@@ -302,11 +319,20 @@ function readOptionalJsonArray(
   return value;
 }
 
-function buildLayout(runRoot: string, outDir: string): LifecyclemodelQaLayout {
+function buildLayout(options: {
+  runRoot: string;
+  outDir: string;
+  rowsFile?: string;
+  inputMode?: 'run_dir' | 'rows_file';
+}): LifecyclemodelQaLayout {
+  const runRoot = options.runRoot;
+  const outDir = options.outDir;
   const runId = path.basename(runRoot);
   return {
     runId,
     runRoot,
+    rowsFile: options.rowsFile ?? '',
+    inputMode: options.inputMode ?? 'run_dir',
     outDir,
     modelsDir: path.join(runRoot, 'models'),
     reportsDir: path.join(runRoot, 'reports'),
@@ -318,6 +344,10 @@ function buildLayout(runRoot: string, outDir: string): LifecyclemodelQaLayout {
       'reports',
       'lifecyclemodel-validate-build-report.json',
     ),
+    qaInputSummaryPath:
+      options.inputMode === 'rows_file'
+        ? path.join(outDir, 'qa_input_summary.json')
+        : null,
     modelSummariesPath: path.join(outDir, 'model_summaries.jsonl'),
     findingsPath: path.join(outDir, 'findings.jsonl'),
     summaryPath: path.join(outDir, 'lifecyclemodel_qa_summary.json'),
@@ -329,14 +359,6 @@ function buildLayout(runRoot: string, outDir: string): LifecyclemodelQaLayout {
 }
 
 function resolveLayout(options: RunLifecyclemodelQaOptions): LifecyclemodelQaLayout {
-  const runDir = nonEmptyString(options.runDir);
-  if (!runDir) {
-    throw new CliError('Missing required --run-dir for qa lifecyclemodel.', {
-      code: 'LIFECYCLEMODEL_QA_RUN_DIR_REQUIRED',
-      exitCode: 2,
-    });
-  }
-
   const outDir = nonEmptyString(options.outDir);
   if (!outDir) {
     throw new CliError('Missing required --out-dir for qa lifecyclemodel.', {
@@ -345,7 +367,36 @@ function resolveLayout(options: RunLifecyclemodelQaOptions): LifecyclemodelQaLay
     });
   }
 
-  return buildLayout(path.resolve(runDir), path.resolve(outDir));
+  const rowsFile = nonEmptyString(options.rowsFile);
+  const runDir = nonEmptyString(options.runDir);
+  if (rowsFile && runDir) {
+    throw new CliError('Use either --rows-file or --run-dir for qa lifecyclemodel, not both.', {
+      code: 'LIFECYCLEMODEL_QA_INPUT_MODE_CONFLICT',
+      exitCode: 2,
+    });
+  }
+
+  if (rowsFile) {
+    const resolvedRowsFile = path.resolve(rowsFile);
+    return buildLayout({
+      runRoot: path.join(path.resolve(outDir), 'qa-input', sanitizeFileName(path.basename(rowsFile))),
+      rowsFile: resolvedRowsFile,
+      inputMode: 'rows_file',
+      outDir: path.resolve(outDir),
+    });
+  }
+  if (!runDir) {
+    throw new CliError('Missing required --rows-file or --run-dir for qa lifecyclemodel.', {
+      code: 'LIFECYCLEMODEL_QA_RUN_DIR_REQUIRED',
+      exitCode: 2,
+    });
+  }
+
+  return buildLayout({
+    runRoot: path.resolve(runDir),
+    outDir: path.resolve(outDir),
+    inputMode: 'run_dir',
+  });
 }
 
 function ensureRunRootExists(layout: LifecyclemodelQaLayout): void {
@@ -454,6 +505,7 @@ function discoverModelEntries(layout: LifecyclemodelQaLayout): ModelEntry[] {
         summaryPath: path.join(layout.modelsDir, runName, 'summary.json'),
         connectionsPath: path.join(layout.modelsDir, runName, 'connections.json'),
         processCatalogPath: path.join(layout.modelsDir, runName, 'process-catalog.json'),
+        inputMode: layout.inputMode,
       },
     ];
   });
@@ -469,6 +521,88 @@ function discoverModelEntries(layout: LifecyclemodelQaLayout): ModelEntry[] {
   }
 
   return entries;
+}
+
+function materializeRowsFile(layout: LifecyclemodelQaLayout): {
+  invocationIndex: JsonObject;
+  validationAggregate: LifecyclemodelValidationAggregate;
+  modelEntries: ModelEntry[];
+} {
+  if (!layout.rowsFile || !existsSync(layout.rowsFile)) {
+    throw new CliError(`Lifecyclemodel QA rows file not found: ${layout.rowsFile}`, {
+      code: 'LIFECYCLEMODEL_QA_ROWS_FILE_NOT_FOUND',
+      exitCode: 2,
+      details: { rowsFile: layout.rowsFile },
+    });
+  }
+
+  const rows = materializeDatasetRows(layout.rowsFile);
+  const entries: ModelEntry[] = [];
+  writeJsonArtifact(layout.runManifestPath, {
+    schemaVersion: 1,
+    runId: layout.runId,
+    input_mode: 'rows_file',
+    rows_file: layout.rowsFile,
+    row_count: rows.length,
+  });
+  writeJsonArtifact(layout.invocationIndexPath, {
+    schema_version: 1,
+    invocations: [],
+  });
+
+  rows.forEach((row) => {
+    if (row.kind && row.kind !== 'lifecyclemodel') {
+      throw new CliError(
+        `Expected lifecyclemodel row at index ${row.index}; detected ${row.kind}.`,
+        {
+          code: 'LIFECYCLEMODEL_QA_ROWS_FILE_KIND_MISMATCH',
+          exitCode: 2,
+          details: { index: row.index, detectedKind: row.kind },
+        },
+      );
+    }
+
+    const runName = sanitizeFileName(row.id ?? `row-${row.index + 1}`);
+    const modelFile = path.join(
+      layout.modelsDir,
+      runName,
+      'tidas_bundle',
+      'lifecyclemodels',
+      `${runName}.json`,
+    );
+    writeJsonArtifact(modelFile, row.payload);
+    entries.push({
+      runName,
+      modelFiles: [modelFile],
+      summaryPath: path.join(layout.modelsDir, runName, 'summary.json'),
+      connectionsPath: path.join(layout.modelsDir, runName, 'connections.json'),
+      processCatalogPath: path.join(layout.modelsDir, runName, 'process-catalog.json'),
+      inputMode: 'rows_file',
+    });
+  });
+
+  if (layout.qaInputSummaryPath) {
+    writeJsonArtifact(layout.qaInputSummaryPath, {
+      input_mode: 'rows_file',
+      rows_file: layout.rowsFile,
+      run_root: layout.runRoot,
+      materialized_lifecyclemodel_count: entries.length,
+      materialized_models_dir: layout.modelsDir,
+    });
+  }
+
+  return {
+    invocationIndex: {
+      schema_version: 1,
+      invocations: [],
+    },
+    validationAggregate: {
+      ok: null,
+      reportPath: null,
+      modelReports: new Map(),
+    },
+    modelEntries: entries,
+  };
 }
 
 function normalizeValidationIssue(raw: unknown): ValidationIssue {
@@ -753,7 +887,7 @@ function buildModelReview(
     ? Object.keys(multiplicationFactors).length
     : 0;
 
-  if (!summaryArtifact) {
+  if (entry.inputMode === 'run_dir' && !summaryArtifact) {
     findings.push(
       makeFinding(
         entry.runName,
@@ -769,7 +903,7 @@ function buildModelReview(
     );
   }
 
-  if (!connections) {
+  if (entry.inputMode === 'run_dir' && !connections) {
     findings.push(
       makeFinding(
         entry.runName,
@@ -785,7 +919,7 @@ function buildModelReview(
     );
   }
 
-  if (!processCatalog) {
+  if (entry.inputMode === 'run_dir' && !processCatalog) {
     findings.push(
       makeFinding(
         entry.runName,
@@ -801,7 +935,7 @@ function buildModelReview(
     );
   }
 
-  if (referenceProcessUuids.length === 0) {
+  if (entry.inputMode === 'run_dir' && referenceProcessUuids.length === 0) {
     findings.push(
       makeFinding(
         entry.runName,
@@ -966,14 +1100,13 @@ function buildInvocationIndex(
   const priorInvocations = Array.isArray(invocationIndex.invocations)
     ? [...invocationIndex.invocations]
     : [];
-  const command = [
-    'qa',
-    'lifecyclemodel',
-    '--run-dir',
-    options.runDir,
-    '--out-dir',
-    options.outDir,
-  ];
+  const command = ['qa', 'lifecyclemodel'];
+  if (layout.inputMode === 'rows_file') {
+    command.push('--rows-file', options.rowsFile as string);
+  } else {
+    command.push('--run-dir', options.runDir as string);
+  }
+  command.push('--out-dir', options.outDir);
 
   if (nonEmptyString(options.logicVersion)) {
     command.push('--logic-version', options.logicVersion as string);
@@ -1007,6 +1140,14 @@ function buildNextActions(
   layout: LifecyclemodelQaLayout,
   validationAggregate: LifecyclemodelValidationAggregate,
 ): string[] {
+  if (layout.inputMode === 'rows_file') {
+    return [
+      `inspect: ${layout.findingsPath}`,
+      `run: tiangong-lca dataset validate --type lifecyclemodel --input ${layout.rowsFile}`,
+      `run: tiangong-lca lifecyclemodel save-draft --input ${layout.rowsFile} --dry-run`,
+    ];
+  }
+
   return [
     `inspect: ${layout.findingsPath}`,
     validationAggregate.reportPath
@@ -1020,6 +1161,8 @@ function renderZhReview(options: {
   runId: string;
   logicVersion: string;
   runRoot: string;
+  rowsFile: string;
+  inputMode: 'run_dir' | 'rows_file';
   modelSummaries: LifecyclemodelQaModelSummary[];
   findings: LifecyclemodelQaFinding[];
   validation: LifecyclemodelQaReport['validation'];
@@ -1029,6 +1172,8 @@ function renderZhReview(options: {
     `- run_id: \`${options.runId}\`\n`,
     `- logic_version: \`${options.logicVersion}\`\n`,
     `- run_root: \`${options.runRoot}\`\n`,
+    `- input_mode: \`${options.inputMode}\`\n`,
+    ...(options.rowsFile ? [`- rows_file: \`${options.rowsFile}\`\n`] : []),
     '\n## 总览\n',
     `- model bundle 数量: **${options.modelSummaries.length}**\n`,
     `- findings 数量: **${options.findings.length}**\n`,
@@ -1058,7 +1203,9 @@ function renderZhReview(options: {
 
   lines.push(
     '\n## 说明\n',
-    '- 当前 qa lifecyclemodel 保持 local-first / artifact-first，只读取现有 build run 与 validate-build 产物。\n',
+    options.inputMode === 'rows_file'
+      ? '- 当前 qa lifecyclemodel rows-file 模式只做 payload-level deterministic QA，不要求 lifecyclemodel build-run 产物。\n'
+      : '- 当前 qa lifecyclemodel run-dir 模式保持 local-first / artifact-first，只读取现有 build run 与 validate-build 产物。\n',
     '- 当前命令不引入 Python、LangGraph 或 skill 私有 QA runtime。\n',
   );
 
@@ -1069,6 +1216,8 @@ function renderEnReview(options: {
   runId: string;
   logicVersion: string;
   runRoot: string;
+  rowsFile: string;
+  inputMode: 'run_dir' | 'rows_file';
   modelSummaries: LifecyclemodelQaModelSummary[];
   findings: LifecyclemodelQaFinding[];
   validation: LifecyclemodelQaReport['validation'];
@@ -1078,6 +1227,8 @@ function renderEnReview(options: {
     `- run_id: \`${options.runId}\`\n`,
     `- logic_version: \`${options.logicVersion}\`\n`,
     `- run_root: \`${options.runRoot}\`\n`,
+    `- input_mode: \`${options.inputMode}\`\n`,
+    ...(options.rowsFile ? [`- rows_file: \`${options.rowsFile}\`\n`] : []),
     '\n## Summary\n',
     `- model bundles: **${options.modelSummaries.length}**\n`,
     `- findings: **${options.findings.length}**\n`,
@@ -1136,16 +1287,25 @@ export async function runLifecyclemodelQa(
   options: RunLifecyclemodelQaOptions,
 ): Promise<LifecyclemodelQaReport> {
   const layout = resolveLayout(options);
-  ensureRunRootExists(layout);
-  readRequiredRunManifest(layout);
-  const invocationIndex = readInvocationIndex(layout);
-  const validationAggregate = readValidationAggregate(layout);
-  const modelEntries = discoverModelEntries(layout);
+  const input =
+    layout.inputMode === 'rows_file'
+      ? materializeRowsFile(layout)
+      : (() => {
+          ensureRunRootExists(layout);
+          readRequiredRunManifest(layout);
+          return {
+            invocationIndex: readInvocationIndex(layout),
+            validationAggregate: readValidationAggregate(layout),
+            modelEntries: discoverModelEntries(layout),
+          };
+        })();
   const logicVersion = options.logicVersion?.trim() || 'lifecyclemodel-qa-v1.0';
   const now = options.now ?? (() => new Date());
   const generatedAt = now();
 
-  const reviewedModels = modelEntries.map((entry) => buildModelReview(entry, validationAggregate));
+  const reviewedModels = input.modelEntries.map((entry) =>
+    buildModelReview(entry, input.validationAggregate),
+  );
   const modelSummaries = reviewedModels.map((model) => model.summary);
   const findings = reviewedModels.flatMap((model) => model.findings);
   const report: LifecyclemodelQaReport = {
@@ -1154,20 +1314,23 @@ export async function runLifecyclemodelQa(
     status: 'completed_local_lifecyclemodel_qa',
     run_id: layout.runId,
     run_root: layout.runRoot,
+    rows_file: layout.rowsFile,
+    input_mode: layout.inputMode,
     out_dir: layout.outDir,
     logic_version: logicVersion,
     model_count: modelSummaries.length,
     finding_count: findings.length,
     severity_counts: severityCounts(findings),
     validation: {
-      available: validationAggregate.reportPath !== null,
-      ok: validationAggregate.ok,
-      report: validationAggregate.reportPath,
+      available: input.validationAggregate.reportPath !== null,
+      ok: input.validationAggregate.ok,
+      report: input.validationAggregate.reportPath,
     },
     files: {
       run_manifest: layout.runManifestPath,
       invocation_index: layout.invocationIndexPath,
-      validation_report: validationAggregate.reportPath,
+      qa_input_summary: layout.qaInputSummaryPath,
+      validation_report: input.validationAggregate.reportPath,
       model_summaries: layout.modelSummariesPath,
       findings: layout.findingsPath,
       summary: layout.summaryPath,
@@ -1177,17 +1340,19 @@ export async function runLifecyclemodelQa(
       report: layout.reportPath,
     },
     model_summaries: modelSummaries,
-    next_actions: buildNextActions(layout, validationAggregate),
+    next_actions: buildNextActions(layout, input.validationAggregate),
   };
 
   writeJsonArtifact(
     layout.invocationIndexPath,
-    buildInvocationIndex(layout, invocationIndex, options, generatedAt),
+    buildInvocationIndex(layout, input.invocationIndex, options, generatedAt),
   );
   writeJsonLinesArtifact(layout.modelSummariesPath, modelSummaries);
   writeJsonLinesArtifact(layout.findingsPath, findings);
   writeJsonArtifact(layout.summaryPath, {
     run_id: report.run_id,
+    rows_file: report.rows_file,
+    input_mode: report.input_mode,
     logic_version: report.logic_version,
     model_count: report.model_count,
     finding_count: report.finding_count,
@@ -1200,6 +1365,8 @@ export async function runLifecyclemodelQa(
       runId: report.run_id,
       logicVersion: report.logic_version,
       runRoot: report.run_root,
+      rowsFile: report.rows_file,
+      inputMode: report.input_mode,
       modelSummaries,
       findings,
       validation: report.validation,
@@ -1211,6 +1378,8 @@ export async function runLifecyclemodelQa(
       runId: report.run_id,
       logicVersion: report.logic_version,
       runRoot: report.run_root,
+      rowsFile: report.rows_file,
+      inputMode: report.input_mode,
       modelSummaries,
       findings,
       validation: report.validation,
@@ -1236,6 +1405,7 @@ export const __testInternals = {
   readInvocationIndex,
   discoverModelEntries,
   readValidationAggregate,
+  materializeRowsFile,
   readModelFileReviewInfo,
   buildModelReview,
   buildInvocationIndex,

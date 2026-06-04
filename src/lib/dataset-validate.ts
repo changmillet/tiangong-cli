@@ -69,15 +69,23 @@ export type RunDatasetValidateOptions = {
 const DEFAULT_TYPE: DatasetValidateType = 'auto';
 
 const SCHEMA_EXPORTS: Record<DatasetKind, keyof typeof tidasSdk> = {
+  contact: 'ContactSchema' as keyof typeof tidasSdk,
   flow: 'FlowSchema' as keyof typeof tidasSdk,
+  flowproperty: 'FlowPropertySchema' as keyof typeof tidasSdk,
   process: 'ProcessSchema' as keyof typeof tidasSdk,
   lifecyclemodel: 'LifeCycleModelSchema' as keyof typeof tidasSdk,
+  source: 'SourceSchema' as keyof typeof tidasSdk,
+  unitgroup: 'UnitGroupSchema' as keyof typeof tidasSdk,
 };
 
 const ENTITY_FACTORY_EXPORTS: Record<DatasetKind, keyof typeof tidasSdk> = {
+  contact: 'createContact' as keyof typeof tidasSdk,
   flow: 'createFlow' as keyof typeof tidasSdk,
+  flowproperty: 'createFlowProperty' as keyof typeof tidasSdk,
   process: 'createProcess' as keyof typeof tidasSdk,
   lifecyclemodel: 'createLifeCycleModel' as keyof typeof tidasSdk,
+  source: 'createSource' as keyof typeof tidasSdk,
+  unitgroup: 'createUnitGroup' as keyof typeof tidasSdk,
 };
 
 function issuePath(pathSegments: Array<string | number>): string {
@@ -136,7 +144,7 @@ function collectImportContentIssuesFromValue(
   }
 }
 
-function collectImportContentIssues(payload: unknown): DatasetValidateIssue[] {
+export function collectImportContentIssues(payload: unknown): DatasetValidateIssue[] {
   const issues: DatasetValidateIssue[] = [];
   collectImportContentIssuesFromValue(payload, [], issues);
   return issues;
@@ -150,8 +158,19 @@ function normalizeType(value: string | null | undefined): DatasetValidateType {
   if (normalized === 'auto') {
     return 'auto';
   }
+  if (normalized === 'contact' || normalized === 'contacts') {
+    return 'contact';
+  }
   if (normalized === 'flow' || normalized === 'flows') {
     return 'flow';
+  }
+  if (
+    normalized === 'flowproperty' ||
+    normalized === 'flowproperties' ||
+    normalized === 'flow-property' ||
+    normalized === 'flow-properties'
+  ) {
+    return 'flowproperty';
   }
   if (normalized === 'process' || normalized === 'processes') {
     return 'process';
@@ -164,11 +183,25 @@ function normalizeType(value: string | null | undefined): DatasetValidateType {
   ) {
     return 'lifecyclemodel';
   }
-  throw new CliError('Expected --type to be auto, flow, process, or lifecyclemodel.', {
-    code: 'DATASET_VALIDATE_TYPE_INVALID',
-    exitCode: 2,
-    details: value,
-  });
+  if (normalized === 'source' || normalized === 'sources') {
+    return 'source';
+  }
+  if (
+    normalized === 'unitgroup' ||
+    normalized === 'unitgroups' ||
+    normalized === 'unit-group' ||
+    normalized === 'unit-groups'
+  ) {
+    return 'unitgroup';
+  }
+  throw new CliError(
+    'Expected --type to be auto, contact, source, unitgroup, flowproperty, flow, process, or lifecyclemodel.',
+    {
+      code: 'DATASET_VALIDATE_TYPE_INVALID',
+      exitCode: 2,
+      details: value,
+    },
+  );
 }
 
 function schemaForKind(
@@ -299,9 +332,13 @@ function buildFiles(outDir: string | null | undefined): DatasetValidateReport['f
 
 function summarizeByType(rows: DatasetValidateRowReport[]): Record<DatasetKind, number> {
   return {
+    contact: rows.filter((row) => row.type === 'contact').length,
     flow: rows.filter((row) => row.type === 'flow').length,
+    flowproperty: rows.filter((row) => row.type === 'flowproperty').length,
     process: rows.filter((row) => row.type === 'process').length,
     lifecyclemodel: rows.filter((row) => row.type === 'lifecyclemodel').length,
+    source: rows.filter((row) => row.type === 'source').length,
+    unitgroup: rows.filter((row) => row.type === 'unitgroup').length,
   };
 }
 

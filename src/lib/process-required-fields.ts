@@ -15,6 +15,8 @@ const ANNUAL_SUPPLY_FIELD =
   'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';
 const ANNUAL_SUPPLY_ROOT_FIELD =
   'modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';
+const DATA_SOURCES_TREATMENT_FIELD =
+  'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness';
 const NUMERIC_TEXT_WITH_SUFFIX_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?\s+\S.*$/u;
 const ANNUAL_PERIOD_PATTERN =
   /(?:\/\s*(?:year|yr|a)\b|\bper\s+(?:year|annum)\b|\/\s*年|每年|年度|年供应|年产)/iu;
@@ -185,6 +187,49 @@ function isValidAnnualSupplyVolume(value: unknown): boolean {
   );
 }
 
+function unresolvedTraceEntries(root: JsonObject): JsonObject[] {
+  const dataSetInformation = isRecord(root.processInformation)
+    ? isRecord(root.processInformation.dataSetInformation)
+      ? root.processInformation.dataSetInformation
+      : {}
+    : {};
+  const commonOther = isRecord(dataSetInformation['common:other'])
+    ? dataSetInformation['common:other']
+    : {};
+  return asList(commonOther['tiangongfoundry:unresolvedTrace']).filter(
+    (item): item is JsonObject => isRecord(item),
+  );
+}
+
+function hasDeferredAnnualSupplyTrace(root: JsonObject): boolean {
+  return unresolvedTraceEntries(root).some((entry) => {
+    const actionItemCode = firstNonEmpty(
+      entry.action_item_code,
+      entry.actionItemCode,
+      entry.code,
+    );
+    const blockedPath = firstNonEmpty(
+      entry.blocked_path,
+      entry.blockedPath,
+      entry.field_path,
+      entry.fieldPath,
+      entry.path,
+    );
+    const status = firstNonEmpty(entry.status, entry.decision_status, entry.decisionStatus);
+    return (
+      (actionItemCode === 'annual_supply_or_production_volume_invalid' ||
+        actionItemCode === 'annual_supply_or_production_volume_missing' ||
+        actionItemCode === 'invalid_format' ||
+        blockedPath === ANNUAL_SUPPLY_FIELD ||
+        blockedPath === ANNUAL_SUPPLY_ROOT_FIELD ||
+        blockedPath?.endsWith('.annualSupplyOrProductionVolume') === true) &&
+      (status === 'unresolved_deferred' ||
+        status === 'deferred_to_common_other' ||
+        status === 'needs_followup')
+    );
+  });
+}
+
 function isValidReview(value: unknown): boolean {
   return asList(value).some((item) => isRecord(item) && Boolean(firstNonEmpty(item['@type'])));
 }
@@ -212,12 +257,14 @@ export function collectProcessRequiredFieldIssues(
   const dataSources = isRecord(modelling.dataSourcesTreatmentAndRepresentativeness)
     ? modelling.dataSourcesTreatmentAndRepresentativeness
     : null;
-  if (!dataSources) {
+  const annualSupplyDeferredToTrace = hasDeferredAnnualSupplyTrace(root);
+  const dataSourcesDeferredToTrace = !dataSources && annualSupplyDeferredToTrace;
+  if (!dataSources && !dataSourcesDeferredToTrace) {
     return [
       {
         code: 'process_data_sources_treatment_missing',
         message: 'Process payload must include dataSourcesTreatmentAndRepresentativeness.',
-        path: 'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness',
+        path: DATA_SOURCES_TREATMENT_FIELD,
       },
     ];
   }
@@ -244,12 +291,24 @@ export function collectProcessRequiredFieldIssues(
     });
   }
 
+  if (dataSourcesDeferredToTrace) {
+    return issues;
+  }
+
+  if (!dataSources) {
+    return issues;
+  }
+
   const annualSupply = dataSources.annualSupplyOrProductionVolume;
   if (isValidAnnualSupplyVolume(annualSupply)) {
     return issues;
   }
 
   const items = annualSupplyItems(annualSupply);
+  if (items.length === 0 && annualSupplyDeferredToTrace) {
+    return issues;
+  }
+
   if (items.length === 0) {
     return [
       ...issues,

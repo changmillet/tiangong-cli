@@ -137,7 +137,8 @@ tiangong-lca
 | `tiangong-lca process resume-build` | 本地 `process_from_flow` resume handoff、state-lock/manifest 收口、resume 元数据与报告输出 |
 | `tiangong-lca process publish-build` | 本地 `process_from_flow` publish handoff；先用 `ProcessSchema` 写出 `reports/process-publish-schema-gate.json`，通过后再产出 publish bundle/request/intent 并更新 state/invocation/handoff |
 | `tiangong-lca process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
-| `tiangong-lca dataset validate` | 本地 flow / process / lifecyclemodel rows 的统一 TIDAS SDK validation 与稳定报告输出 |
+| `tiangong-lca dataset validate` | 本地 support / flow / process / lifecyclemodel rows 的统一 TIDAS SDK validation 与稳定报告输出 |
+| `tiangong-lca dataset classification` | 本地 TIDAS 分类/位置编码治理入口；从 bundled schema 步进列子类、解析 path、审计 `tidas_locations_category.json` 位置编码，并可 deterministic apply AI/human decision |
 | `tiangong-lca dataset curation-queue build` | 本地 Foundry external dataset import 的 entity-level curation queue 构建入口；输出 manifest、tasks、locks、blockers、per-entity input/closure/run-plan artifacts，不执行 AI、不写远端 |
 | `tiangong-lca dataset references rewrite` | 本地 process / lifecyclemodel rows 的 flow reference rewrite、patch evidence 输出，并可选走 state-aware save-draft commit |
 | `tiangong-lca lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
@@ -198,13 +199,14 @@ tiangong-lca
 `tiangong-lca dataset ...` 现在已经开始承接跨 dataset 的本地治理切片，其中：
 
 - `tiangong-lca dataset validate` 已可执行
+- `tiangong-lca dataset classification children/path/audit/apply` 已可执行
 - `tiangong-lca dataset curation-queue build` 已可执行
 - `tiangong-lca dataset references rewrite` 已可执行
 
 注意：
 
 - `process get` 当前固定为 CLI 内部共享的 deterministic direct-read 面，内部执行已收口到原生 `@supabase/supabase-js`，供 lifecyclemodel resulting-process 和后续 review/governance 迁移复用
-- 已实现的 `process identity-preflight` 是本地只读、artifact-first 的生成前 gate；输入为 target + embedded candidates，并可通过 repeatable `--candidate-input` 读取 JSON/JSONL 文件或递归扫描本地目录。需要查正式库时，输入可设置 `remote_candidate_search`，CLI 也可传 `--remote-candidates --remote-query ... --remote-limit ...`，通过 `process_hybrid_search` 拉取远程候选并合并进入同一套 identity / exchange fingerprint 判定。输出 `identity-decision.json` / `identity-candidates.jsonl` / `identity-candidate-sources.json`；当 exact exchange fingerprint 与 reference/geography 等身份上下文同时命中时输出 `block_duplicate`，只有 inventory-only 弱命中时才进入 `manual_review`。
+- 已实现的 `process identity-preflight` 是本地只读、artifact-first 的生成前 gate；输入为 target + embedded candidates，并可通过 repeatable `--candidate-input` 读取 JSON/JSONL 文件或递归扫描本地目录。需要查正式库时，输入可设置 `remote_candidate_search`，CLI 也可传 `--remote-candidates --remote-query ... --remote-limit ...`，通过 `process_hybrid_search` 拉取远程候选并合并进入同一套 identity / exchange fingerprint 判定。CLI 传给 Edge Function 的是 fielded `query`、`filter`、`data_source`、`match_count`/`page_size` 和 hybrid search 权重；`remote_candidate_search.profile_hints` 只在本地补强 target profile 与候选评分，不会送入 Edge Function。输出 `identity-decision.json` / `identity-candidates.jsonl` / `identity-candidate-sources.json`；当 exact exchange fingerprint 与 reference/geography 等身份上下文同时命中时输出 `block_duplicate`，只有 inventory-only 弱命中时才进入 `manual_review`。
 - 已实现的 `process build-plan` 是 identity preflight 后、payload 生成前的本地 gate；输入为 BuildPlan，输出 `build-plan-gate-report.json`，并在 `materialize` 时输出 canonical `materialized-process.json`。如果 plan 内已提供 canonical payload，则直接校验该 payload；如果没有 payload，则从 name plan、quantitative reference、exchange plan、source evidence、modelling/admin 字段确定性生成 `processDataSet`。`annualSupplyOrProductionVolume` 使用 build plan/evidence 的显式源语言值；缺失时不再按 reference flow 自动伪造，必须回到证据或 AI 修复环节补齐后再入库。
 - 已实现的 `process auto-build` 在调用方显式提供的 run root 内保留旧 `cache/process_from_flow_state.json`、`cache/agent_handoff_summary.json` 等运行布局，不再推断 repo 本地 `./artifacts/...` 默认路径
 - `process auto-build` 当前只负责本地 request intake、flow 归一化、run scaffold、初始 `manifests/process-build-plan.json` 和 manifest/report 预写，不继续执行后续阶段。该 build plan 是 scaffold_only，后续必须由 identity preflight、evidence replacement、build-plan validate/materialize、schema/QA gate 决定是否可写入。
@@ -214,7 +216,8 @@ tiangong-lca
 - `process publish-build` 当前只负责本地 publish handoff，不直接执行远端 publish commit 或数据库写入
 - 已实现的 `process batch-build` 继续走本地优先、artifact-first 路径，并把批量 item 编排、聚合 report、显式 batch root 下的 item run_dir 分配统一收口到 CLI
 - `process batch-build` 当前只负责本地 batch orchestration，不直接串接 resume / publish 或远端执行器
-- 已实现的 `dataset validate` 把 flow / process / lifecyclemodel 本地 rows 的 TIDAS SDK 校验收口到一个 dataset 级入口，并输出 type summary、validation report 与 failures jsonl
+- 已实现的 `dataset validate` 把 contact / source / unitgroup / flowproperty / flow / process / lifecyclemodel 本地 rows 的 TIDAS SDK 校验收口到一个 dataset 级入口，并输出 type summary、validation report 与 failures jsonl；`--type auto` 可用于 mixed support scope
+- 已实现的 `dataset classification` 从 CLI bundled TIDAS schema 提供分类/位置编码治理：`children` 支持按 parent code 步进列子类，`path` 解析 code 的规范 path，`audit --type location` 按 bundled TIDAS schema 派生位置编码字段，并覆盖 TIDAS LCIA geography 和 lifecyclemodel connection location 字段，检查其值是否属于 `tidas_locations_category.json`，`apply` 把 AI/human structured decision 确定性写回 rows 并输出 evidence
 - 已实现的 `dataset curation-queue build` 把 Foundry external dataset import 的 support / flow / process rows 收口成 entity-level queue artifact contract：`curation-queue-manifest.json`、`curation-queue-tasks.jsonl`、`curation-queue-locks.json`、`curation-queue-blockers.jsonl`，以及每个 entity 的 `input.jsonl`、`closure.json`、`entity-run-plan.json`。CLI 只负责稳定状态机、依赖闭包、锁和 blocker；AI authoring 仍必须通过 skill/Codex 输出 structured patch 或 build plan，并在 deterministic apply、schema/QA、prewrite verify、readback 后才允许进入远端写入。
 - 已实现的 `dataset references rewrite` 把 process / lifecyclemodel rows 中的 flow reference rewrite 收口到一个 deterministic 本地入口，默认只写 patch artifacts，只有显式 `--commit` 时才调用 state-aware save-draft 写入路径
 - 已实现的 `lifecyclemodel auto-build` 走本地只读、artifact-first 路径，输入固定为 local run manifest，不依赖 Python、MCP、KB、LLM 或远端 CRUD
@@ -237,7 +240,7 @@ tiangong-lca
 - `qa flow` 当前明确不支持 `--with-reference-context`，也还没有接入本地 registry enrichment；这部分仍需后续迁移切片单独落地
 - 已实现的 `flow get` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持 `id` + 可选 `version/user_id/state_code` 读取；若精确版本 miss，则回退到最新可见版本；若出现多个同版本可见候选，则直接报 ambiguous
 - 已实现的 `flow list` 保留 deterministic direct-read 边界，但内部执行已经收口到原生 `@supabase/supabase-js`；支持稳定 `id/state_code/type_of_dataset` 过滤、显式 `order=id.asc,version.asc` 默认值，以及 `--all --page-size` 的 offset 分页
-- 已实现的 `flow identity-preflight` 是本地只读、artifact-first 的生成前 gate；输入为 target + embedded candidates，并可通过 repeatable `--candidate-input` 读取 JSON/JSONL 文件或递归扫描本地目录。需要查正式库时，输入可设置 `remote_candidate_search`，CLI 也可传 `--remote-candidates --remote-query ... --remote-limit ...`，通过 `flow_hybrid_search` 拉取远程候选；若 target 有 flow type，CLI 会作为 remote filter 写入请求。输出 `identity-decision.json` / `identity-candidates.jsonl` / `identity-candidate-sources.json`；对 type、reference property、unit、CAS/category 和 alias/name 等价的 flow 输出 `block_duplicate`，避免 process 引用新建同义 flow。
+- 已实现的 `flow identity-preflight` 是本地只读、artifact-first 的生成前 gate；输入为 target + embedded candidates，并可通过 repeatable `--candidate-input` 读取 JSON/JSONL 文件或递归扫描本地目录。需要查正式库时，输入可设置 `remote_candidate_search`，CLI 也可传 `--remote-candidates --remote-query ... --remote-limit ...`，通过 `flow_hybrid_search` 拉取远程候选；若 target 有 flow type，CLI 会作为 remote filter 写入请求。CLI 传给 Edge Function 的是 fielded `query`、`filter`、`data_source`、`match_count`/`page_size` 和 hybrid search 权重；`remote_candidate_search.profile_hints` 只在本地补强 target profile 与候选评分，不会送入 Edge Function。输出 `identity-decision.json` / `identity-candidates.jsonl` / `identity-candidate-sources.json`；对 type、reference property、unit、CAS/category 和 alias/name 等价的 flow 输出 `block_duplicate`，避免 process 引用新建同义 flow。
 - 已实现的 `flow build-plan` 是 flow 生成前的本地 BuildPlan gate；输入为 BuildPlan，输出 `build-plan-gate-report.json`，并在 `materialize` 时输出 canonical `materialized-flow.json`。如果 plan 内没有 payload，CLI 会从 name plan、flow type、reference property、source evidence、admin/compliance 字段确定性生成 `flowDataSet` 并立即跑 `FlowSchema` 校验。
 - 已实现的 `flow remediate` 保留旧 invalid-flow 输入与 round1 artifact 契约，但运行时已经收口到 CLI，不再需要 skill 私有 Python remediation 入口
 - 已实现的 `flow publish-version` 先用 `FlowSchema` 执行本地 gate 并输出 `flow-publish-version-gate-report.json`，通过后再做 `/rest/v1/flows` 精确版本可见性预检，并通过 `app_dataset_create` / `app_dataset_save_draft` 提交远端写入；`TIANGONG_LCA_API_BASE_URL` 可传 project root、`/functions/v1` 或 `/rest/v1`，同时继续保留 `mcp_success_list`、`remote_validation_failed`、`mcp_sync_report` 这些历史文件名

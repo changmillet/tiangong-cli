@@ -97,6 +97,11 @@ type FlowRef = {
   path: string;
 };
 
+type DeferredFlowRef = FlowRef & {
+  actionItemCode: string | null;
+  reason: string | null;
+};
+
 const DEFAULT_VERSION = 'unversioned';
 
 export async function runDatasetCurationQueueBuild(
@@ -139,13 +144,15 @@ export async function runDatasetCurationQueueBuild(
   const flowTasks = flowRows.map((row) => buildTask(outDir, row, []));
   const processTasks = processRows.map((row) => {
     const refs = extractProcessFlowRefs(row.payload);
+    const deferredRefs = extractDeferredProcessFlowRefs(row.payload);
+    const deferredRefKeys = deferredProcessFlowRefKeys(deferredRefs);
     const dependsOn = new Set<string>();
     const missingRefs: FlowRef[] = [];
     for (const ref of refs) {
       const taskId = localFlowTasks.get(ref.id);
       if (taskId) {
         dependsOn.add(taskId);
-      } else if (!externalFlowIds.has(ref.id)) {
+      } else if (!externalFlowIds.has(ref.id) && !deferredRefKeys.has(flowRefKey(ref))) {
         missingRefs.push(ref);
       }
     }
@@ -176,6 +183,8 @@ export async function runDatasetCurationQueueBuild(
       row,
       task,
       flowRefs: row.entityType === 'process' ? extractProcessFlowRefs(row.payload) : [],
+      deferredFlowRefs:
+        row.entityType === 'process' ? extractDeferredProcessFlowRefs(row.payload) : [],
       externalFlowIds,
       flowRowsById,
     });
@@ -340,6 +349,7 @@ function writeEntityArtifacts(options: {
   row: QueueRow;
   task: DatasetCurationQueueTask;
   flowRefs: FlowRef[];
+  deferredFlowRefs: DeferredFlowRef[];
   externalFlowIds: Set<string>;
   flowRowsById: Map<string, QueueRow>;
 }): void {
@@ -363,6 +373,7 @@ function buildDependencyClosure(options: {
   row: QueueRow;
   task: DatasetCurationQueueTask;
   flowRefs: FlowRef[];
+  deferredFlowRefs: DeferredFlowRef[];
   externalFlowIds: Set<string>;
   flowRowsById: Map<string, QueueRow>;
 }): unknown {
@@ -370,9 +381,11 @@ function buildDependencyClosure(options: {
     return {
       local_tasks: [],
       external_refs: [],
+      deferred_refs: [],
       unresolved_refs: [],
     };
   }
+  const deferredRefKeys = deferredProcessFlowRefKeys(options.deferredFlowRefs);
   return {
     local_tasks: options.flowRefs
       .map((ref) => ({ ref, row: options.flowRowsById.get(ref.id) }))
@@ -392,8 +405,31 @@ function buildDependencyClosure(options: {
         version: ref.version,
         ref_path: ref.path,
       })),
+    deferred_refs: options.flowRefs
+      .filter(
+        (ref) =>
+          !options.flowRowsById.has(ref.id) &&
+          !options.externalFlowIds.has(ref.id) &&
+          deferredRefKeys.has(flowRefKey(ref)),
+      )
+      .map((ref) => {
+        const deferredRef = deferredRefKeys.get(flowRefKey(ref));
+        return {
+          entity_type: 'flow',
+          entity_id: ref.id,
+          version: ref.version,
+          ref_path: ref.path,
+          action_item_code: deferredRef?.actionItemCode ?? null,
+          reason: deferredRef?.reason ?? null,
+        };
+      }),
     unresolved_refs: options.flowRefs
-      .filter((ref) => !options.flowRowsById.has(ref.id) && !options.externalFlowIds.has(ref.id))
+      .filter(
+        (ref) =>
+          !options.flowRowsById.has(ref.id) &&
+          !options.externalFlowIds.has(ref.id) &&
+          !deferredRefKeys.has(flowRefKey(ref)),
+      )
       .map((ref) => ({
         entity_type: 'flow',
         entity_id: ref.id,
@@ -439,6 +475,83 @@ function buildRunPlan(task: DatasetCurationQueueTask): unknown {
   };
 }
 
+function extractDeferredProcessFlowRefs(payload: unknown): DeferredFlowRef[] {
+  const refs = new Map<string, DeferredFlowRef>();
+  scanForDeferredProcessFlowRefs(payload, refs);
+  return [...refs.values()].sort((a, b) =>
+    `${a.id}@${a.version ?? ''}@${a.path}`.localeCompare(
+      `${b.id}@${b.version ?? ''}@${b.path}`,
+    ),
+  );
+}
+
+function scanForDeferredProcessFlowRefs(value: unknown, refs: Map<string, DeferredFlowRef>): void {
+  if (Array.isArray(value)) {
+    value.forEach((item) => scanForDeferredProcessFlowRefs(item, refs));
+    return;
+  }
+  if (!isRecord(value)) {
+    return;
+  }
+
+  const traces = asList(value['tiangongfoundry:unresolvedTrace']);
+  for (const trace of traces) {
+    if (!isRecord(trace)) {
+      continue;
+    }
+    const actionItemCode = firstNonEmpty(trace.action_item_code, trace.actionItemCode);
+    if (actionItemCode !== 'elementary_flow_identity_manual_review') {
+      continue;
+    }
+    const id = firstNonEmpty(trace.reference_id, trace.referenceId, trace.ref_object_id);
+    const pathValue = firstNonEmpty(trace.blocked_path, trace.blockedPath, trace.path);
+    if (!id || !pathValue) {
+      continue;
+    }
+    const version = firstNonEmpty(trace.reference_version, trace.referenceVersion, trace.version);
+    const ref = {
+      id,
+      version,
+      path: normalizeReferencePath(pathValue),
+      actionItemCode,
+      reason: firstNonEmpty(trace.reason),
+    };
+    refs.set(flowRefKey(ref), ref);
+  }
+
+  for (const nested of Object.values(value)) {
+    scanForDeferredProcessFlowRefs(nested, refs);
+  }
+}
+
+function deferredProcessFlowRefKeys(refs: DeferredFlowRef[]): Map<string, DeferredFlowRef> {
+  const keys = new Map<string, DeferredFlowRef>();
+  for (const ref of refs) {
+    keys.set(flowRefKey(ref), ref);
+  }
+  return keys;
+}
+
+function flowRefKey(ref: FlowRef): string {
+  return `${ref.id}@${ref.version ?? ''}@${normalizeReferencePath(ref.path)}`;
+}
+
+function normalizeReferencePath(value: string): string {
+  return value
+    .replace(/^\/+/u, '')
+    .replace(/\/+/gu, '.')
+    .replace(/^\.+|\.+$/gu, '');
+}
+
+function isFoundryTracePathParts(pathParts: string[]): boolean {
+  return (
+    pathParts.includes('common:other') &&
+    pathParts.some(
+      (part) => part.startsWith('tiangongfoundry:') && part.toLowerCase().includes('trace'),
+    )
+  );
+}
+
 function extractProcessFlowRefs(payload: unknown): FlowRef[] {
   const refs = new Map<string, FlowRef>();
   scanForFlowRefs(payload, [], refs);
@@ -448,6 +561,10 @@ function extractProcessFlowRefs(payload: unknown): FlowRef[] {
 }
 
 function scanForFlowRefs(value: unknown, pathParts: string[], refs: Map<string, FlowRef>): void {
+  if (isFoundryTracePathParts(pathParts)) {
+    return;
+  }
+
   if (Array.isArray(value)) {
     value.forEach((item, index) => scanForFlowRefs(item, [...pathParts, String(index)], refs));
     return;
@@ -508,6 +625,13 @@ function readExternalFlowRefs(inputPath: string): FlowRef[] {
       path: `${inputPath}#${row.index}`,
     };
   });
+}
+
+function asList(value: unknown): unknown[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  return Array.isArray(value) ? value : [value];
 }
 
 function normalizeProcessLimit(value: number | undefined): number | null {

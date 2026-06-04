@@ -124,9 +124,13 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
       valid: 2,
       invalid: 1,
       by_type: {
+        contact: 0,
         flow: 1,
+        flowproperty: 0,
         process: 2,
         lifecyclemodel: 0,
+        source: 0,
+        unitgroup: 0,
       },
     });
     assert.equal(existsSync(report.files.report ?? ''), true);
@@ -136,6 +140,76 @@ test('runDatasetValidate validates local rows and writes split artifacts', async
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('runDatasetValidate supports mixed support rows with --type auto', async () => {
+  const report = await runDatasetValidate({
+    inputPath: 'memory',
+    type: 'auto',
+    rawInput: [
+      {
+        contactDataSet: {
+          contactInformation: {
+            dataSetInformation: { 'common:UUID': 'contact-1' },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: { 'common:dataSetVersion': '00.00.001' },
+          },
+        },
+      },
+      {
+        sourceDataSet: {
+          sourceInformation: {
+            dataSetInformation: { 'common:UUID': 'source-1' },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: { 'common:dataSetVersion': '00.00.001' },
+          },
+        },
+      },
+      {
+        unitGroupDataSet: {
+          unitGroupInformation: {
+            dataSetInformation: { 'common:UUID': 'unitgroup-1' },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: { 'common:dataSetVersion': '00.00.001' },
+          },
+        },
+      },
+      {
+        flowPropertyDataSet: {
+          flowPropertiesInformation: {
+            dataSetInformation: { 'common:UUID': 'flowproperty-1' },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: { 'common:dataSetVersion': '00.00.001' },
+          },
+        },
+      },
+    ],
+    schemas: {
+      contact: { safeParse: () => ({ success: true }) },
+      source: { safeParse: () => ({ success: true }) },
+      unitgroup: { safeParse: () => ({ success: true }) },
+      flowproperty: { safeParse: () => ({ success: true }) },
+    },
+  });
+
+  assert.equal(report.status, 'completed');
+  assert.deepEqual(
+    report.rows.map((row) => row.type),
+    ['contact', 'source', 'unitgroup', 'flowproperty'],
+  );
+  assert.deepEqual(report.counts.by_type, {
+    contact: 1,
+    flow: 0,
+    flowproperty: 1,
+    process: 0,
+    lifecyclemodel: 0,
+    source: 1,
+    unitgroup: 1,
+  });
 });
 
 test('runDatasetValidate treats process placeholders as invalid authoring content', async () => {

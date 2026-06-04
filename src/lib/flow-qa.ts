@@ -146,6 +146,7 @@ export type FlowQaReport = {
   status: 'completed_local_flow_qa';
   run_id: string;
   out_dir: string;
+  rows_file: string;
   input_mode: 'rows_file' | 'flows_dir' | 'run_root';
   effective_flows_dir: string;
   logic_version: string;
@@ -1647,6 +1648,7 @@ export async function runFlowQa(options: RunFlowQaOptions): Promise<FlowQaReport
     status: 'completed_local_flow_qa',
     run_id: resolvedInput.runId,
     out_dir: outDir,
+    rows_file: String(resolvedInput.reviewInputSummary.rows_file ?? ''),
     input_mode: resolvedInput.inputMode,
     effective_flows_dir: resolvedInput.effectiveFlowsDir,
     logic_version: options.logicVersion?.trim() || 'flow-v1.0-cli',

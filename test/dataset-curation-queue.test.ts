@@ -177,6 +177,78 @@ test('runDatasetCurationQueueBuild blocks unresolved process flow references', a
   }
 });
 
+test('runDatasetCurationQueueBuild defers trace-backed unresolved elementary flow references', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-curation-queue-deferred-'));
+  const processes = path.join(dir, 'processes.jsonl');
+  const outDir = path.join(dir, 'queue');
+  const process = makeProcess('deferred-flow') as {
+    json_ordered: {
+      processDataSet: {
+        processInformation: {
+          dataSetInformation: Record<string, unknown>;
+        };
+      };
+    };
+  };
+  process.json_ordered.processDataSet.processInformation.dataSetInformation['common:other'] = {
+    '@xmlns:tiangongfoundry': 'https://tiangong.earth/foundry',
+    'tiangongfoundry:unresolvedTrace': [
+      {
+        status: 'unresolved_deferred',
+        action_item_code: 'elementary_flow_identity_manual_review',
+        blocked_path: 'processDataSet.exchanges.exchange.0.referenceToFlowDataSet',
+        reference_id: 'deferred-flow',
+        reference_version: '01.00.000',
+        reason: 'No safe public elementary flow match.',
+      },
+    ],
+    'tiangongfoundry:unresolvedExchangeTrace': [
+      {
+        status: 'externalized_before_remote_write',
+        action_item_code: 'elementary_flow_exchange_externalized',
+        reference_id: 'trace-only-flow',
+        original_exchange: {
+          referenceToFlowDataSet: {
+            '@refObjectId': 'trace-only-flow',
+            '@version': '01.00.000',
+          },
+        },
+      },
+    ],
+  };
+  writeJsonl(processes, [process]);
+
+  try {
+    const report = await runDatasetCurationQueueBuild({
+      processesPath: processes,
+      outDir,
+    });
+
+    assert.equal(report.status, 'ready');
+    assert.equal(report.counts.blockers, 0);
+    const processTask = report.tasks.find((task) => task.entity_type === 'process');
+    assert.ok(processTask);
+    const closure = readJson(processTask.closure_file) as {
+      dependencies?: {
+        deferred_refs?: Array<{
+          entity_id: string;
+          version: string | null;
+          action_item_code: string | null;
+        }>;
+        unresolved_refs?: unknown[];
+      };
+    };
+    assert.equal(closure.dependencies?.deferred_refs?.[0]?.entity_id, 'deferred-flow');
+    assert.equal(
+      closure.dependencies?.deferred_refs?.[0]?.action_item_code,
+      'elementary_flow_identity_manual_review',
+    );
+    assert.deepEqual(closure.dependencies?.unresolved_refs, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runDatasetCurationQueueBuild accepts external flow refs and focused process subsets', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-curation-queue-external-'));
   const processes = path.join(dir, 'processes.jsonl');

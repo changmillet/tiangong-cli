@@ -63,6 +63,7 @@ related:
 - `tiangong-lca process publish-build`
 - `tiangong-lca process batch-build`
 - `tiangong-lca dataset validate`
+- `tiangong-lca dataset classification children/path/audit/apply`
 - `tiangong-lca dataset curation-queue build`
 - `tiangong-lca dataset references rewrite`
 - `tiangong-lca lifecyclemodel auto-build`
@@ -195,6 +196,7 @@ TIANGONG_LCA_UNSTRUCTURED_RETURN_TXT=true
 | `process identity-preflight` | 默认无；若启用 `--remote-candidates` 或输入 `remote_candidate_search.enabled=true`，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY`（`TIANGONG_LCA_REGION` 可选） |
 | `process auto-build \| resume-build \| publish-build \| batch-build` | 无 |
 | `dataset validate` | 无 |
+| `dataset classification children/path/audit/apply` | 无 |
 | `dataset curation-queue build` | 无 |
 | `dataset references rewrite` | 本地 rewrite 默认无；若 `--commit` 写入 patched rows，则需要 `TIANGONG_LCA_API_BASE_URL`、`TIANGONG_LCA_API_KEY`、`TIANGONG_LCA_SUPABASE_PUBLISHABLE_KEY` |
 | `lifecyclemodel auto-build \| validate-build \| publish-build \| graph \| orchestrate` | 无 |
@@ -242,6 +244,7 @@ npm exec tiangong-lca -- process resume-build --run-dir /abs/path/to/process-run
 npm exec tiangong-lca -- process publish-build --run-dir /abs/path/to/process-run --json
 npm exec tiangong-lca -- process batch-build --input ./examples/process-batch-build.request.json --out-dir /abs/path/to/process-batch --json
 npm exec tiangong-lca -- dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --json
+npm exec tiangong-lca -- dataset classification audit --type location --input ./rows/rows.jsonl --out-dir ./location-audit --json
 npm exec tiangong-lca -- dataset curation-queue build --processes ./rows/processes.jsonl --flows ./rows/flows.jsonl --support ./rows/sources.jsonl --out-dir ./curation-queue --json
 npm exec tiangong-lca -- dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --json
 npm exec tiangong-lca -- lifecyclemodel auto-build --input ./examples/lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run --json
@@ -301,7 +304,7 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 - 基于 `id`、version、`state_code`、名称、地理/时间/技术边界、参考 flow 和 exchange signature 给出 reuse / update_same_row / version_bump / create_new / block_duplicate / manual_review 决策
 - 输出 `identity-decision.json` 和 `identity-candidates.jsonl`
 
-这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。
+这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。远端检索只把 fielded `query`、`filter`、`data_source`、`match_count`/`page_size` 和 hybrid search 权重送给 `process_hybrid_search`；`remote_candidate_search.profile_hints` 只在 CLI 本地进入 target profile 和候选评分，不能作为 Edge Function 请求体字段。
 
 `tiangong-lca process save-draft` 现在已经承担当前账号 draft process 的 state-aware 写入切片，负责：
 
@@ -505,7 +508,7 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 - 基于 `id`、version、`state_code`、名称/同义词、类型、CAS、flow property、参考单位、分类和地理字段给出 reuse / update_same_row / version_bump / create_new / block_duplicate / manual_review 决策
 - 输出 `identity-decision.json` 和 `identity-candidates.jsonl`
 
-这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。
+这个命令当前只负责 artifact-first 的 preflight gate；远端候选检索必须由 `remote_candidate_search` 或 `--remote-candidates` 显式开启，且只用于查重/复用决策，不负责远端写入或自动替调用方决定 publish。远端检索只把 fielded `query`、`filter`、`data_source`、`match_count`/`page_size` 和 hybrid search 权重送给 `flow_hybrid_search`；`remote_candidate_search.profile_hints` 只在 CLI 本地进入 target profile 和候选评分，不能作为 Edge Function 请求体字段。
 
 `tiangong-lca flow remediate` 现在已经承担 flow governance 的第一个 CLI remediation 切片，负责：
 

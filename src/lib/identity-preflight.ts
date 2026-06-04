@@ -71,6 +71,9 @@ export type IdentityPreflightCandidateReport = {
   id: string | null;
   version: string | null;
   state_code: number | null;
+  names: string[];
+  fields: Record<string, string | null | string[]>;
+  exchange_signature: string[];
   identity_key: string;
   match_score: number;
   match_reasons: string[];
@@ -85,6 +88,7 @@ export type IdentityPreflightCandidateSourceReport = {
   endpoint?: string;
   query?: string;
   filter?: JsonObject | null;
+  options?: JsonObject | null;
 };
 
 export type IdentityPreflightReport = {
@@ -99,6 +103,8 @@ export type IdentityPreflightReport = {
   target: {
     id: string | null;
     version: string | null;
+    names: string[];
+    fields: Record<string, string | null | string[]>;
     identity_key: string;
     exchange_signature: string[];
     schema_validation: ValidationSummary;
@@ -130,6 +136,7 @@ export type RunIdentityPreflightOptions = {
   remoteQuery?: string | null;
   remoteFilter?: JsonObject | null;
   remoteLimit?: number | null;
+  remoteDataSource?: string | null;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
@@ -158,7 +165,16 @@ type RemoteCandidateSearchConfig = {
   enabled: boolean;
   query: string | null;
   filter: JsonObject | null;
+  profileHints: JsonObject | null;
   limit: number | null;
+  dataSource: string | null;
+  matchThreshold: number | null;
+  fullTextWeight: number | null;
+  extractedTextWeight: number | null;
+  semanticWeight: number | null;
+  rrfK: number | null;
+  pageSize: number | null;
+  pageCurrent: number | null;
 };
 
 type RemoteCandidateRead = {
@@ -170,6 +186,8 @@ const SCHEMA_EXPORTS: Record<IdentityPreflightKind, keyof typeof tidasSdk> = {
   flow: 'FlowSchema' as keyof typeof tidasSdk,
   process: 'ProcessSchema' as keyof typeof tidasSdk,
 };
+
+const REMOTE_DATA_SOURCES = new Set(['tg', 'co', 'my', 'te']);
 
 const ENTITY_FACTORY_EXPORTS: Record<IdentityPreflightKind, keyof typeof tidasSdk> = {
   flow: 'createFlow' as keyof typeof tidasSdk,
@@ -239,12 +257,58 @@ function normalizePositiveInteger(value: unknown, label: string): number | null 
   return parsed;
 }
 
+function normalizeNonNegativeNumber(value: unknown, label: string): number | null {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const parsed = typeof value === 'number' ? value : Number(String(value));
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new CliError(`Expected ${label} to be a non-negative number.`, {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_SEARCH_OPTION',
+      exitCode: 2,
+    });
+  }
+  return parsed;
+}
+
+function normalizeMatchThreshold(value: unknown): number | null {
+  const parsed = normalizeNonNegativeNumber(value, 'remote_candidate_search.match_threshold');
+  if (parsed === null) {
+    return null;
+  }
+  if (parsed > 1) {
+    throw new CliError('Expected remote_candidate_search.match_threshold to be between 0 and 1.', {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_SEARCH_OPTION',
+      exitCode: 2,
+    });
+  }
+  return parsed;
+}
+
+function emptyRemoteCandidateSearchConfig(enabled = false): RemoteCandidateSearchConfig {
+  return {
+    enabled,
+    query: null,
+    filter: null,
+    profileHints: null,
+    limit: null,
+    dataSource: null,
+    matchThreshold: null,
+    fullTextWeight: null,
+    extractedTextWeight: null,
+    semanticWeight: null,
+    rrfK: null,
+    pageSize: null,
+    pageCurrent: null,
+  };
+}
+
 function normalizeRemoteCandidateSearch(value: unknown): RemoteCandidateSearchConfig {
   if (value === undefined || value === null) {
-    return { enabled: false, query: null, filter: null, limit: null };
+    return emptyRemoteCandidateSearchConfig(false);
   }
   if (typeof value === 'boolean') {
-    return { enabled: value, query: null, filter: null, limit: null };
+    return emptyRemoteCandidateSearchConfig(value);
   }
   if (!isRecord(value)) {
     throw new CliError('remote_candidate_search must be a boolean or object.', {
@@ -259,11 +323,55 @@ function normalizeRemoteCandidateSearch(value: unknown): RemoteCandidateSearchCo
     value.filter === undefined || value.filter === null
       ? null
       : normalizeToRecord(value.filter, 'remote_candidate_search.filter');
+  const profileHintsInput =
+    value.profile_hints ?? value.profileHints ?? value.identity_profile_hints;
+  const profileHints =
+    profileHintsInput === undefined || profileHintsInput === null
+      ? null
+      : normalizeToRecord(profileHintsInput, 'remote_candidate_search.profile_hints');
+  const dataSource =
+    textValue(value.data_source) ??
+    textValue(value.dataSource) ??
+    textValue(value.source) ??
+    null;
+  if (dataSource && !REMOTE_DATA_SOURCES.has(dataSource)) {
+    throw new CliError('remote_candidate_search.data_source must be one of tg, co, my, or te.', {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_DATA_SOURCE',
+      exitCode: 2,
+    });
+  }
+
   return {
     enabled,
     query,
     filter,
+    profileHints,
     limit: normalizePositiveInteger(value.limit, 'remote_candidate_search.limit'),
+    dataSource,
+    matchThreshold: normalizeMatchThreshold(
+      value.match_threshold ?? value.matchThreshold,
+    ),
+    fullTextWeight: normalizeNonNegativeNumber(
+      value.full_text_weight ?? value.fullTextWeight,
+      'remote_candidate_search.full_text_weight',
+    ),
+    extractedTextWeight: normalizeNonNegativeNumber(
+      value.extracted_text_weight ?? value.extractedTextWeight,
+      'remote_candidate_search.extracted_text_weight',
+    ),
+    semanticWeight: normalizeNonNegativeNumber(
+      value.semantic_weight ?? value.semanticWeight,
+      'remote_candidate_search.semantic_weight',
+    ),
+    rrfK: normalizePositiveInteger(value.rrf_k ?? value.rrfK, 'remote_candidate_search.rrf_k'),
+    pageSize: normalizePositiveInteger(
+      value.page_size ?? value.pageSize,
+      'remote_candidate_search.page_size',
+    ),
+    pageCurrent: normalizePositiveInteger(
+      value.page_current ?? value.pageCurrent,
+      'remote_candidate_search.page_current',
+    ),
   };
 }
 
@@ -390,11 +498,27 @@ function mergeRemoteCandidateSearchConfig(
   inputConfig: RemoteCandidateSearchConfig,
   options: RunIdentityPreflightOptions,
 ): RemoteCandidateSearchConfig {
+  const dataSource = options.remoteDataSource?.trim() || inputConfig.dataSource;
+  if (dataSource && !REMOTE_DATA_SOURCES.has(dataSource)) {
+    throw new CliError('--remote-data-source must be one of tg, co, my, or te.', {
+      code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_DATA_SOURCE',
+      exitCode: 2,
+    });
+  }
   return {
     enabled: options.remoteCandidateSearch ?? inputConfig.enabled,
     query: options.remoteQuery?.trim() || inputConfig.query,
     filter: options.remoteFilter ?? inputConfig.filter,
+    profileHints: inputConfig.profileHints,
     limit: options.remoteLimit ?? inputConfig.limit,
+    dataSource,
+    matchThreshold: inputConfig.matchThreshold,
+    fullTextWeight: inputConfig.fullTextWeight,
+    extractedTextWeight: inputConfig.extractedTextWeight,
+    semanticWeight: inputConfig.semanticWeight,
+    rrfK: inputConfig.rrfK,
+    pageSize: inputConfig.pageSize,
+    pageCurrent: inputConfig.pageCurrent,
   };
 }
 
@@ -402,14 +526,115 @@ function remoteSearchEndpoint(kind: IdentityPreflightKind): string {
   return kind === 'process' ? 'process_hybrid_search' : 'flow_hybrid_search';
 }
 
-function defaultRemoteQuery(profile: IdentityProfile): string | null {
+function isRemoteQueryNoiseText(value: string): boolean {
+  const text = value.normalize('NFKC').replace(/\s+/gu, ' ').trim();
+  if (!text) {
+    return true;
+  }
+  if (/^(not specified|not declared|unspecified|n\/a|none|null)$/iu.test(text)) {
+    return true;
+  }
+  if (/^not specified by the .* source\.?$/iu.test(text)) {
+    return true;
+  }
+  if (/^ilcd format$/iu.test(text)) {
+    return true;
+  }
+  if (/^ilcd data network\s*-\s*entry-level$/iu.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function queryFieldValues(value: string | null | string[], limit = 4): string[] {
+  return (Array.isArray(value) ? value : [value])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => !isRemoteQueryNoiseText(entry))
+    .slice(0, limit);
+}
+
+function appendQueryLine(lines: string[], label: string, value: string | null | string[], limit = 4) {
+  const values = queryFieldValues(value, limit);
+  if (values.length === 0) {
+    return;
+  }
+  lines.push(`${label}: ${values.join('; ')}`);
+}
+
+function exchangeFlowRefsFromSignature(signature: string[]): string[] {
+  const refs = new Set<string>();
+  for (const entry of signature) {
+    const ref = entry.split(':')[0]?.trim();
+    if (ref) {
+      refs.add(ref);
+    }
+    if (refs.size >= 8) {
+      break;
+    }
+  }
+  return [...refs];
+}
+
+function compactRemoteQuery(lines: string[], fallback: string): string | null {
+  const text = lines
+    .map((line) => line.replace(/\s+/gu, ' ').trim())
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, 1800)
+    .trim();
+  if (text) {
+    return text;
+  }
+  return fallback ? fallback.slice(0, 1800).trim() || null : null;
+}
+
+function fallbackRemoteQueryText(profile: IdentityProfile): string {
   return (
-    profile.names[0] ??
     Object.values(profile.fields)
       .flat()
       .find((value): value is string => typeof value === 'string' && value.trim().length > 0) ??
-    (profile.identity_key ? profile.identity_key : null)
+    profile.identity_key
   );
+}
+
+function flowRemoteQuery(profile: IdentityProfile): string | null {
+  const lines: string[] = [];
+  appendQueryLine(lines, 'flow name', profile.names, 4);
+  appendQueryLine(lines, 'flow type', profile.fields.type_of_dataset);
+  appendQueryLine(lines, 'CAS', profile.fields.cas);
+  appendQueryLine(lines, 'reference property', profile.fields.flow_property);
+  appendQueryLine(lines, 'reference unit', profile.fields.reference_unit);
+  appendQueryLine(lines, 'category or compartment', profile.fields.categories, 6);
+  appendQueryLine(lines, 'geography or market', profile.fields.geography);
+  return compactRemoteQuery(lines, fallbackRemoteQueryText(profile));
+}
+
+function processRemoteQuery(profile: IdentityProfile): string | null {
+  const lines: string[] = [];
+  appendQueryLine(lines, 'process name', profile.names, 4);
+  appendQueryLine(lines, 'reference flow', [
+    ...queryFieldValues(profile.fields.reference_flow_names, 4),
+    ...queryFieldValues(profile.fields.reference_flow_ids, 4),
+  ], 8);
+  appendQueryLine(lines, 'quantitative reference', profile.fields.quantitative_reference);
+  appendQueryLine(lines, 'geography', profile.fields.geography);
+  appendQueryLine(lines, 'time', profile.fields.time);
+  appendQueryLine(lines, 'classification or sector', profile.fields.categories, 6);
+  appendQueryLine(lines, 'technology route', profile.fields.technology_route);
+  appendQueryLine(lines, 'system boundary', profile.fields.system_boundary);
+  appendQueryLine(lines, 'operation', profile.fields.operation);
+  appendQueryLine(lines, 'provider role', profile.fields.provider_role);
+  appendQueryLine(lines, 'exchange flow refs', exchangeFlowRefsFromSignature(profile.exchange_signature), 8);
+  return compactRemoteQuery(lines, fallbackRemoteQueryText(profile));
+}
+
+function defaultRemoteQuery(profile: IdentityProfile): string | null {
+  const hasProcessFields =
+    'reference_flow_ids' in profile.fields ||
+    'technology_route' in profile.fields ||
+    profile.exchange_signature.length > 0;
+  return hasProcessFields ? processRemoteQuery(profile) : flowRemoteQuery(profile);
 }
 
 function remoteSearchFilter(
@@ -427,6 +652,21 @@ function remoteSearchFilter(
     }
   }
   return Object.keys(filter).length > 0 ? filter : null;
+}
+
+function remoteSearchOptions(config: RemoteCandidateSearchConfig): JsonObject | null {
+  const options: JsonObject = {
+    ...(config.matchThreshold !== null ? { match_threshold: config.matchThreshold } : {}),
+    ...(config.fullTextWeight !== null ? { full_text_weight: config.fullTextWeight } : {}),
+    ...(config.extractedTextWeight !== null
+      ? { extracted_text_weight: config.extractedTextWeight }
+      : {}),
+    ...(config.semanticWeight !== null ? { semantic_weight: config.semanticWeight } : {}),
+    ...(config.rrfK !== null ? { rrf_k: config.rrfK } : {}),
+    ...(config.pageSize !== null ? { page_size: config.pageSize } : {}),
+    ...(config.pageCurrent !== null ? { page_current: config.pageCurrent } : {}),
+  };
+  return Object.keys(options).length > 0 ? options : null;
 }
 
 function rowsFromRemoteSearchResponse(value: unknown): JsonObject[] {
@@ -470,10 +710,21 @@ async function readRemoteCandidateSource(
     now: options.now,
   });
   const filter = remoteSearchFilter(kind, targetProfile, config.filter);
+  const searchOptions = remoteSearchOptions(config);
+  const pageSize = config.pageSize ?? config.limit;
+  const sourceOptions: JsonObject = {
+    ...(config.limit ? { limit: config.limit, match_count: config.limit } : {}),
+    ...(pageSize ? { page_size: pageSize } : {}),
+    ...(config.dataSource ? { data_source: config.dataSource } : {}),
+    ...(searchOptions ?? {}),
+  };
   const body: JsonObject = {
     query,
     ...(filter ? { filter } : {}),
-    ...(config.limit ? { limit: config.limit } : {}),
+    ...(config.limit ? { match_count: config.limit } : {}),
+    ...(pageSize ? { page_size: pageSize } : {}),
+    ...(config.dataSource ? { data_source: config.dataSource } : {}),
+    ...(searchOptions ?? {}),
   };
   const headers: Record<string, string> = {
     Authorization: `Bearer ${session.accessToken}`,
@@ -502,6 +753,7 @@ async function readRemoteCandidateSource(
       endpoint,
       query,
       filter,
+      options: Object.keys(sourceOptions).length > 0 ? sourceOptions : null,
     },
   };
 }
@@ -642,7 +894,7 @@ function collectText(value: unknown, output: string[] = []): string[] {
       output.push(textValue(value['#text']) as string);
     }
     for (const [key, entry] of Object.entries(value)) {
-      if (key === '#text') {
+      if (key === '#text' || key.startsWith('@')) {
         continue;
       }
       collectText(entry, output);
@@ -687,8 +939,57 @@ function uniqueTexts(values: unknown[]): string[] {
   return [...normalized.values()].sort((a, b) => normalizeText(a).localeCompare(normalizeText(b)));
 }
 
+function uniqueTextsInOrder(values: unknown[]): string[] {
+  const normalized = new Map<string, string>();
+  for (const value of values) {
+    for (const text of collectText(value)) {
+      const key = normalizeText(text);
+      if (key && !normalized.has(key)) {
+        normalized.set(key, text.trim());
+      }
+    }
+  }
+  return [...normalized.values()];
+}
+
 function firstUniqueText(...values: unknown[]): string | null {
   return uniqueTexts(values)[0] ?? null;
+}
+
+function firstTextInOrder(...values: unknown[]): string | null {
+  return uniqueTextsInOrder(values)[0] ?? null;
+}
+
+function pathValue(value: unknown, keys: string[]): unknown {
+  let current: unknown = value;
+  for (const key of keys) {
+    if (!isRecord(current)) {
+      return undefined;
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+function textAtPath(value: unknown, keys: string[]): string | null {
+  return firstTextInOrder(pathValue(value, keys));
+}
+
+function textsAtPath(value: unknown, keys: string[]): string[] {
+  return uniqueTextsInOrder([pathValue(value, keys)]);
+}
+
+function recordsFromValue(value: unknown): JsonObject[] {
+  const values = Array.isArray(value) ? value : [value];
+  return values.filter(isRecord);
+}
+
+function meaningfulTexts(values: string[]): string[] {
+  return values.filter((value) => !isRemoteQueryNoiseText(value));
+}
+
+function meaningfulText(value: string | null): string | null {
+  return value && !isRemoteQueryNoiseText(value) ? value : null;
 }
 
 function fieldFromKeys(row: JsonObject, payload: JsonObject, keys: string[]): string | null {
@@ -748,29 +1049,57 @@ function collectExchangeLikeRecords(value: unknown, output: JsonObject[] = []): 
 }
 
 function exchangeRecordSignature(record: JsonObject): string | null {
-  const flowId = fieldFromKeys(record, record, [
-    '@refObjectId',
-    'refObjectId',
-    'flow_id',
-    'flowId',
-    'flow_uuid',
-    'flowUuid',
-    'referenceToFlowDataSet',
-  ]);
-  const direction = fieldFromKeys(record, record, [
-    'exchangeDirection',
-    'direction',
-    'inputGroup',
-    'outputGroup',
-  ]);
-  const amount = fieldFromKeys(record, record, [
-    'meanAmount',
-    'mean_amount',
-    'resultingAmount',
-    'resulting_amount',
-    'amount',
-    'meanValue',
-  ]);
+  const flowReference = isRecord(record.referenceToFlowDataSet)
+    ? record.referenceToFlowDataSet
+    : null;
+  const flowId =
+    firstTextInOrder(
+      flowReference?.['@refObjectId'],
+      record['@refObjectId'],
+      record.refObjectId,
+      record.flow_id,
+      record.flowId,
+      record.flow_uuid,
+      record.flowUuid,
+    ) ??
+    fieldFromKeys(record, record, [
+      '@refObjectId',
+      'refObjectId',
+      'flow_id',
+      'flowId',
+      'flow_uuid',
+      'flowUuid',
+    ]);
+  const direction =
+    firstTextInOrder(
+      record.exchangeDirection,
+      record.direction,
+      record.inputGroup,
+      record.outputGroup,
+    ) ??
+    fieldFromKeys(record, record, [
+      'exchangeDirection',
+      'direction',
+      'inputGroup',
+      'outputGroup',
+    ]);
+  const amount =
+    firstTextInOrder(
+      record.meanAmount,
+      record.mean_amount,
+      record.resultingAmount,
+      record.resulting_amount,
+      record.amount,
+      record.meanValue,
+    ) ??
+    fieldFromKeys(record, record, [
+      'meanAmount',
+      'mean_amount',
+      'resultingAmount',
+      'resulting_amount',
+      'amount',
+      'meanValue',
+    ]);
 
   const normalizedFlowId = flowId ? normalizeText(flowId) : '';
   if (!normalizedFlowId) {
@@ -807,17 +1136,211 @@ function profileDatasetIdentity(
   };
 }
 
+function tidasRoot(payload: JsonObject, kind: IdentityPreflightKind): JsonObject | null {
+  if (kind === 'process' && isRecord(payload.processDataSet)) {
+    return payload.processDataSet;
+  }
+  if (kind === 'flow' && isRecord(payload.flowDataSet)) {
+    return payload.flowDataSet;
+  }
+  return null;
+}
+
+function processCanonicalNames(root: JsonObject): string[] {
+  const nameRoot = pathValue(root, [
+    'processInformation',
+    'dataSetInformation',
+    'name',
+  ]);
+  return meaningfulTexts(
+    uniqueTextsInOrder([
+      pathValue(nameRoot, ['baseName']),
+      pathValue(nameRoot, ['treatmentStandardsRoutes']),
+      pathValue(nameRoot, ['mixAndLocationTypes']),
+      pathValue(nameRoot, ['functionalUnitFlowProperties']),
+    ]),
+  );
+}
+
+function flowCanonicalNames(root: JsonObject): string[] {
+  const nameRoot = pathValue(root, ['flowInformation', 'dataSetInformation', 'name']);
+  return meaningfulTexts(
+    uniqueTextsInOrder([
+      pathValue(nameRoot, ['baseName']),
+      pathValue(nameRoot, ['treatmentStandardsRoutes']),
+      pathValue(nameRoot, ['mixAndLocationTypes']),
+    ]),
+  );
+}
+
+function classificationTexts(root: JsonObject, informationPath: string[]): string[] {
+  const classes = recordsFromValue(
+    pathValue(root, [
+      ...informationPath,
+      'dataSetInformation',
+      'classificationInformation',
+      'common:classification',
+      'common:class',
+    ]),
+  );
+  return meaningfulTexts(
+    uniqueTextsInOrder(classes.flatMap((entry) => [entry['@classId'], entry['#text']])),
+  );
+}
+
+function elementaryFlowCategoryTexts(root: JsonObject): string[] {
+  const categories = recordsFromValue(
+    pathValue(root, [
+      'flowInformation',
+      'dataSetInformation',
+      'classificationInformation',
+      'common:elementaryFlowCategorization',
+      'common:category',
+    ]),
+  );
+  return meaningfulTexts(
+    uniqueTextsInOrder(categories.flatMap((entry) => [entry['@level'], entry['#text']])),
+  ).filter((entry) => !/^\d+$/u.test(entry));
+}
+
+function processReferenceExchange(root: JsonObject): JsonObject | null {
+  const referenceFlowInternalIds = textsAtPath(root, [
+    'processInformation',
+    'quantitativeReference',
+    'referenceToReferenceFlow',
+  ]);
+  const internalIdSet = new Set(referenceFlowInternalIds.map(normalizeText));
+  const exchanges = recordsFromValue(pathValue(root, ['exchanges', 'exchange']));
+  const referenceExchanges =
+    internalIdSet.size > 0
+      ? exchanges.filter((exchange) => internalIdSet.has(normalizeText(textValue(exchange['@dataSetInternalID']) ?? '')))
+      : [];
+  return referenceExchanges[0] ?? exchanges[0] ?? null;
+}
+
+function processReferenceFlowValues(root: JsonObject): { ids: string[]; names: string[] } {
+  const selected = processReferenceExchange(root);
+  if (!selected) {
+    return { ids: [], names: [] };
+  }
+  const reference = isRecord(selected.referenceToFlowDataSet)
+    ? selected.referenceToFlowDataSet
+    : {};
+  return {
+    ids: meaningfulTexts(
+      uniqueTextsInOrder([reference['@refObjectId'], selected['@refObjectId']]),
+    ),
+    names: meaningfulTexts(
+      uniqueTextsInOrder([
+        reference['common:shortDescription'],
+        reference.shortDescription,
+      ]),
+    ),
+  };
+}
+
+function processCanonicalFields(root: JsonObject): {
+  names: string[];
+  referenceFlowIds: string[];
+  quantitativeReference: string | null;
+  geography: string | null;
+  time: string | null;
+  technologyRoute: string | null;
+  systemBoundary: string | null;
+  categories: string[];
+  referenceFlowNames: string[];
+} {
+  const names = processCanonicalNames(root);
+  const referenceFlow = processReferenceFlowValues(root);
+  return {
+    names,
+    referenceFlowIds: referenceFlow.ids,
+    referenceFlowNames: referenceFlow.names,
+    quantitativeReference: meaningfulText(textAtPath(root, [
+      'processInformation',
+      'quantitativeReference',
+      'functionalUnitOrOther',
+    ])) ?? meaningfulText(textAtPath(root, [
+      'processInformation',
+      'quantitativeReference',
+      'referenceToReferenceFlow',
+    ])),
+    geography: meaningfulText(textAtPath(root, [
+      'processInformation',
+      'geography',
+      'locationOfOperationSupplyOrProduction',
+      '@location',
+    ])),
+    time: meaningfulText(firstTextInOrder(
+      pathValue(root, ['processInformation', 'time', 'common:referenceYear']),
+      pathValue(root, [
+        'processInformation',
+        'time',
+        'common:timeRepresentativenessDescription',
+      ]),
+    )),
+    technologyRoute: meaningfulText(textAtPath(root, [
+      'processInformation',
+      'technology',
+      'technologyDescriptionAndIncludedProcesses',
+    ])),
+    systemBoundary: meaningfulText(
+      textAtPath(root, ['processInformation', 'technology', 'includedProcesses']),
+    ),
+    categories: classificationTexts(root, ['processInformation']),
+  };
+}
+
+function flowCanonicalFields(root: JsonObject): {
+  names: string[];
+  typeOfDataset: string | null;
+  cas: string | null;
+  flowProperty: string | null;
+  referenceUnit: string | null;
+  categories: string[];
+  geography: string | null;
+} {
+  const flowProperties = recordsFromValue(pathValue(root, ['flowProperties', 'flowProperty']));
+  const typeOfDataset = meaningfulText(
+    textAtPath(root, ['modellingAndValidation', 'LCIMethod', 'typeOfDataSet']),
+  );
+  const elementaryCategories =
+    typeOfDataset === 'Elementary flow' ? elementaryFlowCategoryTexts(root) : [];
+  return {
+    names: flowCanonicalNames(root),
+    typeOfDataset,
+    cas: meaningfulText(textAtPath(root, ['flowInformation', 'dataSetInformation', 'CASNumber'])),
+    flowProperty: meaningfulText(firstTextInOrder(
+      ...flowProperties.map((property) =>
+        pathValue(property, ['referenceToFlowPropertyDataSet', 'common:shortDescription']),
+      ),
+    )),
+    referenceUnit: null,
+    categories: elementaryCategories.length
+      ? elementaryCategories
+      : classificationTexts(root, ['flowInformation']),
+    geography: meaningfulText(textAtPath(root, [
+      'flowInformation',
+      'dataSetInformation',
+      'name',
+      'mixAndLocationTypes',
+    ])),
+  };
+}
+
 function processProfile(row: JsonObject): IdentityProfile {
   const payload = unwrapDatasetPayload(row);
   const identity = profileDatasetIdentity(row, payload, 'process');
-  const names = textListFromKeys(row, payload, [
+  const canonicalRoot = tidasRoot(payload, 'process');
+  const canonical = canonicalRoot ? processCanonicalFields(canonicalRoot) : null;
+  const names = canonical?.names.length ? canonical.names : textListFromKeys(row, payload, [
     'name',
     'baseName',
     'shortDescription',
     'name_en',
     'name_zh',
   ]);
-  const referenceFlowIds = textListFromKeys(row, payload, [
+  const referenceFlowIds = canonical?.referenceFlowIds.length ? canonical.referenceFlowIds : textListFromKeys(row, payload, [
     'reference_flow_id',
     'referenceFlowId',
     'reference_product_flow',
@@ -827,40 +1350,67 @@ function processProfile(row: JsonObject): IdentityProfile {
     '@refObjectId',
     'refObjectId',
   ]);
+  const referenceFlowNames = canonical?.referenceFlowNames.length
+    ? canonical.referenceFlowNames
+    : textListFromKeys(row, payload, [
+        'reference_flow_name',
+        'referenceFlowName',
+        'reference_product_flow_name',
+        'referenceProductFlowName',
+      ]);
   const operation = fieldFromKeys(row, payload, ['operation', 'process_operation']);
-  const quantitativeReference = fieldFromKeys(row, payload, [
-    'quantitative_reference',
-    'quantitativeReference',
-    'qref',
-    'referenceToReferenceFlow',
-  ]);
-  const geography = fieldFromKeys(row, payload, [
-    'geography',
-    'location',
-    'locationOfOperationSupplyOrProduction',
-  ]);
-  const time = fieldFromKeys(row, payload, [
-    'time',
-    'reference_year',
-    'referenceYear',
-    'timePeriod',
-  ]);
-  const technologyRoute = fieldFromKeys(row, payload, [
-    'technology_route',
-    'technologyRoute',
-    'technology',
-    'treatmentStandardsRoutes',
-  ]);
-  const systemBoundary = fieldFromKeys(row, payload, [
-    'system_boundary',
-    'systemBoundary',
-    'boundary',
-  ]);
+  const quantitativeReference =
+    canonicalRoot && canonical
+      ? canonical.quantitativeReference
+      : fieldFromKeys(row, payload, [
+      'quantitative_reference',
+      'quantitativeReference',
+      'qref',
+      'referenceToReferenceFlow',
+    ]);
+  const geography =
+    canonicalRoot && canonical
+      ? canonical.geography
+      : fieldFromKeys(row, payload, [
+          'geography',
+          'location',
+          'locationOfOperationSupplyOrProduction',
+        ]);
+  const time =
+    canonicalRoot && canonical
+      ? canonical.time
+      : fieldFromKeys(row, payload, [
+          'time',
+          'reference_year',
+          'referenceYear',
+          'timePeriod',
+        ]);
+  const technologyRoute =
+    canonicalRoot && canonical
+      ? canonical.technologyRoute
+      : fieldFromKeys(row, payload, [
+          'technology_route',
+          'technologyRoute',
+          'technology',
+          'treatmentStandardsRoutes',
+        ]);
+  const systemBoundary =
+    canonicalRoot && canonical
+      ? canonical.systemBoundary
+      : fieldFromKeys(row, payload, [
+          'system_boundary',
+          'systemBoundary',
+          'boundary',
+        ]);
   const providerRole = fieldFromKeys(row, payload, ['provider_role', 'providerRole']);
+  const categories = canonical?.categories.length
+    ? canonical.categories
+    : textListFromKeys(row, payload, ['category', 'class', 'classification']);
   const exchangeSignature = processExchangeSignature(row, payload);
   const keyParts = [
     ...normalizedList(names).slice(0, 4),
     ...normalizedList(referenceFlowIds).slice(0, 4),
+    ...normalizedList(referenceFlowNames).slice(0, 2),
     normalizeText(operation ?? ''),
     normalizeText(quantitativeReference ?? ''),
     normalizeText(geography ?? ''),
@@ -868,6 +1418,7 @@ function processProfile(row: JsonObject): IdentityProfile {
     normalizeText(technologyRoute ?? ''),
     normalizeText(systemBoundary ?? ''),
     normalizeText(providerRole ?? ''),
+    ...normalizedList(categories).slice(0, 4),
     exchangeSignature.join(','),
   ].filter(Boolean);
 
@@ -881,6 +1432,7 @@ function processProfile(row: JsonObject): IdentityProfile {
     exchange_signature: exchangeSignature,
     fields: {
       reference_flow_ids: referenceFlowIds,
+      reference_flow_names: referenceFlowNames,
       operation,
       quantitative_reference: quantitativeReference,
       geography,
@@ -888,6 +1440,7 @@ function processProfile(row: JsonObject): IdentityProfile {
       technology_route: technologyRoute,
       system_boundary: systemBoundary,
       provider_role: providerRole,
+      categories,
     },
   };
 }
@@ -895,7 +1448,9 @@ function processProfile(row: JsonObject): IdentityProfile {
 function flowProfile(row: JsonObject): IdentityProfile {
   const payload = unwrapDatasetPayload(row);
   const identity = profileDatasetIdentity(row, payload, 'flow');
-  const names = textListFromKeys(row, payload, [
+  const canonicalRoot = tidasRoot(payload, 'flow');
+  const canonical = canonicalRoot ? flowCanonicalFields(canonicalRoot) : null;
+  const names = canonical?.names.length ? canonical.names : textListFromKeys(row, payload, [
     'name',
     'baseName',
     'shortDescription',
@@ -903,28 +1458,50 @@ function flowProfile(row: JsonObject): IdentityProfile {
     'name_zh',
     'synonyms',
   ]);
-  const typeOfDataset = fieldFromKeys(row, payload, [
-    'type_of_dataset',
-    'typeOfDataSet',
-    'flow_type',
-    'flowType',
-  ]);
-  const cas = fieldFromKeys(row, payload, ['CASNumber', 'cas_number', 'cas']);
-  const flowProperty = fieldFromKeys(row, payload, [
-    'flow_property',
-    'flowProperty',
-    'referenceToFlowPropertyDataSet',
-    'reference_property',
-    'referenceProperty',
-  ]);
-  const referenceUnit = fieldFromKeys(row, payload, ['reference_unit', 'referenceUnit', 'unit']);
-  const categories = textListFromKeys(row, payload, ['category', 'compartment']);
-  const geography = fieldFromKeys(row, payload, [
-    'geography',
-    'location',
-    'market',
-    'mixAndLocationTypes',
-  ]);
+  const typeOfDataset =
+    canonicalRoot && canonical
+      ? canonical.typeOfDataset
+      : fieldFromKeys(row, payload, [
+          'type_of_dataset',
+          'typeOfDataSet',
+          'flow_type',
+          'flowType',
+        ]);
+  const cas =
+    canonicalRoot && canonical
+      ? canonical.cas
+      : fieldFromKeys(row, payload, ['CASNumber', 'cas_number', 'cas']);
+  const flowProperty =
+    canonicalRoot && canonical
+      ? canonical.flowProperty
+      : fieldFromKeys(row, payload, [
+          'flow_property',
+          'flowProperty',
+          'referenceToFlowPropertyDataSet',
+          'reference_property',
+          'referenceProperty',
+        ]);
+  const referenceUnit =
+    canonicalRoot && canonical
+      ? canonical.referenceUnit
+      : fieldFromKeys(row, payload, ['reference_unit', 'referenceUnit', 'unit']);
+  const categories = canonical?.categories.length
+    ? canonical.categories
+    : textListFromKeys(row, payload, [
+        'category',
+        'class',
+        'classification',
+        'compartment',
+      ]);
+  const geography =
+    canonicalRoot && canonical
+      ? canonical.geography
+      : fieldFromKeys(row, payload, [
+          'geography',
+          'location',
+          'market',
+          'mixAndLocationTypes',
+        ]);
   const keyParts = [
     normalizeText(typeOfDataset ?? ''),
     ...normalizedList(names).slice(0, 4),
@@ -954,6 +1531,121 @@ function flowProfile(row: JsonObject): IdentityProfile {
   };
 }
 
+const PROFILE_ARRAY_FIELDS = new Set([
+  'categories',
+  'reference_flow_ids',
+  'reference_flow_names',
+]);
+
+const PROFILE_HINT_KEYS: Record<
+  IdentityPreflightKind,
+  Record<string, string[]>
+> = {
+  flow: {
+    type_of_dataset: ['type_of_dataset', 'typeOfDataSet', 'flow_type', 'flowType'],
+    cas: ['cas', 'CAS', 'CASNumber', 'cas_number'],
+    flow_property: ['flow_property', 'flowProperty', 'reference_property', 'referenceProperty'],
+    reference_unit: ['reference_unit', 'referenceUnit', 'unit'],
+    categories: ['categories', 'category', 'classification', 'source_categories'],
+    geography: ['geography', 'location', 'market'],
+  },
+  process: {
+    reference_flow_ids: ['reference_flow_ids', 'referenceFlowIds', 'reference_flow_id'],
+    reference_flow_names: ['reference_flow_names', 'referenceFlowNames', 'reference_flow_name'],
+    operation: ['operation', 'process_operation'],
+    quantitative_reference: ['quantitative_reference', 'quantitativeReference', 'qref'],
+    geography: ['geography', 'location'],
+    time: ['time', 'reference_year', 'referenceYear', 'timePeriod'],
+    technology_route: ['technology_route', 'technologyRoute', 'technology'],
+    system_boundary: ['system_boundary', 'systemBoundary', 'boundary'],
+    provider_role: ['provider_role', 'providerRole'],
+    categories: ['categories', 'category', 'classification', 'source_categories'],
+  },
+};
+
+function hintTextValues(value: unknown, limit = 8): string[] {
+  return uniqueTextsInOrder([value])
+    .map((entry) => entry.trim())
+    .filter((entry) => !isRemoteQueryNoiseText(entry))
+    .slice(0, limit);
+}
+
+function hintValuesByKeys(hints: JsonObject, keys: string[], limit = 8): string[] {
+  const values: unknown[] = [];
+  for (const key of keys) {
+    if (hints[key] !== undefined) {
+      values.push(hints[key]);
+    }
+  }
+  return hintTextValues(values, limit);
+}
+
+function identityKeyFromProfile(
+  kind: IdentityPreflightKind,
+  names: string[],
+  fields: Record<string, string | null | string[]>,
+  exchangeSignature: string[],
+): string {
+  if (kind === 'process') {
+    return [
+      ...normalizedList(names).slice(0, 4),
+      ...normalizedList(normalizedFieldValues(fields.reference_flow_ids)).slice(0, 4),
+      ...normalizedList(normalizedFieldValues(fields.reference_flow_names)).slice(0, 2),
+      normalizeText(typeof fields.operation === 'string' ? fields.operation : ''),
+      normalizeText(
+        typeof fields.quantitative_reference === 'string' ? fields.quantitative_reference : '',
+      ),
+      normalizeText(typeof fields.geography === 'string' ? fields.geography : ''),
+      normalizeText(typeof fields.time === 'string' ? fields.time : ''),
+      normalizeText(typeof fields.technology_route === 'string' ? fields.technology_route : ''),
+      normalizeText(typeof fields.system_boundary === 'string' ? fields.system_boundary : ''),
+      normalizeText(typeof fields.provider_role === 'string' ? fields.provider_role : ''),
+      ...normalizedList(normalizedFieldValues(fields.categories)).slice(0, 4),
+      exchangeSignature.join(','),
+    ].filter(Boolean).join('|');
+  }
+
+  return [
+    normalizeText(typeof fields.type_of_dataset === 'string' ? fields.type_of_dataset : ''),
+    ...normalizedList(names).slice(0, 4),
+    normalizeText(typeof fields.cas === 'string' ? fields.cas : ''),
+    normalizeText(typeof fields.flow_property === 'string' ? fields.flow_property : ''),
+    normalizeText(typeof fields.reference_unit === 'string' ? fields.reference_unit : ''),
+    ...normalizedList(normalizedFieldValues(fields.categories)).slice(0, 4),
+    normalizeText(typeof fields.geography === 'string' ? fields.geography : ''),
+  ].filter(Boolean).join('|');
+}
+
+function applyIdentityProfileHints(
+  profile: IdentityProfile,
+  hints: JsonObject | null,
+  kind: IdentityPreflightKind,
+): IdentityProfile {
+  if (!hints) {
+    return profile;
+  }
+
+  const hintedNames = hintValuesByKeys(hints, ['names', 'name', 'name_en', 'name_zh'], 6);
+  const names = hintedNames.length > 0 ? hintedNames : profile.names;
+  const fields = { ...profile.fields };
+  const fieldHints = PROFILE_HINT_KEYS[kind];
+  for (const [field, keys] of Object.entries(fieldHints)) {
+    const values = hintValuesByKeys(hints, keys, PROFILE_ARRAY_FIELDS.has(field) ? 12 : 4);
+    if (values.length === 0) {
+      continue;
+    }
+    fields[field] = PROFILE_ARRAY_FIELDS.has(field) ? values : values[0] ?? null;
+  }
+
+  return {
+    ...profile,
+    names,
+    normalized_names: normalizedList(names),
+    fields,
+    identity_key: identityKeyFromProfile(kind, names, fields, profile.exchange_signature),
+  };
+}
+
 function profileForKind(row: JsonObject, kind: IdentityPreflightKind): IdentityProfile {
   return kind === 'process' ? processProfile(row) : flowProfile(row);
 }
@@ -961,6 +1653,143 @@ function profileForKind(row: JsonObject, kind: IdentityPreflightKind): IdentityP
 function intersects(left: string[], right: string[]): boolean {
   const rightSet = new Set(right);
   return left.some((entry) => rightSet.has(entry));
+}
+
+function normalizedNamePhrase(names: string[]): string {
+  return normalizeText(names.join(' '));
+}
+
+const FLOW_NAME_EQUIVALENTS = new Map<string, string>([
+  ['dinitrogen monoxide', 'nitrous oxide'],
+  ['ethene', 'ethylene'],
+  ['ethylene', 'ethylene'],
+  ['heat waste', 'waste heat'],
+  ['nitrous oxide', 'nitrous oxide'],
+  ['pah polycyclic aromatic hydrocarbons', 'polycyclic aromatic hydrocarbons'],
+  ['polycyclic aromatic hydrocarbons', 'polycyclic aromatic hydrocarbons'],
+  ['waste heat', 'waste heat'],
+]);
+
+function normalizeCas(value: string): string {
+  return value.replace(/\D+/gu, '').replace(/^0+/u, '');
+}
+
+function normalizeFlowNameVariant(value: string): string {
+  const normalized = normalizeText(value).replace(/\bsulphur\b/gu, 'sulfur');
+  return FLOW_NAME_EQUIVALENTS.get(normalized) ?? normalized;
+}
+
+function expandedFlowNameVariants(value: string): string[] {
+  const normalized = normalizeFlowNameVariant(value);
+  const variants = [normalized];
+  const transformation = normalized.match(/^transformation\s+(to|from)\s+(.+)$/u);
+  if (transformation?.[1] && transformation[2]) {
+    variants.push(`${transformation[1]} ${transformation[2]}`);
+  }
+  const occupation = normalized.match(/^occupation\s+(.+)$/u);
+  if (occupation?.[1]) {
+    variants.push(`occupation ${occupation[1]}`);
+  }
+  return variants;
+}
+
+function flowNameVariants(names: string[]): string[] {
+  return normalizedList(names)
+    .flatMap(expandedFlowNameVariants)
+    .filter(Boolean);
+}
+
+function nameTokens(names: string[]): Set<string> {
+  return new Set(
+    normalizedNamePhrase(names)
+      .split(' ')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length >= 2),
+  );
+}
+
+function tokenOverlapRatio(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      overlap += 1;
+    }
+  }
+  return overlap / Math.max(left.size, right.size);
+}
+
+function tokenCoverageRatio(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      overlap += 1;
+    }
+  }
+  return overlap / left.size;
+}
+
+function coversLongTargetTokens(left: Set<string>, right: Set<string>): boolean {
+  return [...left].filter((token) => token.length >= 5).every((token) => right.has(token));
+}
+
+function hasSimilarNamePhrase(target: IdentityProfile, candidate: IdentityProfile): boolean {
+  const targetPhrase = normalizedNamePhrase(target.names);
+  const candidatePhrase = normalizedNamePhrase(candidate.names);
+  if (targetPhrase.length >= 8 && candidatePhrase.length >= 8) {
+    if (targetPhrase.includes(candidatePhrase) || candidatePhrase.includes(targetPhrase)) {
+      return true;
+    }
+  }
+
+  const targetTokens = nameTokens(target.names);
+  const candidateTokens = nameTokens(candidate.names);
+  const coversTargetQualifiers = coversLongTargetTokens(targetTokens, candidateTokens);
+  return (
+    (coversTargetQualifiers && tokenOverlapRatio(targetTokens, candidateTokens) >= 0.66) ||
+    (targetTokens.size >= 3 &&
+      tokenCoverageRatio(targetTokens, candidateTokens) >= 0.8 &&
+      coversTargetQualifiers)
+  );
+}
+
+function hasStrongEquivalentFlowName(target: IdentityProfile, candidate: IdentityProfile): boolean {
+  return (
+    intersects(target.normalized_names, candidate.normalized_names) ||
+    intersects(flowNameVariants(target.names), flowNameVariants(candidate.names))
+  );
+}
+
+function hasEquivalentFlowName(target: IdentityProfile, candidate: IdentityProfile): boolean {
+  return (
+    hasStrongEquivalentFlowName(target, candidate) ||
+    hasSimilarNamePhrase(target, candidate)
+  );
+}
+
+function isElementaryFlowProfile(profile: IdentityProfile): boolean {
+  return sameNonEmptyField(profile.fields.type_of_dataset, 'Elementary flow');
+}
+
+function hasConflictingFlowName(target: IdentityProfile, candidate: IdentityProfile): boolean {
+  if (!isElementaryFlowProfile(target) || !isElementaryFlowProfile(candidate)) {
+    return false;
+  }
+  if (target.names.length === 0 || candidate.names.length === 0) {
+    return false;
+  }
+  if (hasEquivalentFlowName(target, candidate)) {
+    return false;
+  }
+  if (sameCasField(target.fields.cas, candidate.fields.cas)) {
+    return false;
+  }
+  return true;
 }
 
 function normalizedFieldValues(value: string | null | string[]): string[] {
@@ -977,6 +1806,105 @@ function sameNonEmptyField(
   const leftValues = normalizedFieldValues(left);
   const rightValues = normalizedFieldValues(right);
   return leftValues.length > 0 && rightValues.length > 0 && intersects(leftValues, rightValues);
+}
+
+function sameCasField(left: string | null | string[], right: string | null | string[]): boolean {
+  const leftValues = (Array.isArray(left) ? left : [left])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(normalizeCas)
+    .filter(Boolean);
+  const rightValues = (Array.isArray(right) ? right : [right])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(normalizeCas)
+    .filter(Boolean);
+  return leftValues.length > 0 && rightValues.length > 0 && intersects(leftValues, rightValues);
+}
+
+function lastNormalizedValue(value: string | null | string[]): string | null {
+  const values = normalizedFieldValues(value);
+  return values.length > 0 ? values[values.length - 1] : null;
+}
+
+function sameCategoryLeaf(left: string | null | string[], right: string | null | string[]): boolean {
+  const leftLeaf = lastNormalizedValue(left);
+  const rightLeaf = lastNormalizedValue(right);
+  return Boolean(leftLeaf && rightLeaf && leftLeaf === rightLeaf);
+}
+
+function sameCategoryPath(left: string | null | string[], right: string | null | string[]): boolean {
+  const leftValues = normalizedFieldValues(left);
+  const rightValues = normalizedFieldValues(right);
+  return (
+    leftValues.length > 0 &&
+    leftValues.length === rightValues.length &&
+    leftValues.every((entry, index) => entry === rightValues[index])
+  );
+}
+
+function elementaryCompartmentKey(value: string): string | null {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return null;
+  }
+  if (
+    /\blow\s*pop\b/u.test(normalized) ||
+    normalized.includes('low population') ||
+    normalized.includes('non urban air') ||
+    normalized.includes('high stacks')
+  ) {
+    return 'air_non_urban_or_high_stacks';
+  }
+  if (
+    /\bhigh\s*pop\b/u.test(normalized) ||
+    normalized.includes('high population') ||
+    normalized.includes('urban air close to ground')
+  ) {
+    return 'air_urban_close_to_ground';
+  }
+  if (normalized.includes('air indoor') || normalized.includes('indoor air')) {
+    return 'air_indoor';
+  }
+  if (normalized.includes('air unspecified long term')) {
+    return 'air_unspecified_long_term';
+  }
+  if (normalized.includes('air unspecified')) {
+    return 'air_unspecified';
+  }
+  if (normalized.includes('fresh water')) {
+    return 'water_fresh';
+  }
+  if (normalized.includes('sea water')) {
+    return 'water_sea';
+  }
+  if (normalized.includes('water unspecified long term')) {
+    return 'water_unspecified_long_term';
+  }
+  if (normalized.includes('water unspecified')) {
+    return 'water_unspecified';
+  }
+  if (normalized.includes('agricultural soil') && !normalized.includes('non agricultural soil')) {
+    return 'soil_agricultural';
+  }
+  if (normalized.includes('non agricultural soil')) {
+    return 'soil_non_agricultural';
+  }
+  if (normalized.includes('soil unspecified')) {
+    return 'soil_unspecified';
+  }
+  return null;
+}
+
+function sameElementaryCompartment(
+  left: string | null | string[],
+  right: string | null | string[],
+): boolean {
+  const leftKeys = normalizedFieldValues(left)
+    .map(elementaryCompartmentKey)
+    .filter((entry): entry is string => Boolean(entry));
+  const rightKeys = normalizedFieldValues(right)
+    .map(elementaryCompartmentKey)
+    .filter((entry): entry is string => Boolean(entry));
+  return leftKeys.length > 0 && rightKeys.length > 0 && intersects(leftKeys, rightKeys);
 }
 
 function sameExchangeSignature(left: string[], right: string[]): boolean {
@@ -996,14 +1924,39 @@ function hasEquivalentFlowCore(target: IdentityProfile, candidate: IdentityProfi
     target.fields.reference_unit,
     candidate.fields.reference_unit,
   );
-  const hasSameCas = sameNonEmptyField(target.fields.cas, candidate.fields.cas);
+  const hasSameCas = sameCasField(target.fields.cas, candidate.fields.cas);
   const hasSameCategory = sameNonEmptyField(target.fields.categories, candidate.fields.categories);
+  const hasSameCategoryLeaf = sameCategoryLeaf(
+    target.fields.categories,
+    candidate.fields.categories,
+  );
+  const hasSameCategoryPath = sameCategoryPath(
+    target.fields.categories,
+    candidate.fields.categories,
+  );
+  const hasEquivalentName = hasEquivalentFlowName(target, candidate);
+  const hasStrongEquivalentName = hasStrongEquivalentFlowName(target, candidate);
+  const isElementary =
+    sameNonEmptyField(target.fields.type_of_dataset, 'Elementary flow') &&
+    sameNonEmptyField(candidate.fields.type_of_dataset, 'Elementary flow');
+  const hasEquivalentElementaryCompartment =
+    isElementary && sameElementaryCompartment(target.fields.categories, candidate.fields.categories);
+
+  if (isElementary) {
+    return (
+      hasSameType &&
+      hasSameProperty &&
+      hasStrongEquivalentName &&
+      (hasSameCategoryLeaf || hasSameCategoryPath || hasEquivalentElementaryCompartment) &&
+      (hasSameCas || !normalizedFieldValues(target.fields.cas).length)
+    );
+  }
 
   return (
     hasSameType &&
     hasSameProperty &&
     hasSameUnit &&
-    intersects(target.normalized_names, candidate.normalized_names) &&
+    hasEquivalentName &&
     (hasSameCas || hasSameCategory)
   );
 }
@@ -1061,6 +2014,24 @@ function candidateEvaluation(
       decisionHint = 'manual_review';
     }
   }
+  const hasEquivalentName =
+    kind === 'flow' && !hasOverlappingName && hasStrongEquivalentFlowName(target, candidate);
+  if (kind === 'flow' && hasEquivalentName) {
+    matchScore += 18;
+    matchReasons.push('equivalent_flow_name');
+    if (!decisionHint) {
+      decisionHint = 'manual_review';
+    }
+  }
+  const hasSimilarName =
+    !hasOverlappingName && !hasEquivalentName && hasSimilarNamePhrase(target, candidate);
+  if (hasSimilarName) {
+    matchScore += 15;
+    matchReasons.push('similar_name_phrase');
+    if (!decisionHint) {
+      decisionHint = 'manual_review';
+    }
+  }
 
   const targetReferenceFields = Object.values(target.fields)
     .flat()
@@ -1076,6 +2047,39 @@ function candidateEvaluation(
   if (hasOverlappingIdentityField) {
     matchScore += 10;
     matchReasons.push('overlapping_identity_field');
+  }
+
+  if (kind === 'flow') {
+    if (sameNonEmptyField(target.fields.type_of_dataset, candidate.fields.type_of_dataset)) {
+      matchScore += 5;
+      matchReasons.push('same_flow_type');
+    }
+    if (sameNonEmptyField(target.fields.flow_property, candidate.fields.flow_property)) {
+      matchScore += 15;
+      matchReasons.push('same_flow_property');
+    }
+    if (sameNonEmptyField(target.fields.reference_unit, candidate.fields.reference_unit)) {
+      matchScore += 10;
+      matchReasons.push('same_reference_unit');
+    }
+    if (sameCasField(target.fields.cas, candidate.fields.cas)) {
+      matchScore += 10;
+      matchReasons.push('same_cas');
+    }
+    if (sameCategoryPath(target.fields.categories, candidate.fields.categories)) {
+      matchScore += 20;
+      matchReasons.push('same_category_path');
+    } else if (sameCategoryLeaf(target.fields.categories, candidate.fields.categories)) {
+      matchScore += 15;
+      matchReasons.push('same_category_leaf');
+    } else if (
+      sameNonEmptyField(target.fields.type_of_dataset, 'Elementary flow') &&
+      sameNonEmptyField(candidate.fields.type_of_dataset, 'Elementary flow') &&
+      sameElementaryCompartment(target.fields.categories, candidate.fields.categories)
+    ) {
+      matchScore += 18;
+      matchReasons.push('equivalent_elementary_compartment');
+    }
   }
 
   if (
@@ -1097,6 +2101,11 @@ function candidateEvaluation(
     matchScore += 70;
     matchReasons.push('equivalent_flow_core_fields');
     decisionHint = 'block_duplicate';
+  }
+
+  if (kind === 'flow' && matchScore > 0 && hasConflictingFlowName(target, candidate)) {
+    matchScore = Math.max(1, matchScore - 35);
+    matchReasons.push('conflicting_flow_name');
   }
 
   const findings: IdentityPreflightFinding[] = [];
@@ -1129,6 +2138,9 @@ function candidateEvaluation(
       id: candidate.id,
       version: candidate.version,
       state_code: candidate.state_code,
+      names: candidate.names,
+      fields: candidate.fields,
+      exchange_signature: candidate.exchange_signature,
       identity_key: candidate.identity_key,
       match_score: matchScore,
       match_reasons: matchReasons,
@@ -1208,6 +2220,16 @@ function chooseDecision(
   };
 }
 
+function sortedEvaluations(evaluations: CandidateEvaluation[]): CandidateEvaluation[] {
+  return [...evaluations].sort((left, right) => {
+    const scoreDiff = right.report.match_score - left.report.match_score;
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+    return left.report.index - right.report.index;
+  });
+}
+
 function statusForDecision(
   decision: IdentityPreflightDecision,
   blockers: IdentityPreflightFinding[],
@@ -1276,10 +2298,14 @@ export async function runIdentityPreflight(
     options.rawInput ?? readJsonInput(inputPath),
     kind,
   );
-  const targetProfile = profileForKind(normalizedInput.target, kind);
   const remoteCandidateSearch = mergeRemoteCandidateSearchConfig(
     normalizedInput.remoteCandidateSearch,
     options,
+  );
+  const targetProfile = applyIdentityProfileHints(
+    profileForKind(normalizedInput.target, kind),
+    remoteCandidateSearch.profileHints,
+    kind,
   );
   const candidateSourceReads = [
     ...normalizedInput.candidateInputPaths,
@@ -1329,11 +2355,13 @@ export async function runIdentityPreflight(
     target: {
       id: targetProfile.id,
       version: targetProfile.version,
+      names: targetProfile.names,
+      fields: targetProfile.fields,
       identity_key: targetProfile.identity_key,
       exchange_signature: targetProfile.exchange_signature,
       schema_validation: validation,
     },
-    candidates: evaluations.map((evaluation) => evaluation.report),
+    candidates: sortedEvaluations(evaluations).map((evaluation) => evaluation.report),
     candidate_sources: candidateSources,
     findings: decision.findings,
     blockers,

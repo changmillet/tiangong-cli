@@ -244,6 +244,30 @@ import {
   type DatasetAuthorReport,
   type RunDatasetAuthorOptions,
 } from './lib/dataset-author.js';
+import {
+  runDatasetPatchApply,
+  type DatasetPatchApplyReport,
+  type RunDatasetPatchApplyOptions,
+} from './lib/dataset-patch.js';
+import {
+  runDatasetSaveDraft,
+  type DatasetSaveDraftReport,
+  type RunDatasetSaveDraftOptions,
+} from './lib/dataset-save-draft-run.js';
+import {
+  runDatasetClassificationApply,
+  runDatasetClassificationAudit,
+  runDatasetClassificationChildren,
+  runDatasetClassificationPath,
+  type DatasetClassificationApplyReport,
+  type DatasetClassificationAuditReport,
+  type DatasetClassificationChildrenReport,
+  type DatasetClassificationPathReport,
+  type RunDatasetClassificationApplyOptions,
+  type RunDatasetClassificationAuditOptions,
+  type RunDatasetClassificationChildrenOptions,
+  type RunDatasetClassificationPathOptions,
+} from './lib/dataset-classification.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
@@ -391,6 +415,24 @@ export type CliDeps = {
     options: RunDatasetImportLcaConvertOptions,
   ) => Promise<DatasetImportLcaReport> | DatasetImportLcaReport;
   runDatasetAuthorImpl?: (options: RunDatasetAuthorOptions) => Promise<DatasetAuthorReport>;
+  runDatasetPatchApplyImpl?: (
+    options: RunDatasetPatchApplyOptions,
+  ) => Promise<DatasetPatchApplyReport>;
+  runDatasetSaveDraftImpl?: (
+    options: RunDatasetSaveDraftOptions,
+  ) => Promise<DatasetSaveDraftReport>;
+  runDatasetClassificationChildrenImpl?: (
+    options: RunDatasetClassificationChildrenOptions,
+  ) => Promise<DatasetClassificationChildrenReport>;
+  runDatasetClassificationPathImpl?: (
+    options: RunDatasetClassificationPathOptions,
+  ) => Promise<DatasetClassificationPathReport>;
+  runDatasetClassificationAuditImpl?: (
+    options: RunDatasetClassificationAuditOptions,
+  ) => Promise<DatasetClassificationAuditReport>;
+  runDatasetClassificationApplyImpl?: (
+    options: RunDatasetClassificationApplyOptions,
+  ) => Promise<DatasetClassificationApplyReport>;
 };
 
 export type CliResult = {
@@ -423,7 +465,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    contract get | context-pack | curation-queue build | import-lca convert | author | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
+  dataset    contract get | context-pack | classification children/path/audit/apply | curation-queue build | import-lca convert | author | patch apply | save-draft | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   qa         process | flow | lifecyclemodel
@@ -458,9 +500,14 @@ Examples:
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir /abs/path/to/dataset-validate
   tiangong-lca dataset contract get --type process --include schema,methodology,ruleset --out-dir ./contract
   tiangong-lca dataset context-pack --type process --profile ai-import --out-dir ./context-pack
+  tiangong-lca dataset classification children --type process --parent A --out-dir ./classification --json
+  tiangong-lca dataset classification path --type process --code 1080 --out-dir ./classification --json
+  tiangong-lca dataset classification audit --type location --input ./rows/processes.jsonl --out-dir ./classification --json
+  tiangong-lca dataset classification apply --input ./rows/processes.jsonl --decisions ./classification-decisions.jsonl --out ./rows/processes.classified.jsonl --type process --out-dir ./classification --json
   tiangong-lca dataset curation-queue build --processes ./processes.jsonl --flows ./flows.jsonl --out-dir ./curation-queue
   tiangong-lca dataset import-lca convert --input ./external-package --output-dir ./converted --from-format auto --target tidas
   tiangong-lca dataset author --input ./source.pdf --target-types process,flow --out-dir ./authoring
+  tiangong-lca dataset save-draft --input ./contacts.jsonl --type contact --out-dir /abs/path/to/contact-save-draft --commit
   tiangong-lca dataset verify-remote --input ./rows.jsonl --out-dir /abs/path/to/dataset-remote-verify
   tiangong-lca dataset bilingual extract --input ./rows/processes.jsonl --type process --out-dir ./translation
   tiangong-lca dataset bilingual apply --input ./rows/processes.jsonl --translations ./translation/trans-reviewed.jsonl --out ./rows/processes.translated.jsonl
@@ -492,7 +539,7 @@ Examples:
   tiangong-lca qa process --rows-file ./processes.jsonl --out-dir ./qa
   tiangong-lca qa process --run-root /abs/path/to/process-run --run-id <run_id> --out-dir ./qa
   tiangong-lca qa flow --rows-file ./flows.json --out-dir ./qa
-  tiangong-lca qa lifecyclemodel --run-dir /abs/path/to/lifecyclemodel-run --out-dir ./lifecyclemodel-qa
+  tiangong-lca qa lifecyclemodel --rows-file ./lifecyclemodels.jsonl --out-dir ./lifecyclemodel-qa
   tiangong-lca publish run --input ./publish-request.json --dry-run
   tiangong-lca validation run --input-dir ./package --engine auto
   tiangong-lca admin embedding-run --input ./jobs.json
@@ -606,9 +653,12 @@ function renderDatasetHelp(): string {
 Implemented Subcommands:
   contract get        Write TIDAS schema / methodology / ruleset contract artifacts
   context-pack        Write an AI-ready TIDAS contract context pack
+  classification       Navigate bundled TIDAS classification schemas or apply selected classifications
   curation-queue build Build entity-level AI curation queue artifacts for Foundry imports
   import-lca convert  Convert supported external LCA packages through tidas-tools
   author              Extract source evidence and prepare TIDAS context packs for AI authoring
+  patch apply          Apply AI-authored structured dataset patches deterministically
+  save-draft           Save contact/source/support or other canonical dataset rows through the platform dataset command path
   validate             Validate local flow / process / lifecyclemodel rows with the TIDAS SDK
   verify-remote        Verify dataset roots and TIDAS references against remote published versions
   bilingual extract    Extract bilingual translation units from local rows
@@ -621,9 +671,15 @@ Implemented Subcommands:
 Examples:
   tiangong-lca dataset contract get --type process --include schema,methodology,ruleset --out-dir ./contract --help
   tiangong-lca dataset context-pack --type process --profile ai-import --out-dir ./context-pack --help
+  tiangong-lca dataset classification children --type process --parent A --out-dir ./classification --help
+  tiangong-lca dataset classification path --type process --code 1080 --out-dir ./classification --help
+  tiangong-lca dataset classification audit --type location --input ./rows/processes.jsonl --out-dir ./classification --help
+  tiangong-lca dataset classification apply --input ./rows/processes.jsonl --decisions ./classification-decisions.jsonl --out ./rows/processes.classified.jsonl --type process --out-dir ./classification --help
   tiangong-lca dataset curation-queue build --processes ./rows/processes.jsonl --flows ./rows/flows.jsonl --support ./rows/sources.jsonl --out-dir ./curation-queue --help
   tiangong-lca dataset import-lca convert --input ./external-package --output-dir ./converted --from-format auto --target tidas --help
   tiangong-lca dataset author --input ./source.pdf --target-types process,flow --out-dir ./authoring --help
+  tiangong-lca dataset patch apply --input ./rows.jsonl --patch ./ai-patches.json --out ./rows.patched.jsonl --out-dir ./patch-apply --help
+  tiangong-lca dataset save-draft --input ./contacts.jsonl --type contact --out-dir ./contact-save-draft --commit --help
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir ./dataset-validate --help
   tiangong-lca dataset verify-remote --input ./rows.jsonl --out-dir ./dataset-remote-verify --help
   tiangong-lca dataset bilingual extract --input ./rows.jsonl --type process --out-dir ./translation --help
@@ -677,6 +733,68 @@ Outputs written under --out-dir:
   - outputs/ai-context.json
   - outputs/ai-context.md
   - outputs/contract-report.json
+`.trim();
+}
+
+function renderDatasetClassificationHelp(): string {
+  return `Usage:
+  tiangong-lca dataset classification children --type <type> [options]
+  tiangong-lca dataset classification path --type <type> --code <code> [options]
+  tiangong-lca dataset classification audit --type location --input <file> [options]
+  tiangong-lca dataset classification apply --input <file> --decisions <file> --out <file> [options]
+
+Classification types:
+  process, flow-product, flow-elementary, source, contact, unitgroup, flowproperty, lciamethod, location
+
+Actions:
+  children   List the next selectable children for a parent code. Omit --parent for top level.
+  path       Resolve one schema code into the full root-to-leaf classification path.
+  audit      Scan local rows for schema-derived location fields that are not valid TIDAS location codes.
+  apply      Apply AI/human classification decisions to local TIDAS rows deterministically.
+
+Options for children:
+  --type <type>     Classification schema type
+  --parent <code>   Parent code to inspect
+  --query <text>    Filter direct children by code or label
+  --limit <n>       Limit returned children
+  --out-dir <dir>   Optional artifact directory
+  --json            Print compact JSON
+
+Options for path:
+  --type <type>     Classification schema type
+  --code <code>     Leaf or intermediate classification code
+  --out-dir <dir>   Optional artifact directory
+  --json            Print compact JSON
+
+Options for audit:
+  --type location   Audit schema-derived location values against tidas_locations_category.json
+  --input <file>    Local rows as JSON or JSONL
+  --out-dir <dir>   Optional artifact directory
+  --json            Print compact JSON
+
+Options for apply:
+  --input <file>     Local rows as JSON or JSONL
+  --decisions <file> JSON/JSONL decisions with row_index or dataset_id plus code/classes
+  --out <file>       Output JSONL path for classified rows
+  --type <type>      Default classification type when decisions omit category_type
+  --out-dir <dir>    Artifact directory; defaults to the output file directory
+  --json             Print compact JSON
+  -h, --help
+
+Decision contract:
+  Decisions may target row_index or dataset_id. They may provide code, leaf_code, class_id, cat_id,
+  or a classes/common:class/common:category path. The CLI normalizes the path against the bundled
+  TIDAS schema copied from tidas-tools before writing it back. Location decisions use location
+  target fields derived from the bundled TIDAS schemas, plus TIDAS LCIA geography fields; use
+  --type location and target_path when a row contains more than one location field.
+
+Outputs:
+  - children/path report under outputs/ when --out-dir is provided
+  - outputs/location-audit-findings.jsonl for audit
+  - outputs/location-audit-report.json for audit
+  - classified rows at --out for apply
+  - outputs/classification-apply-evidence.jsonl
+  - outputs/classification-apply-report.json
 `.trim();
 }
 
@@ -765,6 +883,36 @@ Environment:
 `.trim();
 }
 
+function renderDatasetPatchHelp(): string {
+  return `Usage:
+  tiangong-lca dataset patch apply --input <file> --patch <file> --out <file> [options]
+
+Options:
+  --input <file>  Local rows as JSON or JSONL
+  --patch <file>  AI-authored JSON patch set with row_index or dataset_id selectors
+  --out <file>    Output JSONL path for patched rows
+  --out-dir <dir> Artifact directory; defaults to the output file directory
+  --authoring-package-dir <dir> Resolve relative authoring_package paths from this directory
+  --require-authoring-package   Require each patch set to point at a matching authoring package
+  --require-action-item-closure Require patch operations to close package action_items
+  --json          Print compact JSON
+  -h, --help
+
+Patch contract:
+  Patch payloads must declare patch_status=completed before deterministic apply.
+  Patch sets must target a row by row_index or dataset_id and use operations[].
+  Supported operations are test, add, replace, and remove. Non-test operations require basis or evidence.
+  Foundry AI patches should include resolution.mode and resolution.used_context_kinds; these are copied to patch evidence.
+  Strict Foundry mode also requires authoring package lineage and explicit action item closure.
+  If any operation is invalid, the command reports blocked and writes the original rows unchanged.
+
+Outputs:
+  - patched rows at --out
+  - outputs/patch-evidence.jsonl
+  - outputs/dataset-patch-apply-report.json
+`.trim();
+}
+
 function renderDatasetRemoteVerifyHelp(): string {
   return `Usage:
   tiangong-lca dataset verify-remote --input <file> --out-dir <dir> [options]
@@ -773,6 +921,9 @@ Options:
   --input <file>         Local rows as JSON or JSONL; objects with rows[] are also accepted
   --out-dir <dir>        Artifact directory for the remote verification report
   --root-policy <mode>   existing | candidate (default: existing)
+  --compare-root-payload Compare each root row payload hash against the remote row
+  --target-user-id <id>  Require root readback rows to belong to this user
+  --state-code <code>    Require root readback rows to have this state_code
   --json                 Print compact JSON
   -h, --help
 
@@ -786,13 +937,38 @@ Outputs written under --out-dir:
 `.trim();
 }
 
+function renderDatasetSaveDraftHelp(): string {
+  return `Usage:
+  tiangong-lca dataset save-draft --input <file> --type <type> [options]
+
+Options:
+  --input <file>   Canonical TIDAS rows JSON/JSONL
+  --type <type>    auto, contact, source, flow, process
+  --out-dir <dir>  Artifact directory
+  --commit         Execute remote save-draft writes
+  --dry-run        Validate and plan without remote writes (default)
+  --json           Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - outputs/dataset-save-draft/selected-rows.jsonl
+  - outputs/dataset-save-draft/progress.jsonl
+  - outputs/dataset-save-draft/failures.jsonl
+  - outputs/dataset-save-draft/summary.json
+
+Contract:
+  This generic dataset path writes only mutable rows such as contact/source/flow/process. Unit group and flow property rows are reference-only; select existing database rows and rewrite references instead of creating My Data support rows.
+  Process and lifecyclemodel imports may still use their dedicated save-draft commands when the workflow needs their specialized reports.
+`.trim();
+}
+
 function renderDatasetValidateHelp(): string {
   return `Usage:
   tiangong-lca dataset validate --input <file> [options]
 
 Options:
   --input <file>   Local rows as JSON or JSONL; objects with rows[] are also accepted
-  --type <type>    auto | flow | process | lifecyclemodel (default: auto)
+  --type <type>    auto | contact | source | unitgroup | flowproperty | flow | process | lifecyclemodel (default: auto)
   --out-dir <dir>  Optional artifact directory for validation report and row splits
   --json           Print compact JSON
   -h, --help
@@ -1028,6 +1204,9 @@ Options:
                    Override the remote search query; defaults to target identity text
   --remote-limit <n>
                    Limit remote candidate rows after fetch
+  --remote-data-source <tg|co|my|te>
+                   Search TianGong public, community, my data, or team data (default: tg)
+  --timeout-ms <n> Remote search/auth timeout in milliseconds
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -1371,7 +1550,7 @@ function renderQaHelp(): string {
 Implemented Subcommands:
   process      Run deterministic process QA for build runs or rows-file snapshots
   flow         Run deterministic flow QA for local governance snapshots
-  lifecyclemodel Run deterministic lifecyclemodel QA for one local build run
+  lifecyclemodel Run deterministic lifecyclemodel QA for build runs or rows-file snapshots
 
 Examples:
   tiangong-lca qa process --help
@@ -1426,9 +1605,10 @@ Options:
 
 function renderQaLifecyclemodelHelp(): string {
   return `Usage:
-  tiangong-lca qa lifecyclemodel --run-dir <dir> --out-dir <dir> [options]
+  tiangong-lca qa lifecyclemodel (--rows-file <file> | --run-dir <dir>) --out-dir <dir> [options]
 
 Options:
+  --rows-file <file>       Lifecyclemodel rows JSON/JSONL file; payload-level QA for import snapshots
   --run-dir <dir>          Existing lifecyclemodel auto-build run directory
   --out-dir <dir>          QA artifact output directory
   --start-ts <iso>         Optional run start timestamp
@@ -1438,7 +1618,7 @@ Options:
   -h, --help
 
 This command:
-  - reads one existing lifecyclemodel build run under models/*/tidas_bundle/lifecyclemodels
+  - reads one lifecyclemodel rows snapshot or existing build run under models/*/tidas_bundle/lifecyclemodels
   - aggregates validate-build findings when reports/lifecyclemodel-validate-build-report.json is present
   - emits artifact-first model summaries, findings, markdown QA notes, and a structured report
 `.trim();
@@ -1740,6 +1920,9 @@ Options:
                    Override the remote search query; defaults to target identity text
   --remote-limit <n>
                    Limit remote candidate rows after fetch
+  --remote-data-source <tg|co|my|te>
+                   Search TianGong public, community, my data, or team data (default: tg)
+  --timeout-ms <n> Remote search/auth timeout in milliseconds
   --out-dir <dir>  Optional artifact directory for identity decision outputs
   --json           Print compact JSON
   -h, --help
@@ -2291,6 +2474,54 @@ function parseDatasetValidateFlags(args: string[]): {
   };
 }
 
+function parseDatasetSaveDraftFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  type: string | undefined;
+  outDir: string | null;
+  commit: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        type: { type: 'string' },
+        'out-dir': { type: 'string' },
+        commit: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  if (values.commit && values['dry-run']) {
+    throw new CliError('Cannot pass both --commit and --dry-run.', {
+      code: 'INVALID_DATASET_SAVE_DRAFT_MODE',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    type: typeof values.type === 'string' ? values.type : undefined,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    commit: Boolean(values.commit),
+  };
+}
+
 function parseDatasetContractFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -2329,6 +2560,174 @@ function parseDatasetContractFlags(args: string[]): {
       ? values.include.filter((value): value is string => typeof value === 'string')
       : [],
     profile: typeof values.profile === 'string' ? values.profile : undefined,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetClassificationChildrenFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  type: string;
+  parent: string | null;
+  query: string | null;
+  limit: number | null;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        type: { type: 'string' },
+        parent: { type: 'string' },
+        query: { type: 'string' },
+        limit: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const limit = typeof values.limit === 'string' ? Number.parseInt(values.limit, 10) : null;
+  if (limit !== null && (!Number.isInteger(limit) || limit <= 0)) {
+    throw new CliError('--limit must be a positive integer.', {
+      code: 'DATASET_CLASSIFICATION_LIMIT_INVALID',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    type: typeof values.type === 'string' ? values.type : '',
+    parent: typeof values.parent === 'string' ? values.parent : null,
+    query: typeof values.query === 'string' ? values.query : null,
+    limit,
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetClassificationPathFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  type: string;
+  code: string;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        type: { type: 'string' },
+        code: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    type: typeof values.type === 'string' ? values.type : '',
+    code: typeof values.code === 'string' ? values.code : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetClassificationAuditFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  type: string;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        type: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    type: typeof values.type === 'string' ? values.type : 'location',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+  };
+}
+
+function parseDatasetClassificationApplyFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  decisionsPath: string;
+  outPath: string;
+  type: string | null;
+  outDir: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        decisions: { type: 'string' },
+        out: { type: 'string' },
+        type: { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    decisionsPath: typeof values.decisions === 'string' ? values.decisions : '',
+    outPath: typeof values.out === 'string' ? values.out : '',
+    type: typeof values.type === 'string' ? values.type : null,
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
   };
 }
@@ -2527,12 +2926,65 @@ function parseDatasetAuthorFlags(args: string[]): {
   };
 }
 
+function parseDatasetPatchApplyFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  patchPath: string;
+  outPath: string;
+  outDir: string | null;
+  authoringPackageDir: string | null;
+  requireAuthoringPackage: boolean;
+  requireActionItemClosure: boolean;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        patch: { type: 'string' },
+        out: { type: 'string' },
+        'out-dir': { type: 'string' },
+        'authoring-package-dir': { type: 'string' },
+        'require-authoring-package': { type: 'boolean' },
+        'require-action-item-closure': { type: 'boolean' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    patchPath: typeof values.patch === 'string' ? values.patch : '',
+    outPath: typeof values.out === 'string' ? values.out : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    authoringPackageDir:
+      typeof values['authoring-package-dir'] === 'string' ? values['authoring-package-dir'] : null,
+    requireAuthoringPackage: Boolean(values['require-authoring-package']),
+    requireActionItemClosure: Boolean(values['require-action-item-closure']),
+  };
+}
+
 function parseDatasetRemoteVerifyFlags(args: string[]): {
   help: boolean;
   json: boolean;
   inputPath: string;
   outDir: string;
   rootPolicy: 'existing' | 'candidate';
+  compareRootPayload: boolean;
+  targetUserId: string | null;
+  stateCode: number | null;
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -2546,6 +2998,9 @@ function parseDatasetRemoteVerifyFlags(args: string[]): {
         input: { type: 'string' },
         'out-dir': { type: 'string' },
         'root-policy': { type: 'string' },
+        'compare-root-payload': { type: 'boolean' },
+        'target-user-id': { type: 'string' },
+        'state-code': { type: 'string' },
       },
     }));
   } catch (error) {
@@ -2564,6 +3019,16 @@ function parseDatasetRemoteVerifyFlags(args: string[]): {
     });
   }
   const rootPolicy = rawRootPolicy as 'existing' | 'candidate';
+  let stateCode: number | null = null;
+  if (typeof values['state-code'] === 'string') {
+    stateCode = Number.parseInt(values['state-code'], 10);
+    if (!Number.isInteger(stateCode) || stateCode < 0) {
+      throw new CliError('--state-code must be a non-negative integer.', {
+        code: 'DATASET_REMOTE_VERIFY_STATE_CODE_INVALID',
+        exitCode: 2,
+      });
+    }
+  }
 
   return {
     help: Boolean(values.help),
@@ -2571,6 +3036,9 @@ function parseDatasetRemoteVerifyFlags(args: string[]): {
     inputPath: typeof values.input === 'string' ? values.input : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
     rootPolicy,
+    compareRootPayload: Boolean(values['compare-root-payload']),
+    targetUserId: typeof values['target-user-id'] === 'string' ? values['target-user-id'] : null,
+    stateCode,
   };
 }
 
@@ -2884,9 +3352,11 @@ function parseIdentityPreflightFlags(args: string[]): {
   inputPath: string;
   outDir: string | null;
   candidateInputPaths: string[];
-  remoteCandidateSearch: boolean;
+  remoteCandidateSearch: boolean | undefined;
   remoteQuery: string | null;
   remoteLimit: number | null;
+  remoteDataSource: string | null;
+  timeoutMs: number | undefined;
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -2902,6 +3372,8 @@ function parseIdentityPreflightFlags(args: string[]): {
         'remote-candidates': { type: 'boolean' },
         'remote-query': { type: 'string' },
         'remote-limit': { type: 'string' },
+        'remote-data-source': { type: 'string' },
+        'timeout-ms': { type: 'string' },
         'out-dir': { type: 'string' },
       },
     }));
@@ -2926,6 +3398,19 @@ function parseIdentityPreflightFlags(args: string[]): {
     }
     return parsed;
   };
+  const parseTimeoutMs = (value: unknown): number | undefined => {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new CliError('Expected --timeout-ms to be a positive integer.', {
+        code: 'INVALID_IDENTITY_PREFLIGHT_TIMEOUT',
+        exitCode: 2,
+      });
+    }
+    return parsed;
+  };
   return {
     help: Boolean(values.help),
     json: Boolean(values.json),
@@ -2934,9 +3419,12 @@ function parseIdentityPreflightFlags(args: string[]): {
     candidateInputPaths: Array.isArray(candidateInputValue)
       ? candidateInputValue.filter((entry): entry is string => typeof entry === 'string')
       : [],
-    remoteCandidateSearch: Boolean(values['remote-candidates']),
+    remoteCandidateSearch: values['remote-candidates'] === true ? true : undefined,
     remoteQuery: typeof values['remote-query'] === 'string' ? values['remote-query'] : null,
     remoteLimit: parseRemoteLimit(values['remote-limit']),
+    remoteDataSource:
+      typeof values['remote-data-source'] === 'string' ? values['remote-data-source'] : null,
+    timeoutMs: parseTimeoutMs(values['timeout-ms']),
   };
 }
 
@@ -4069,6 +4557,7 @@ function parseQaFlowFlags(args: string[]): {
 function parseQaLifecyclemodelFlags(args: string[]): {
   help: boolean;
   json: boolean;
+  rowsFile: string | undefined;
   runDir: string;
   outDir: string;
   startTs: string | undefined;
@@ -4084,6 +4573,7 @@ function parseQaLifecyclemodelFlags(args: string[]): {
       options: {
         help: { type: 'boolean', short: 'h' },
         json: { type: 'boolean' },
+        'rows-file': { type: 'string' },
         'run-dir': { type: 'string' },
         'out-dir': { type: 'string' },
         'start-ts': { type: 'string' },
@@ -4101,6 +4591,7 @@ function parseQaLifecyclemodelFlags(args: string[]): {
   return {
     help: Boolean(values.help),
     json: Boolean(values.json),
+    rowsFile: typeof values['rows-file'] === 'string' ? values['rows-file'] : undefined,
     runDir: typeof values['run-dir'] === 'string' ? values['run-dir'] : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
     startTs: typeof values['start-ts'] === 'string' ? values['start-ts'] : undefined,
@@ -5125,6 +5616,16 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetImportLcaConvertImpl =
       deps.runDatasetImportLcaConvertImpl ?? runDatasetImportLcaConvert;
     const datasetAuthorImpl = deps.runDatasetAuthorImpl ?? runDatasetAuthor;
+    const datasetPatchApplyImpl = deps.runDatasetPatchApplyImpl ?? runDatasetPatchApply;
+    const datasetSaveDraftImpl = deps.runDatasetSaveDraftImpl ?? runDatasetSaveDraft;
+    const datasetClassificationChildrenImpl =
+      deps.runDatasetClassificationChildrenImpl ?? runDatasetClassificationChildren;
+    const datasetClassificationPathImpl =
+      deps.runDatasetClassificationPathImpl ?? runDatasetClassificationPath;
+    const datasetClassificationAuditImpl =
+      deps.runDatasetClassificationAuditImpl ?? runDatasetClassificationAudit;
+    const datasetClassificationApplyImpl =
+      deps.runDatasetClassificationApplyImpl ?? runDatasetClassificationApply;
 
     if (flags.version) {
       return { exitCode: 0, stdout: `${loadCliPackageVersion(import.meta.url)}\n`, stderr: '' };
@@ -5226,6 +5727,93 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
+    if (command === 'dataset' && subcommand === 'classification') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetClassificationHelp()}\n`, stderr: '' };
+      }
+
+      if (action === 'children') {
+        const datasetFlags = parseDatasetClassificationChildrenFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetClassificationHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetClassificationChildrenImpl({
+          type: datasetFlags.type,
+          parent: datasetFlags.parent,
+          query: datasetFlags.query,
+          limit: datasetFlags.limit,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      if (action === 'path') {
+        const datasetFlags = parseDatasetClassificationPathFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetClassificationHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetClassificationPathImpl({
+          type: datasetFlags.type,
+          code: datasetFlags.code,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      if (action === 'audit') {
+        const datasetFlags = parseDatasetClassificationAuditFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetClassificationHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetClassificationAuditImpl({
+          inputPath: datasetFlags.inputPath,
+          type: datasetFlags.type,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      if (action === 'apply') {
+        const datasetFlags = parseDatasetClassificationApplyFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetClassificationHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetClassificationApplyImpl({
+          inputPath: datasetFlags.inputPath,
+          decisionsPath: datasetFlags.decisionsPath,
+          outPath: datasetFlags.outPath,
+          type: datasetFlags.type,
+          outDir: datasetFlags.outDir,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+
+      throw new CliError(
+        "dataset classification action must be 'children', 'path', 'audit', or 'apply'.",
+        {
+          code: 'DATASET_CLASSIFICATION_ACTION_INVALID',
+          exitCode: 2,
+        },
+      );
+    }
+
     if (command === 'dataset' && subcommand === 'curation-queue') {
       const action = commandArgs[0] ?? '';
       if (!action || action === '--help' || action === '-h') {
@@ -5317,6 +5905,59 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       };
     }
 
+    if (command === 'dataset' && subcommand === 'patch') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetPatchHelp()}\n`, stderr: '' };
+      }
+      if (action !== 'apply') {
+        throw new CliError("dataset patch action must be 'apply'.", {
+          code: 'DATASET_PATCH_ACTION_INVALID',
+          exitCode: 2,
+        });
+      }
+      const datasetFlags = parseDatasetPatchApplyFlags(commandArgs.slice(1));
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetPatchHelp()}\n`, stderr: '' };
+      }
+      const report = await datasetPatchApplyImpl({
+        inputPath: datasetFlags.inputPath,
+        patchPath: datasetFlags.patchPath,
+        outPath: datasetFlags.outPath,
+        outDir: datasetFlags.outDir,
+        authoringPackageDir: datasetFlags.authoringPackageDir,
+        requireAuthoringPackage: datasetFlags.requireAuthoringPackage,
+        requireActionItemClosure: datasetFlags.requireActionItemClosure,
+      });
+      return {
+        exitCode: report.status === 'blocked' ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'dataset' && subcommand === 'save-draft') {
+      const datasetFlags = parseDatasetSaveDraftFlags(commandArgs);
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetSaveDraftHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetSaveDraftImpl({
+        inputPath: datasetFlags.inputPath,
+        type: datasetFlags.type,
+        outDir: datasetFlags.outDir,
+        commit: datasetFlags.commit,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode: report.status === 'completed_with_failures' ? 1 : 0,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
     if (command === 'dataset' && subcommand === 'validate') {
       const datasetFlags = parseDatasetValidateFlags(commandArgs);
       if (datasetFlags.help) {
@@ -5346,6 +5987,9 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         inputPath: datasetFlags.inputPath,
         outDir: datasetFlags.outDir,
         rootPolicy: datasetFlags.rootPolicy,
+        compareRootPayload: datasetFlags.compareRootPayload,
+        targetUserId: datasetFlags.targetUserId,
+        stateCode: datasetFlags.stateCode,
         env: deps.env,
         fetchImpl: deps.fetchImpl,
       });
@@ -5804,6 +6448,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         remoteCandidateSearch: processFlags.remoteCandidateSearch,
         remoteQuery: processFlags.remoteQuery,
         remoteLimit: processFlags.remoteLimit,
+        remoteDataSource: processFlags.remoteDataSource,
+        timeoutMs: processFlags.timeoutMs,
         env: deps.env,
         fetchImpl: deps.fetchImpl,
       });
@@ -6166,6 +6812,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         remoteCandidateSearch: flowFlags.remoteCandidateSearch,
         remoteQuery: flowFlags.remoteQuery,
         remoteLimit: flowFlags.remoteLimit,
+        remoteDataSource: flowFlags.remoteDataSource,
+        timeoutMs: flowFlags.timeoutMs,
         env: deps.env,
         fetchImpl: deps.fetchImpl,
       });
@@ -6622,6 +7270,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       }
 
       const report = await lifecyclemodelQaImpl({
+        ...(qaFlags.rowsFile ? { rowsFile: qaFlags.rowsFile } : {}),
         runDir: qaFlags.runDir,
         outDir: qaFlags.outDir,
         startTs: qaFlags.startTs,

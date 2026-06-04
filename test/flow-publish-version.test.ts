@@ -627,6 +627,64 @@ test('runFlowPublishVersion blocks FlowSchema validation failures before remote 
   }
 });
 
+test('runFlowPublishVersion blocks import placeholder content before remote planning', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-flow-publish-version-import-gate-'));
+  const inputFile = path.join(dir, 'ready-flows.jsonl');
+  const outDir = path.join(dir, 'publish-version');
+  const row = makeFlowRow({ id: 'flow-import-placeholder', userId: 'user-1' });
+  const payload = row.json_ordered as JsonRecord;
+  const flowDataSet = payload.flowDataSet as JsonRecord;
+  const flowInformation = flowDataSet.flowInformation as JsonRecord;
+  const dataSetInformation = flowInformation.dataSetInformation as JsonRecord;
+  dataSetInformation.name = {
+    baseName: { '@xml:lang': 'en', '#text': 'Electricity, at grid' },
+    treatmentStandardsRoutes: {
+      '@xml:lang': 'en',
+      '#text': 'Not declared in source package',
+    },
+  };
+  const observed: string[] = [];
+
+  writeJsonl(inputFile, [row]);
+
+  try {
+    const report = await runFlowPublishVersion({
+      inputFile,
+      outDir,
+      commit: true,
+      maxWorkers: 1,
+      fetchImpl: (async (input) => {
+        observed.push(String(input));
+        throw new Error('remote should not be called');
+      }) as FetchLike,
+      validateFlowPayloadImpl: VALIDATION_OK,
+      now: new Date('2026-03-30T15:45:00.000Z'),
+    });
+
+    assert.equal(report.status, 'completed_flow_publish_version_with_failures');
+    assert.deepEqual(report.flow_gate.counts, {
+      total: 1,
+      valid: 0,
+      invalid: 1,
+    });
+    assert.equal(report.flow_gate.blocker_count, 1);
+    assert.equal(observed.length, 0);
+
+    const gate = JSON.parse(readFileSync(report.files.gate_report, 'utf8')) as JsonRecord;
+    assert.equal(gate.status, 'blocked');
+    assert.match(String(gate.validator), /\+tiangong\/import-content$/u);
+    assert.equal((gate.blockers as JsonRecord[])[0]?.code, 'dataset_import_placeholder_content');
+
+    const failures = readFileSync(report.files.remote_failed, 'utf8')
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as JsonRecord);
+    assert.equal(((failures[0].reason as JsonRecord[])[0] as JsonRecord).validator, 'import_content');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runFlowPublishVersion surfaces update-after-insert-error failures when fallback patch also fails', async () => {
   const dir = mkdtempSync(
     path.join(os.tmpdir(), 'tg-cli-flow-publish-version-update-after-insert-failure-'),

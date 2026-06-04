@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
+import { collectImportContentIssues } from './dataset-validate.js';
 import {
   buildDatasetCommandTransport,
   createDatasetRecord,
@@ -33,6 +34,7 @@ import { createSupabaseDataRuntime } from './supabase-session.js';
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_WORKERS = 4;
 const LEGACY_OUTPUT_PREFIX = 'flows_tidas_sdk_plus_classification';
+const FLOW_PUBLISH_VALIDATOR = `${FLOW_SCHEMA_VALIDATOR}+tiangong/import-content`;
 
 type FlowPublishMode = 'dry_run' | 'commit';
 type FlowPublishOperation =
@@ -43,7 +45,7 @@ type FlowPublishOperation =
   | 'update_after_insert_error';
 
 type FlowPublishFailureReason = {
-  validator: 'remote_rest' | 'flow_schema';
+  validator: 'remote_rest' | 'flow_schema' | 'import_content';
   stage: string;
   path: string;
   message: string;
@@ -388,6 +390,7 @@ function validate_publish_flow_row(
     if (!validation.ok) {
       issues.push(...validation.issues);
     }
+    issues.push(...collectImportContentIssues(payload));
   }
 
   return {
@@ -432,7 +435,7 @@ function build_flow_publish_gate_report(
     ruleset_version: ruleset.version,
     ruleset_source_version: ruleset.source_version,
     ruleset_rule_ids: ruleset.rule_ids,
-    validator: FLOW_SCHEMA_VALIDATOR,
+    validator: FLOW_PUBLISH_VALIDATOR,
     counts: {
       total: flows.length,
       valid: flows.length - invalid,
@@ -474,7 +477,10 @@ function gate_failure_rows(
       failure_row(
         row,
         flow.issues.map((issue) => ({
-          validator: 'flow_schema' as const,
+          validator:
+            issue.code === 'dataset_import_placeholder_content'
+              ? ('import_content' as const)
+              : ('flow_schema' as const),
           stage: 'schema_gate',
           path: issue.path,
           message: issue.message,

@@ -180,6 +180,7 @@ test('runFlowQa materializes rows-file input and writes artifact-first QA output
     assert.equal(report.status, 'completed_local_flow_qa');
     assert.equal(report.run_id, 'flow-run-001');
     assert.equal(report.input_mode, 'rows_file');
+    assert.equal(report.rows_file, rowsFile);
     assert.equal(report.flow_count, 2);
     assert.equal(report.methodology_rule_source, 'built_in');
     assert.equal(report.with_reference_context, false);

@@ -15,6 +15,7 @@
     "tiangong-lca": "./bin/tiangong-lca.js"
   },
   "files": [
+    "assets/",
     "bin/",
     "dist/",
     "README.md",

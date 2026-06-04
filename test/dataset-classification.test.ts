@@ -1,0 +1,523 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { executeCli } from '../src/cli.js';
+import {
+  runDatasetClassificationApply,
+  runDatasetClassificationAudit,
+  runDatasetClassificationChildren,
+  runDatasetClassificationPath,
+} from '../src/lib/dataset-classification.js';
+import type { DotEnvLoadResult } from '../src/lib/dotenv.js';
+
+const dotEnvStatus: DotEnvLoadResult = {
+  loaded: false,
+  path: '/tmp/.env',
+  count: 0,
+};
+
+function makeDeps(overrides = {}) {
+  return {
+    env: {} as NodeJS.ProcessEnv,
+    dotEnvStatus,
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      headers: {
+        get: () => 'application/json',
+      },
+      text: async () => JSON.stringify({ ok: true }),
+    }),
+    ...overrides,
+  };
+}
+
+function writeJsonl(filePath: string, rows: unknown[]): void {
+  writeFileSync(filePath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+}
+
+function readJson(filePath: string): unknown {
+  return JSON.parse(readFileSync(filePath, 'utf8'));
+}
+
+function readJsonl(filePath: string): unknown[] {
+  return readFileSync(filePath, 'utf8')
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function sampleProcessRow() {
+  return {
+    processDataSet: {
+      processInformation: {
+        dataSetInformation: {
+          'common:UUID': 'process-1',
+          name: {
+            baseName: {
+              '@xml:lang': 'en',
+              '#text': 'Fava beans IP, at feed mill',
+            },
+          },
+          classificationInformation: {
+            'common:classification': {
+              'common:class': [
+                {
+                  '@level': '0',
+                  '@classId': 'S',
+                  '#text': 'Other service activities',
+                },
+              ],
+            },
+          },
+        },
+      },
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:dataSetVersion': '00.00.001',
+        },
+      },
+    },
+  };
+}
+
+function sampleProcessRowWithLocations() {
+  const row = sampleProcessRow();
+  return {
+    processDataSet: {
+      ...row.processDataSet,
+      processInformation: {
+        ...row.processDataSet.processInformation,
+        geography: {
+          locationOfOperationSupplyOrProduction: {
+            '@location': 'RER',
+          },
+        },
+      },
+      exchanges: {
+        exchange: [
+          {
+            '@dataSetInternalID': 1,
+            location: 'Not a TIDAS code',
+          },
+        ],
+      },
+    },
+  };
+}
+
+function sampleLifecyclemodelRowWithLocation() {
+  return {
+    lifeCycleModelDataSet: {
+      lifeCycleModelInformation: {
+        dataSetInformation: {
+          'common:UUID': 'lifecyclemodel-1',
+          name: {
+            baseName: {
+              '@xml:lang': 'en',
+              '#text': 'Lifecycle model fixture',
+            },
+          },
+        },
+        technology: {
+          processes: {
+            processInstance: {
+              connections: {
+                outputExchange: {
+                  downstreamProcess: {
+                    '@location': 'Invalid lifecycle region',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:dataSetVersion': '01.00.000',
+        },
+      },
+    },
+  };
+}
+
+test('dataset classification children and path navigate bundled TIDAS category schemas', async () => {
+  const topLevel = await runDatasetClassificationChildren({
+    type: 'process',
+    limit: 3,
+    now: new Date('2026-06-02T00:00:00.000Z'),
+  });
+  assert.equal(topLevel.status, 'completed');
+  assert.equal(topLevel.children[0]?.code, 'A');
+  assert.equal(topLevel.children[0]?.text, 'Agriculture, forestry and fishing');
+
+  const processChildren = await runDatasetClassificationChildren({
+    type: 'process',
+    parent: 'A',
+    limit: 2,
+    now: new Date('2026-06-02T00:00:00.000Z'),
+  });
+  assert.equal(processChildren.children[0]?.code, '01');
+  assert.equal(processChildren.children[0]?.path.length, 2);
+
+  const pathReport = await runDatasetClassificationPath({
+    type: 'process',
+    code: '1080',
+    now: new Date('2026-06-02T00:00:00.000Z'),
+  });
+  assert.equal(pathReport.status, 'completed');
+  assert.deepEqual(
+    pathReport.path.map((entry) => entry['#text']),
+    [
+      'Manufacturing',
+      'Manufacture of food products',
+      'Manufacture of prepared animal feeds',
+      'Manufacture of prepared animal feeds',
+    ],
+  );
+
+  const sourceCategories = await runDatasetClassificationChildren({
+    type: 'source',
+    limit: 3,
+    now: new Date('2026-06-02T00:00:00.000Z'),
+  });
+  assert.deepEqual(
+    sourceCategories.children.map((entry) => entry.text),
+    ['Images', 'Data set formats', 'Databases'],
+  );
+});
+
+test('dataset classification apply normalizes decisions against schema and writes evidence', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-classification-'));
+  const inputPath = path.join(dir, 'processes.jsonl');
+  const decisionsPath = path.join(dir, 'decisions.jsonl');
+  const outPath = path.join(dir, 'processes.classified.jsonl');
+  const outDir = path.join(dir, 'out');
+  writeJsonl(inputPath, [sampleProcessRow()]);
+  writeJsonl(decisionsPath, [
+    {
+      row_index: 0,
+      code: '1080',
+      basis: 'The process name says at feed mill.',
+      evidence: {
+        source: 'classification-authoring-queue',
+      },
+    },
+  ]);
+
+  try {
+    const report = await runDatasetClassificationApply({
+      inputPath,
+      decisionsPath,
+      outPath,
+      outDir,
+      type: 'process',
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+
+    assert.equal(report.status, 'completed');
+    assert.equal(report.counts.applied, 1);
+    assert.equal(existsSync(report.files.evidence), true);
+    assert.deepEqual(readJson(report.files.report), report);
+    const rows = readJsonl(outPath) as Array<ReturnType<typeof sampleProcessRow>>;
+    const classes =
+      rows[0]?.processDataSet.processInformation.dataSetInformation.classificationInformation[
+        'common:classification'
+      ]['common:class'];
+    assert.equal(classes.at(-1)?.['@classId'], '1080');
+    assert.equal(classes.at(-1)?.['#text'], 'Manufacture of prepared animal feeds');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset classification audit and apply enforce TIDAS location codes', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-location-'));
+  const inputPath = path.join(dir, 'processes.jsonl');
+  const decisionsPath = path.join(dir, 'location-decisions.jsonl');
+  const outPath = path.join(dir, 'processes.location.jsonl');
+  const outDir = path.join(dir, 'out');
+  writeJsonl(inputPath, [sampleProcessRowWithLocations()]);
+  writeJsonl(decisionsPath, [
+    {
+      row_index: 0,
+      category_type: 'location',
+      code: 'GR',
+      target_path:
+        'processDataSet.processInformation.geography.locationOfOperationSupplyOrProduction.@location',
+      basis: 'The source trace says the represented geography is GR.',
+    },
+  ]);
+
+  try {
+    const audit = await runDatasetClassificationAudit({
+      inputPath,
+      type: 'location',
+      outDir,
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(audit.status, 'blocked');
+    assert.equal(audit.counts.location_targets, 2);
+    assert.equal(audit.counts.valid, 1);
+    assert.equal(audit.counts.invalid, 1);
+    assert.equal(audit.findings.find((finding) => finding.value === 'RER')?.description, 'Europe');
+    assert.equal(existsSync(audit.files?.findings ?? ''), true);
+
+    const report = await runDatasetClassificationApply({
+      inputPath,
+      decisionsPath,
+      outPath,
+      outDir,
+      type: 'location',
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(report.status, 'completed');
+    assert.equal(report.counts.applied, 1);
+    const rows = readJsonl(outPath) as Array<ReturnType<typeof sampleProcessRowWithLocations>>;
+    assert.equal(
+      rows[0]?.processDataSet.processInformation.geography.locationOfOperationSupplyOrProduction[
+        '@location'
+      ],
+      'GR',
+    );
+    assert.equal(rows[0]?.processDataSet.exchanges.exchange[0]?.location, 'Not a TIDAS code');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset classification location apply targets lifecyclemodel rows by UUID and version', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-location-lifecyclemodel-'));
+  const inputPath = path.join(dir, 'lifecyclemodels.jsonl');
+  const decisionsPath = path.join(dir, 'location-decisions.jsonl');
+  const outPath = path.join(dir, 'lifecyclemodels.location.jsonl');
+  const outDir = path.join(dir, 'out');
+  const targetPath =
+    'lifeCycleModelDataSet.lifeCycleModelInformation.technology.processes.processInstance.connections.outputExchange.downstreamProcess.@location';
+  writeJsonl(inputPath, [sampleLifecyclemodelRowWithLocation()]);
+  writeJsonl(decisionsPath, [
+    {
+      dataset_id: 'lifecyclemodel-1',
+      dataset_version: '01.00.000',
+      category_type: 'location',
+      code: 'CH',
+      target_path: targetPath,
+      basis: 'The lifecycle model connection is represented in Switzerland.',
+    },
+  ]);
+
+  try {
+    const audit = await runDatasetClassificationAudit({
+      inputPath,
+      type: 'location',
+      outDir,
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(audit.status, 'blocked');
+    assert.equal(audit.counts.location_targets, 1);
+    assert.equal(audit.counts.invalid, 1);
+    assert.equal(audit.findings[0]?.dataset_id, 'lifecyclemodel-1');
+    assert.equal(audit.findings[0]?.dataset_version, '01.00.000');
+    assert.equal(audit.findings[0]?.path, targetPath);
+
+    const report = await runDatasetClassificationApply({
+      inputPath,
+      decisionsPath,
+      outPath,
+      outDir,
+      type: 'location',
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(report.status, 'completed');
+    assert.equal(report.counts.applied, 1);
+    const rows = readJsonl(outPath) as Array<ReturnType<typeof sampleLifecyclemodelRowWithLocation>>;
+    assert.equal(
+      rows[0]?.lifeCycleModelDataSet.lifeCycleModelInformation.technology.processes
+        .processInstance.connections.outputExchange.downstreamProcess['@location'],
+      'CH',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset classification audit covers TIDAS location fields across row types', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-location-all-'));
+  const inputPath = path.join(dir, 'mixed.jsonl');
+  writeJsonl(inputPath, [
+    {
+      flowDataSet: {
+        '@xsi:schemaLocation': 'not-a-location-code',
+        flowInformation: {
+          geography: {
+            locationOfSupply: 'RER',
+          },
+        },
+      },
+    },
+    {
+      LCIAMethodDataSet: {
+        LCIAMethodInformation: {
+          geography: {
+            interventionLocation: {
+              '#text': 'Not a TIDAS code',
+              '@latitudeAndLongitude': '+46.94797+007.44745',
+            },
+            impactLocation: 'GLO',
+          },
+        },
+        characterisationFactors: {
+          factor: {
+            location: 'CH',
+          },
+        },
+      },
+    },
+  ]);
+
+  try {
+    const audit = await runDatasetClassificationAudit({
+      inputPath,
+      type: 'location',
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(audit.status, 'blocked');
+    assert.equal(audit.counts.location_targets, 4);
+    assert.equal(audit.counts.valid, 3);
+    assert.equal(audit.counts.invalid, 1);
+    assert.equal(
+      audit.findings.some((finding) => finding.path.endsWith('@xsi:schemaLocation')),
+      false,
+    );
+    assert.ok(
+      audit.findings.some(
+        (finding) =>
+          finding.path ===
+            'LCIAMethodDataSet.LCIAMethodInformation.geography.interventionLocation.#text' &&
+          finding.status === 'invalid',
+      ),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('executeCli exposes dataset classification children, path, and apply actions', async () => {
+  const help = await executeCli(['dataset', 'classification', '--help'], makeDeps());
+  assert.equal(help.exitCode, 0);
+  assert.match(help.stdout, /classification children --type <type>/u);
+
+  const pathResult = await executeCli(
+    ['dataset', 'classification', 'path', '--type', 'process', '--code', '1080', '--json'],
+    makeDeps({
+      runDatasetClassificationPathImpl: async (options: unknown) => ({
+        schema_version: 1,
+        generated_at_utc: '2026-06-02T00:00:00.000Z',
+        status: 'completed',
+        command: 'dataset classification path',
+        category_type: 'process',
+        schema_file: 'tidas_processes_category.json',
+        code: (options as { code: string }).code,
+        path: [],
+        blockers: [],
+      }),
+    }),
+  );
+  assert.equal(pathResult.exitCode, 0);
+  assert.equal(JSON.parse(pathResult.stdout).code, '1080');
+
+  const blocked = await executeCli(
+    ['dataset', 'classification', 'children', '--type', 'process', '--parent', 'missing'],
+    makeDeps({
+      runDatasetClassificationChildrenImpl: async () => ({
+        schema_version: 1,
+        generated_at_utc: '2026-06-02T00:00:00.000Z',
+        status: 'blocked',
+        command: 'dataset classification children',
+        category_type: 'process',
+        schema_file: 'tidas_processes_category.json',
+        parent_code: 'missing',
+        query: null,
+        counts: {
+          children: 0,
+          returned: 0,
+        },
+        children: [],
+        blockers: [{ code: 'classification_parent_unknown', message: 'Unknown parent code.' }],
+      }),
+    }),
+  );
+  assert.equal(blocked.exitCode, 1);
+
+  const auditResult = await executeCli(
+    ['dataset', 'classification', 'audit', '--type', 'location', '--input', 'rows.jsonl', '--json'],
+    makeDeps({
+      runDatasetClassificationAuditImpl: async (options: unknown) => ({
+        schema_version: 1,
+        generated_at_utc: '2026-06-02T00:00:00.000Z',
+        status: 'completed',
+        command: 'dataset classification audit',
+        category_type: 'location',
+        schema_file: 'tidas_locations_category.json',
+        input_path: (options as { inputPath: string }).inputPath,
+        counts: {
+          rows: 1,
+          location_targets: 1,
+          valid: 1,
+          invalid: 0,
+        },
+        findings: [],
+        blockers: [],
+      }),
+    }),
+  );
+  assert.equal(auditResult.exitCode, 0);
+  assert.equal(JSON.parse(auditResult.stdout).input_path, 'rows.jsonl');
+
+  const applyResult = await executeCli(
+    [
+      'dataset',
+      'classification',
+      'apply',
+      '--input',
+      'rows.jsonl',
+      '--decisions',
+      'decisions.jsonl',
+      '--out',
+      'classified.jsonl',
+      '--type',
+      'process',
+      '--json',
+    ],
+    makeDeps({
+      runDatasetClassificationApplyImpl: async (options: unknown) => ({
+        schema_version: 1,
+        generated_at_utc: '2026-06-02T00:00:00.000Z',
+        status: 'completed',
+        command: 'dataset classification apply',
+        input_path: (options as { inputPath: string }).inputPath,
+        decisions_path: (options as { decisionsPath: string }).decisionsPath,
+        out_path: (options as { outPath: string }).outPath,
+        default_category_type: 'process',
+        counts: {
+          rows: 1,
+          decisions: 1,
+          applied: 1,
+          blockers: 0,
+        },
+        blockers: [],
+        files: {
+          classified_rows: 'classified.jsonl',
+          evidence: 'classification-apply-evidence.jsonl',
+          report: 'classification-apply-report.json',
+        },
+      }),
+    }),
+  );
+  assert.equal(applyResult.exitCode, 0);
+  assert.equal(JSON.parse(applyResult.stdout).out_path, 'classified.jsonl');
+});

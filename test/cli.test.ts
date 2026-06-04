@@ -220,7 +220,7 @@ test('executeCli returns help for publish and validation subcommands', async () 
   assert.equal(reviewLifecyclemodelHelp.exitCode, 0);
   assert.match(
     reviewLifecyclemodelHelp.stdout,
-    /tiangong-lca qa lifecyclemodel --run-dir <dir> --out-dir <dir>/u,
+    /tiangong-lca qa lifecyclemodel \(--rows-file <file> \| --run-dir <dir>\) --out-dir <dir>/u,
   );
   assert.match(
     reviewLifecyclemodelHelp.stdout,
@@ -2049,6 +2049,10 @@ test('executeCli executes process identity-preflight with injected implementatio
       'grid electricity',
       '--remote-limit',
       '3',
+      '--remote-data-source',
+      'tg',
+      '--timeout-ms',
+      '45000',
       '--out-dir',
       '/tmp/process-preflight',
     ],
@@ -2064,6 +2068,8 @@ test('executeCli executes process identity-preflight with injected implementatio
         assert.equal(options.remoteCandidateSearch, true);
         assert.equal(options.remoteQuery, 'grid electricity');
         assert.equal(options.remoteLimit, 3);
+        assert.equal(options.remoteDataSource, 'tg');
+        assert.equal(options.timeoutMs, 45000);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',
@@ -2134,38 +2140,41 @@ test('executeCli maps process identity-preflight success and argument errors', a
     ['process', 'identity-preflight', '--input', '/tmp/process-preflight.json'],
     {
       ...makeDeps(),
-      runProcessIdentityPreflightImpl: async () => ({
-        schema_version: 1,
-        generated_at_utc: '2026-05-22T00:00:00.000Z',
-        kind: 'process',
-        status: 'passed',
-        decision: 'create_new',
-        confidence: 'medium',
-        input_path: '/tmp/process-preflight.json',
-        out_dir: null,
-        target: {
-          id: null,
-          version: null,
-          identity_key: 'process-key',
-          exchange_signature: [],
-          schema_validation: {
-            status: 'not_applicable',
-            validator: null,
-            issue_count: 0,
-            issues: [],
+      runProcessIdentityPreflightImpl: async (options) => {
+        assert.equal(options.remoteCandidateSearch, undefined);
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-05-22T00:00:00.000Z',
+          kind: 'process',
+          status: 'passed',
+          decision: 'create_new',
+          confidence: 'medium',
+          input_path: '/tmp/process-preflight.json',
+          out_dir: null,
+          target: {
+            id: null,
+            version: null,
+            identity_key: 'process-key',
+            exchange_signature: [],
+            schema_validation: {
+              status: 'not_applicable',
+              validator: null,
+              issue_count: 0,
+              issues: [],
+            },
           },
-        },
-        candidates: [],
-        candidate_sources: [],
-        findings: [],
-        blockers: [],
-        next_action: 'materialize_new_payload',
-        files: {
-          identity_decision: null,
-          candidates: null,
-          candidate_sources: null,
-        },
-      }),
+          candidates: [],
+          candidate_sources: [],
+          findings: [],
+          blockers: [],
+          next_action: 'materialize_new_payload',
+          files: {
+            identity_decision: null,
+            candidates: null,
+            candidate_sources: null,
+          },
+        };
+      },
     },
   );
 
@@ -2632,6 +2641,10 @@ test('executeCli executes flow identity-preflight with injected implementation',
       'electricity flow',
       '--remote-limit',
       '2',
+      '--remote-data-source',
+      'my',
+      '--timeout-ms',
+      '30000',
     ],
     {
       ...makeDeps(),
@@ -2641,6 +2654,8 @@ test('executeCli executes flow identity-preflight with injected implementation',
         assert.equal(options.remoteCandidateSearch, true);
         assert.equal(options.remoteQuery, 'electricity flow');
         assert.equal(options.remoteLimit, 2);
+        assert.equal(options.remoteDataSource, 'my');
+        assert.equal(options.timeoutMs, 30000);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-22T00:00:00.000Z',

@@ -12,6 +12,11 @@ function writeJson(filePath: string, value: unknown): void {
   writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }
 
+function writeJsonl(filePath: string, rows: unknown[]): void {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
+}
+
 function readJson<T>(filePath: string): T {
   return JSON.parse(readFileSync(filePath, 'utf8')) as T;
 }
@@ -452,6 +457,62 @@ test('runLifecyclemodelQa supports missing validation reports and consistent sin
   }
 });
 
+test('runLifecyclemodelQa supports rows-file snapshots without build-run artifact blockers', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-qa-rows-'));
+  const rowsFile = path.join(dir, 'lifecyclemodels.jsonl');
+  const outDir = path.join(dir, 'review');
+
+  writeJsonl(rowsFile, [
+    {
+      id: 'model-row-ok',
+      version: '01.00.000',
+      json_ordered: createLifecyclemodelPayload({
+        id: 'model-row-ok',
+        resultingProcessId: 'process-row-result',
+        referenceProcessInternalId: '1',
+        processInstances: [createProcessInstance('row-1', 1)],
+      }),
+    },
+  ]);
+
+  try {
+    const report = await runLifecyclemodelQa({
+      rowsFile,
+      outDir,
+      now: () => new Date('2026-03-30T00:00:00.000Z'),
+      cwd: '/tmp/lifecyclemodel-qa-rows',
+    });
+
+    assert.equal(report.input_mode, 'rows_file');
+    assert.equal(report.rows_file, rowsFile);
+    assert.equal(report.finding_count, 0);
+    const qaInputSummaryPath = report.files.qa_input_summary;
+    assert.equal(qaInputSummaryPath, path.join(outDir, 'qa_input_summary.json'));
+    assert.ok(qaInputSummaryPath);
+    const qaInputSummary = readJson<{ input_mode: string; rows_file: string }>(qaInputSummaryPath);
+    assert.equal(qaInputSummary.input_mode, 'rows_file');
+    assert.equal(qaInputSummary.rows_file, rowsFile);
+
+    const findingsText = readFileSync(report.files.findings, 'utf8').trim();
+    assert.equal(findingsText, '');
+
+    const invocationIndex = readJson<{ invocations: Array<{ command: string[]; cwd: string }> }>(
+      report.files.invocation_index,
+    );
+    assert.deepEqual(invocationIndex.invocations[0]?.command, [
+      'qa',
+      'lifecyclemodel',
+      '--rows-file',
+      rowsFile,
+      '--out-dir',
+      outDir,
+    ]);
+    assert.equal(invocationIndex.invocations[0]?.cwd, '/tmp/lifecyclemodel-qa-rows');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runLifecyclemodelQa rejects invalid inputs, missing runs, and malformed timestamps', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-qa-errors-'));
   const invalidRunRoot = path.join(dir, 'lm-run-invalid');
@@ -508,7 +569,7 @@ test('runLifecyclemodelQa rejects invalid inputs, missing runs, and malformed ti
           runDir: '',
           outDir,
         }),
-      /Missing required --run-dir/u,
+      /Missing required --rows-file or --run-dir/u,
     );
 
     await assert.rejects(
@@ -557,7 +618,7 @@ test('qa lifecyclemodel internals cover invocation index and model discovery edg
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-qa-internals-'));
   const runRoot = path.join(dir, 'lm-run-internals');
   const outDir = path.join(dir, 'review');
-  const layout = __testInternals.buildLayout(runRoot, outDir);
+  const layout = __testInternals.buildLayout({ runRoot, outDir });
 
   try {
     assert.throws(
@@ -607,7 +668,10 @@ test('qa lifecyclemodel internals cover invocation index and model discovery edg
     assert.deepEqual(discovered[0]?.modelFiles, [keptModelFile]);
 
     const emptyRunRoot = path.join(dir, 'lm-run-empty-dir');
-    const emptyLayout = __testInternals.buildLayout(emptyRunRoot, path.join(dir, 'review-empty'));
+    const emptyLayout = __testInternals.buildLayout({
+      runRoot: emptyRunRoot,
+      outDir: path.join(dir, 'review-empty'),
+    });
     mkdirSync(path.join(emptyLayout.modelsDir, 'empty-bundle', 'tidas_bundle', 'lifecyclemodels'), {
       recursive: true,
     });
@@ -624,7 +688,7 @@ test('qa lifecyclemodel validation helpers cover invalid report shapes and norma
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-lifecyclemodel-qa-validation-'));
   const runRoot = path.join(dir, 'lm-run-validation');
   const outDir = path.join(dir, 'review');
-  const layout = __testInternals.buildLayout(runRoot, outDir);
+  const layout = __testInternals.buildLayout({ runRoot, outDir });
 
   try {
     writeJson(layout.validationReportPath, {
@@ -814,6 +878,7 @@ test('qa lifecyclemodel model helpers cover direct payload roots, fallbacks, and
         summaryPath: path.join(dir, 'missing-artifacts', 'summary.json'),
         connectionsPath: path.join(dir, 'missing-artifacts', 'connections.json'),
         processCatalogPath: path.join(dir, 'missing-artifacts', 'process-catalog.json'),
+        inputMode: 'run_dir',
       },
       {
         ok: null,

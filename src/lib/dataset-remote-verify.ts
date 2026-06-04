@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
@@ -42,6 +43,13 @@ export type RemoteVerificationStatus =
   | 'version_missing'
   | 'version_outdated';
 
+export type RemoteVerificationIssueCode =
+  | RemoteVerificationStatus
+  | 'owner_mismatch'
+  | 'payload_mismatch'
+  | 'remote_payload_missing'
+  | 'state_code_mismatch';
+
 export type RemoteDatasetReference = {
   row_index: number;
   role: RemoteVerificationReferenceRole;
@@ -65,6 +73,16 @@ export type RemoteDatasetLookup = {
   latest_source_url: string | null;
 };
 
+export type RemoteDatasetPayloadLookup = {
+  id: string;
+  version: string | null;
+  user_id: string | null;
+  state_code: number | null;
+  modified_at: string | null;
+  payload: JsonObject | null;
+  source_url: string | null;
+};
+
 export type RemoteDatasetLookupRequest = {
   table: RemoteDatasetTable;
   id: string;
@@ -80,15 +98,21 @@ export type RemoteVerificationCheck = {
   version: string | null;
   path: string;
   short_description: string | null;
-  status: RemoteVerificationStatus;
+  status: RemoteVerificationIssueCode;
+  exact_version: string | null;
   latest_version: string | null;
   exact_source_url: string | null;
   latest_source_url: string | null;
   message: string;
+  remote_user_id?: string | null;
+  remote_state_code?: number | null;
+  remote_modified_at?: string | null;
+  local_payload_sha256?: string | null;
+  remote_payload_sha256?: string | null;
 };
 
 export type RemoteVerificationBlocker = {
-  code: RemoteVerificationStatus;
+  code: RemoteVerificationIssueCode;
   severity: 'error';
   message: string;
   row_index: number;
@@ -112,7 +136,9 @@ export type DatasetRemoteVerificationReport = {
     references: number;
     checked: number;
     blockers: number;
-    by_status: Record<RemoteVerificationStatus, number>;
+    root_readback_checks?: number;
+    root_payload_mismatches?: number;
+    by_status: Record<string, number>;
     by_table: Record<RemoteDatasetTable, number>;
   };
   blockers: RemoteVerificationBlocker[];
@@ -127,12 +153,18 @@ export type RunDatasetRemoteVerifyOptions = {
   inputPath: string;
   outDir: string;
   rootPolicy?: RemoteVerificationRootPolicy;
+  compareRootPayload?: boolean;
+  targetUserId?: string | null;
+  stateCode?: number | null;
   rawInput?: unknown;
   env?: NodeJS.ProcessEnv;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   now?: Date;
   lookupDatasetImpl?: (request: RemoteDatasetLookupRequest) => Promise<RemoteDatasetLookup>;
+  lookupRootPayloadImpl?: (
+    request: RemoteDatasetLookupRequest,
+  ) => Promise<RemoteDatasetPayloadLookup | null>;
 };
 
 type RootDatasetDescriptor = {
@@ -177,7 +209,7 @@ const ROOT_DATASET_DESCRIPTORS: RootDatasetDescriptor[] = [
     wrapper: 'flowPropertyDataSet',
     table: 'flowproperties',
     type: 'flow property data set',
-    information_key: 'flowPropertyInformation',
+    information_key: 'flowPropertiesInformation',
   },
   {
     wrapper: 'unitGroupDataSet',
@@ -243,11 +275,15 @@ const PATH_TABLE_HINTS: Array<[RegExp, RemoteDatasetTable]> = [
   [/referenceToNameOfReviewerAndInstitution$/u, 'contacts'],
 ];
 
-const EMPTY_STATUS_COUNTS: Record<RemoteVerificationStatus, number> = {
+const EMPTY_STATUS_COUNTS: Record<string, number> = {
   ok: 0,
   lookup_failed: 0,
   missing_dataset: 0,
   missing_version: 0,
+  owner_mismatch: 0,
+  payload_mismatch: 0,
+  remote_payload_missing: 0,
+  state_code_mismatch: 0,
   unsupported_type: 0,
   version_missing: 0,
   version_outdated: 0,
@@ -322,6 +358,21 @@ function shortDescription(value: unknown): string | null {
 function pointerPath(basePath: string, segment: string | number): string {
   const encoded = String(segment).replace(/~/gu, '~0').replace(/\//gu, '~1');
   return `${basePath}/${encoded}`;
+}
+
+function unescapePointerSegment(segment: string): string {
+  return segment.replace(/~1/gu, '/').replace(/~0/gu, '~');
+}
+
+function isFoundryTracePath(pathExpression: string): boolean {
+  const segments = pathExpression.split('/').filter(Boolean).map(unescapePointerSegment);
+  return (
+    segments.includes('common:other') &&
+    segments.some(
+      (segment) =>
+        segment.startsWith('tiangongfoundry:') && segment.toLowerCase().includes('trace'),
+    )
+  );
 }
 
 function rootOf(
@@ -414,6 +465,10 @@ function collectReferencesFromValue(
   pathExpression: string,
   references: RemoteDatasetReference[],
 ): void {
+  if (isFoundryTracePath(pathExpression)) {
+    return;
+  }
+
   if (Array.isArray(value)) {
     value.forEach((entry, index) =>
       collectReferencesFromValue(rowIndex, entry, pointerPath(pathExpression, index), references),
@@ -512,6 +567,57 @@ function normalizeRows(value: unknown): RemoteDatasetLookupRow[] {
     : [];
 }
 
+function stableJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableJson);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableJson(value[key])]),
+    );
+  }
+  return value;
+}
+
+function sha256Json(value: unknown): string {
+  return crypto.createHash('sha256').update(JSON.stringify(stableJson(value))).digest('hex');
+}
+
+function buildRemotePayloadUrl(
+  restBaseUrl: string,
+  table: RemoteDatasetTable,
+  id: string,
+  version: string,
+): string {
+  const url = new URL(`${restBaseUrl.replace(/\/+$/u, '')}/${table}`);
+  url.searchParams.set('select', 'id,version,user_id,state_code,modified_at,json,json_ordered');
+  url.searchParams.set('id', `eq.${id}`);
+  url.searchParams.set('version', `eq.${version}`);
+  return url.toString();
+}
+
+function normalizePayloadRow(value: unknown): RemoteDatasetPayloadLookup | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const payload = isRecord(value.json_ordered)
+    ? value.json_ordered
+    : isRecord(value.json)
+      ? value.json
+      : null;
+  return {
+    id: firstNonEmpty(value.id) ?? '',
+    version: firstNonEmpty(value.version),
+    user_id: firstNonEmpty(value.user_id),
+    state_code: typeof value.state_code === 'number' ? value.state_code : null,
+    modified_at: firstNonEmpty(value.modified_at),
+    payload: payload as JsonObject | null,
+    source_url: null,
+  };
+}
+
 async function lookupRemoteDataset(options: {
   runtime: SupabaseDataRuntime;
   fetchImpl: FetchLike;
@@ -566,6 +672,38 @@ async function lookupRemoteDataset(options: {
     exact_source_url: exactSourceUrl,
     latest_source_url: latestSourceUrl,
   };
+}
+
+async function lookupRemoteDatasetPayload(options: {
+  runtime: SupabaseDataRuntime;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  request: RemoteDatasetLookupRequest;
+}): Promise<RemoteDatasetPayloadLookup | null> {
+  if (!options.request.version) {
+    return null;
+  }
+  const { client, restBaseUrl } = createSupabaseDataClient(
+    options.runtime,
+    options.fetchImpl,
+    options.timeoutMs,
+  );
+  const sourceUrl = buildRemotePayloadUrl(
+    restBaseUrl,
+    options.request.table,
+    options.request.id,
+    options.request.version,
+  );
+  const rows = await runSupabaseArrayQuery(
+    client
+      .from(options.request.table)
+      .select('id,version,user_id,state_code,modified_at,json,json_ordered')
+      .eq('id', options.request.id)
+      .eq('version', options.request.version),
+    sourceUrl,
+  );
+  const payloadRow = normalizePayloadRow(Array.isArray(rows) ? rows[0] : null);
+  return payloadRow ? { ...payloadRow, source_url: sourceUrl } : null;
 }
 
 function checkMessage(reference: RemoteDatasetReference, status: RemoteVerificationStatus): string {
@@ -626,6 +764,7 @@ function classifyCheck(
   return {
     ...reference,
     status,
+    exact_version: lookup?.exact?.version ?? null,
     latest_version: lookup?.latest?.version ?? null,
     exact_source_url: lookup?.exact_source_url ?? null,
     latest_source_url: lookup?.latest_source_url ?? null,
@@ -648,6 +787,119 @@ function blockerFromCheck(check: RemoteVerificationCheck): RemoteVerificationBlo
         latest_version: check.latest_version,
         path: check.path,
       };
+}
+
+function makeRootReadbackCheck(
+  reference: RemoteDatasetReference,
+  status: RemoteVerificationIssueCode,
+  message: string,
+  remote: RemoteDatasetPayloadLookup | null,
+  hashes: {
+    local: string | null;
+    remote: string | null;
+  } = { local: null, remote: null },
+): RemoteVerificationCheck {
+  return {
+    ...reference,
+    path: `${reference.path}#readback`,
+    status,
+    exact_version: remote?.version ?? null,
+    latest_version: null,
+    exact_source_url: remote?.source_url ?? null,
+    latest_source_url: null,
+    message,
+    remote_user_id: remote?.user_id ?? null,
+    remote_state_code: remote?.state_code ?? null,
+    remote_modified_at: remote?.modified_at ?? null,
+    local_payload_sha256: hashes.local,
+    remote_payload_sha256: hashes.remote,
+  };
+}
+
+function rootReadbackChecks(options: {
+  reference: RemoteDatasetReference;
+  localPayload: JsonObject;
+  remote: RemoteDatasetPayloadLookup | null;
+  compareRootPayload: boolean;
+  targetUserId: string | null;
+  stateCode: number | null;
+}): RemoteVerificationCheck[] {
+  const { reference, localPayload, remote, compareRootPayload, targetUserId, stateCode } = options;
+  if (!remote) {
+    return [
+      makeRootReadbackCheck(
+        reference,
+        'missing_dataset',
+        `Remote root payload was not found for ${reference.table}:${reference.id}@${reference.version}.`,
+        null,
+      ),
+    ];
+  }
+
+  const checks: RemoteVerificationCheck[] = [];
+  if (targetUserId && remote.user_id !== targetUserId) {
+    checks.push(
+      makeRootReadbackCheck(
+        reference,
+        'owner_mismatch',
+        `Remote root owner ${remote.user_id ?? '<missing>'} does not match target user ${targetUserId}.`,
+        remote,
+      ),
+    );
+  }
+  if (stateCode !== null && remote.state_code !== stateCode) {
+    checks.push(
+      makeRootReadbackCheck(
+        reference,
+        'state_code_mismatch',
+        `Remote root state_code ${remote.state_code ?? '<missing>'} does not match required state_code ${stateCode}.`,
+        remote,
+      ),
+    );
+  }
+
+  let hashes: { local: string | null; remote: string | null } = { local: null, remote: null };
+  if (compareRootPayload) {
+    if (!remote.payload) {
+      checks.push(
+        makeRootReadbackCheck(
+          reference,
+          'remote_payload_missing',
+          `Remote root payload is missing for ${reference.table}:${reference.id}@${reference.version}.`,
+          remote,
+        ),
+      );
+    } else {
+      hashes = {
+        local: sha256Json(localPayload),
+        remote: sha256Json(remote.payload),
+      };
+      if (hashes.local !== hashes.remote) {
+        checks.push(
+          makeRootReadbackCheck(
+            reference,
+            'payload_mismatch',
+            `Remote root payload hash does not match local row for ${reference.table}:${reference.id}@${reference.version}.`,
+            remote,
+            hashes,
+          ),
+        );
+      }
+    }
+  }
+
+  if (checks.length > 0) {
+    return checks;
+  }
+  return [
+    makeRootReadbackCheck(
+      reference,
+      'ok',
+      `Remote root readback matches required owner, state, and payload checks for ${reference.table}:${reference.id}@${reference.version}.`,
+      remote,
+      hashes,
+    ),
+  ];
 }
 
 function buildFiles(outDir: string): DatasetRemoteVerificationReport['files'] {
@@ -677,6 +929,10 @@ export async function runDatasetRemoteVerify(
   const rows = readDatasetRowsInput(inputPath, options.rawInput);
   const references = collectRemoteReferences(rows);
   const rootPolicy = options.rootPolicy ?? 'existing';
+  const compareRootPayload = options.compareRootPayload === true;
+  const targetUserId = trimToken(options.targetUserId);
+  const stateCode = options.stateCode ?? null;
+  const needsRootReadback = compareRootPayload || Boolean(targetUserId) || stateCode !== null;
   const fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const runtime =
@@ -697,6 +953,17 @@ export async function runDatasetRemoteVerify(
         timeoutMs,
         request,
       }));
+  const rootPayloadLookupImpl =
+    options.lookupRootPayloadImpl ??
+    (runtime
+      ? (request: RemoteDatasetLookupRequest) =>
+          lookupRemoteDatasetPayload({
+            runtime: runtime as SupabaseDataRuntime,
+            fetchImpl,
+            timeoutMs,
+            request,
+          })
+      : null);
   const lookupCache = new Map<string, Promise<RemoteDatasetLookup>>();
   const checks: RemoteVerificationCheck[] = [];
 
@@ -724,17 +991,65 @@ export async function runDatasetRemoteVerify(
     checks.push(classifyCheck(reference, lookup, lookupFailed, rootPolicy));
   }
 
+  if (needsRootReadback) {
+    const rootChecks = checks.filter(
+      (check) =>
+        check.role === 'root' &&
+        check.status === 'ok' &&
+        check.table &&
+        check.id &&
+        (compareRootPayload || rootPolicy !== 'candidate' || Boolean(check.exact_version)),
+    );
+    for (const check of rootChecks) {
+      const localPayload = unwrapDatasetPayload(rows[check.row_index]);
+      let remotePayload: RemoteDatasetPayloadLookup | null = null;
+      try {
+        if (!rootPayloadLookupImpl) {
+          throw new Error('root payload lookup is not available');
+        }
+        remotePayload = await rootPayloadLookupImpl({
+          table: check.table as RemoteDatasetTable,
+          id: check.id as string,
+          version: check.version,
+        });
+      } catch {
+        checks.push(
+          makeRootReadbackCheck(
+            check,
+            'lookup_failed',
+            `Remote root payload lookup failed for ${check.table}:${check.id}@${check.version}.`,
+            null,
+          ),
+        );
+        continue;
+      }
+      checks.push(
+        ...rootReadbackChecks({
+          reference: check,
+          localPayload,
+          remote: remotePayload,
+          compareRootPayload,
+          targetUserId,
+          stateCode,
+        }),
+      );
+    }
+  }
+
   const blockers = checks
     .map(blockerFromCheck)
     .filter((blocker): blocker is RemoteVerificationBlocker => blocker !== null);
   const byStatus = { ...EMPTY_STATUS_COUNTS };
   const byTable = { ...EMPTY_TABLE_COUNTS };
   checks.forEach((check) => {
+    byStatus[check.status] ??= 0;
     byStatus[check.status] += 1;
     if (check.table) {
       byTable[check.table] += 1;
     }
   });
+  const rootReadbackChecksCount = checks.filter((check) => check.path.endsWith('#readback')).length;
+  const rootPayloadMismatches = checks.filter((check) => check.status === 'payload_mismatch').length;
 
   const files = buildFiles(outDir);
   const report: DatasetRemoteVerificationReport = {
@@ -749,6 +1064,8 @@ export async function runDatasetRemoteVerify(
       references: references.length,
       checked: checks.length,
       blockers: blockers.length,
+      ...(needsRootReadback ? { root_readback_checks: rootReadbackChecksCount } : {}),
+      ...(needsRootReadback ? { root_payload_mismatches: rootPayloadMismatches } : {}),
       by_status: byStatus,
       by_table: byTable,
     },
@@ -767,6 +1084,7 @@ export const __testInternals = {
   buildRemoteUrl,
   collectRemoteReferences,
   compareVersions,
+  isFoundryTracePath,
   lookupRemoteDataset,
   normalizeRows,
   shortDescription,

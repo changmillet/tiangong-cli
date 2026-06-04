@@ -13,6 +13,7 @@ import {
   runDatasetRemoteVerify,
   type RemoteDatasetLookup,
   type RemoteDatasetLookupRequest,
+  type RemoteDatasetPayloadLookup,
   type RemoteVerificationCheck,
 } from '../src/lib/dataset-remote-verify.js';
 import type { FetchLike } from '../src/lib/http.js';
@@ -77,6 +78,19 @@ function lookup(exactVersion: string | null, latestVersion: string | null): Remo
     exact_source_url: exactVersion ? `https://example.test/exact/${exactVersion}` : null,
     latest_source_url: latestVersion ? `https://example.test/latest/${latestVersion}` : null,
   };
+}
+
+function payloadLookup(payload: Record<string, unknown>, overrides: Partial<RemoteDatasetPayloadLookup> = {}) {
+  return {
+    id: 'fixture',
+    version: '01.00.000',
+    user_id: 'target-user',
+    state_code: 0,
+    modified_at: '2026-05-23T00:00:00.000Z',
+    payload,
+    source_url: 'https://example.test/payload',
+    ...overrides,
+  } satisfies RemoteDatasetPayloadLookup;
 }
 
 function processRow() {
@@ -273,6 +287,87 @@ test('runDatasetRemoteVerify can use Supabase REST lookup with the default runti
   }
 });
 
+test('runDatasetRemoteVerify can compare committed root payload, owner, and state', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-readback-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const outDir = path.join(dir, 'out');
+  const row = simpleProcessRow();
+  writeJsonl(inputPath, [row]);
+
+  try {
+    const report = await runDatasetRemoteVerify({
+      inputPath,
+      outDir,
+      compareRootPayload: true,
+      targetUserId: 'target-user',
+      stateCode: 0,
+      lookupDatasetImpl: lookupFromMap({
+        'processes:proc-remote:01.00.000': lookup('01.00.000', '01.00.000'),
+        'flows:flow-remote:01.00.000': lookup('01.00.000', '01.00.000'),
+      }),
+      lookupRootPayloadImpl: async () => payloadLookup(row.json_ordered),
+      now: new Date('2026-05-23T00:00:00.000Z'),
+    });
+
+    assert.equal(report.status, 'passed_remote_verification');
+    assert.equal(report.counts.root_readback_checks, 1);
+    assert.equal(report.counts.root_payload_mismatches, 0);
+    const checks = readJsonl(report.files.checks) as RemoteVerificationCheck[];
+    const readback = checks.find((check) => check.path.endsWith('#readback'));
+    assert.equal(readback?.status, 'ok');
+    assert.equal(readback?.remote_user_id, 'target-user');
+    assert.equal(readback?.remote_state_code, 0);
+    assert.equal(readback?.local_payload_sha256, readback?.remote_payload_sha256);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetRemoteVerify blocks post-commit root payload mismatches', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-readback-mismatch-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const outDir = path.join(dir, 'out');
+  const row = simpleProcessRow();
+  writeJsonl(inputPath, [row]);
+
+  try {
+    const report = await runDatasetRemoteVerify({
+      inputPath,
+      outDir,
+      compareRootPayload: true,
+      targetUserId: 'target-user',
+      stateCode: 0,
+      lookupDatasetImpl: lookupFromMap({
+        'processes:proc-remote:01.00.000': lookup('01.00.000', '01.00.000'),
+        'flows:flow-remote:01.00.000': lookup('01.00.000', '01.00.000'),
+      }),
+      lookupRootPayloadImpl: async () =>
+        payloadLookup({
+          processDataSet: {
+            processInformation: {
+              dataSetInformation: {
+                'common:UUID': 'proc-remote',
+                name: 'Changed remote payload',
+              },
+            },
+            administrativeInformation: {
+              publicationAndOwnership: {
+                'common:dataSetVersion': '01.00.000',
+              },
+            },
+          },
+        }),
+    });
+
+    assert.equal(report.status, 'blocked_remote_verification');
+    assert.equal(report.counts.by_status.payload_mismatch, 1);
+    assert.equal(report.counts.root_payload_mismatches, 1);
+    assert.ok(report.blockers.some((blocker) => blocker.code === 'payload_mismatch'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runDatasetRemoteVerify passes source roots and path-inferred flow UUID references', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-pass-'));
   const inputPath = path.join(dir, 'rows.jsonl');
@@ -339,6 +434,97 @@ test('runDatasetRemoteVerify passes source roots and path-inferred flow UUID ref
     assert.equal(report.counts.by_table.sources, 1);
     assert.equal(report.counts.by_table.lifecyclemodels, 1);
     assert.equal(report.counts.by_table.flows, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetRemoteVerify skips Foundry unresolvedTrace evidence references', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-foundry-trace-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const outDir = path.join(dir, 'out');
+  const calls: RemoteDatasetLookupRequest[] = [];
+  writeJsonl(inputPath, [
+    {
+      id: 'proc-with-trace',
+      version: '01.00.000',
+      json_ordered: {
+        processDataSet: {
+          processInformation: {
+            dataSetInformation: {
+              'common:UUID': 'proc-with-trace',
+              name: { baseName: [{ '@xml:lang': 'en', '#text': 'Process with trace' }] },
+              'common:other': {
+                'tiangongfoundry:unresolvedTrace': [
+                  {
+                    action_item_code: 'elementary_flow_identity_manual_review',
+                    evidence: {
+                      target: {
+                        '@refObjectId': 'trace-target-only',
+                        '@version': '00.00.001',
+                      },
+                      top_candidates: [
+                        {
+                          '@refObjectId': 'trace-candidate-only',
+                          '@version': '03.00.004',
+                        },
+                      ],
+                    },
+                  },
+                ],
+                'tiangongfoundry:unresolvedExchangeTrace': [
+                  {
+                    status: 'externalized_before_remote_write',
+                    original_exchange: {
+                      referenceToFlowDataSet: {
+                        '@refObjectId': 'trace-exchange-only',
+                        '@version': '01.00.000',
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          exchanges: {
+            exchange: {
+              referenceToFlowDataSet: {
+                '@type': 'flow data set',
+                '@refObjectId': 'flow-real',
+                '@version': '01.00.000',
+              },
+            },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: { 'common:dataSetVersion': '01.00.000' },
+          },
+        },
+      },
+    },
+  ]);
+
+  try {
+    const report = await runDatasetRemoteVerify({
+      inputPath,
+      outDir,
+      lookupDatasetImpl: lookupFromMap(
+        {
+          'processes:proc-with-trace:01.00.000': lookup('01.00.000', '01.00.000'),
+          'flows:flow-real:01.00.000': lookup('01.00.000', '01.00.000'),
+        },
+        calls,
+      ),
+    });
+
+    assert.equal(report.status, 'passed_remote_verification');
+    assert.equal(report.counts.references, 2);
+    assert.equal(report.counts.by_status.unsupported_type, 0);
+    assert.deepEqual(
+      calls.map((call) => `${call.table}:${call.id}`).sort(),
+      ['flows:flow-real', 'processes:proc-with-trace'],
+    );
+    const checks = readJsonl(report.files.checks) as Array<{ path: string }>;
+    assert.equal(checks.some((check) => check.path.includes('unresolvedTrace')), false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -458,6 +644,40 @@ test('runDatasetRemoteVerify distinguishes candidate version bumps, stale exact 
   }
 });
 
+test('runDatasetRemoteVerify skips prewrite root readback for new candidates', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-candidate-readback-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const outDir = path.join(dir, 'out');
+  writeJsonl(inputPath, [simpleProcessRow()]);
+  const rootPayloadCalls: RemoteDatasetLookupRequest[] = [];
+
+  try {
+    const report = await runDatasetRemoteVerify({
+      inputPath,
+      outDir,
+      rootPolicy: 'candidate',
+      targetUserId: 'target-user',
+      stateCode: 0,
+      lookupDatasetImpl: lookupFromMap({
+        'processes:proc-remote:01.00.000': lookup(null, null),
+        'flows:flow-remote:01.00.000': lookup('01.00.000', '01.00.000'),
+      }),
+      lookupRootPayloadImpl: async (request) => {
+        rootPayloadCalls.push(request);
+        return null;
+      },
+    });
+
+    assert.equal(report.status, 'passed_remote_verification');
+    assert.equal(report.counts.root_readback_checks, 0);
+    assert.equal(report.counts.by_status.ok, 2);
+    assert.equal(report.blockers.length, 0);
+    assert.equal(rootPayloadCalls.length, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runDatasetRemoteVerify reports unsupported references without type hints', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-remote-unknown-label-'));
   const inputPath = path.join(dir, 'rows.jsonl');
@@ -553,6 +773,24 @@ test('dataset remote verify internals normalize table, versions, and REST lookup
   assert.equal(__testInternals.tableFromPath(''), null);
   assert.equal(__testInternals.tableFromPath('/a/common:referenceToDataSetFormat'), 'sources');
   assert.equal(__testInternals.tableFromPath('/a/notAReference'), null);
+  assert.equal(
+    __testInternals.isFoundryTracePath(
+      '/processDataSet/processInformation/dataSetInformation/common:other/tiangongfoundry:unresolvedTrace/0/evidence/top_candidates/0',
+    ),
+    true,
+  );
+  assert.equal(
+    __testInternals.isFoundryTracePath(
+      '/processDataSet/processInformation/dataSetInformation/common:other/tiangongfoundry:unresolvedExchangeTrace/0/original_exchange/referenceToFlowDataSet',
+    ),
+    true,
+  );
+  assert.equal(
+    __testInternals.isFoundryTracePath(
+      '/processDataSet/processInformation/dataSetInformation/common:other/referenceToDataSource',
+    ),
+    false,
+  );
   assert.equal(__testInternals.compareVersions(null, null), 0);
   assert.equal(__testInternals.compareVersions('01.02.000', '01.01.999'), 1);
   assert.equal(__testInternals.compareVersions('01.00.000', '01.00.000'), 0);
@@ -625,9 +863,35 @@ test('dataset remote verify internals collect fallback roots and escaped pointer
         },
       },
     },
+    {
+      json_ordered: {
+        flowPropertyDataSet: {
+          flowPropertiesInformation: {
+            dataSetInformation: {
+              'common:UUID': 'flow-property-root',
+              name: { '@xml:lang': 'en', '#text': 'Mass' },
+            },
+          },
+          administrativeInformation: {
+            publicationAndOwnership: {
+              'common:dataSetVersion': '00.00.001',
+            },
+          },
+        },
+      },
+    },
   ]);
 
   assert.ok(refs.some((ref) => ref.role === 'root' && ref.id === 'flow-fallback'));
+  assert.ok(
+    refs.some(
+      (ref) =>
+        ref.role === 'root' &&
+        ref.table === 'flowproperties' &&
+        ref.id === 'flow-property-root' &&
+        ref.version === '00.00.001',
+    ),
+  );
   assert.ok(refs.some((ref) => ref.path.includes('key~1with~0escape')));
 });
 
@@ -642,6 +906,11 @@ test('executeCli routes dataset verify-remote and maps blockers to exit code one
       'out',
       '--root-policy',
       'candidate',
+      '--compare-root-payload',
+      '--target-user-id',
+      'target-user',
+      '--state-code',
+      '0',
       '--json',
     ],
     {
@@ -655,6 +924,9 @@ test('executeCli routes dataset verify-remote and maps blockers to exit code one
       })) as FetchLike,
       runDatasetRemoteVerifyImpl: async (options) => {
         assert.equal(options.rootPolicy, 'candidate');
+        assert.equal(options.compareRootPayload, true);
+        assert.equal(options.targetUserId, 'target-user');
+        assert.equal(options.stateCode, 0);
         return {
           schema_version: 1,
           generated_at_utc: '2026-05-23T00:00:00.000Z',

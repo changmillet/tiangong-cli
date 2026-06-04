@@ -299,6 +299,174 @@ test('process identity preflight queues manual review for weaker process similar
   assert.deepEqual(nameOnly.candidates[0]?.match_reasons, ['overlapping_name']);
 });
 
+test('identity profiles prefer canonical TIDAS fields over nested payload noise', () => {
+  const processProfile = __testInternals.processProfile({
+    processDataSet: {
+      processInformation: {
+        dataSetInformation: {
+          name: {
+            baseName: { '#text': 'Transport, freight, lorry' },
+            treatmentStandardsRoutes: { '#text': 'Not specified' },
+          },
+          common: { ignored: 'not a real TIDAS key' },
+        },
+        quantitativeReference: {
+          referenceToReferenceFlow: '1',
+        },
+        geography: {
+          locationOfOperationSupplyOrProduction: {
+            '@location': 'CH',
+            descriptionOfRestrictions: {
+              '#text': 'Only the location code should enter the identity geography field',
+            },
+          },
+        },
+        technology: {
+          technologyDescriptionAndIncludedProcesses: {
+            '#text': 'Fuel cell electric powertrain',
+          },
+        },
+      },
+      exchanges: {
+        exchange: [
+          {
+            '@dataSetInternalID': '1',
+            exchangeDirection: 'Output',
+            meanAmount: '1',
+            referenceToFlowDataSet: {
+              '@refObjectId': 'flow-reference',
+              '@version': '00.00.001',
+              common: { shortDescription: { '#text': 'not a real TIDAS key' } },
+              'common:shortDescription': { '#text': 'Reference product flow' },
+            },
+          },
+          {
+            '@dataSetInternalID': '2',
+            exchangeDirection: 'Input',
+            meanAmount: '2',
+            referenceToFlowDataSet: {
+              '@refObjectId': 'flow-input',
+              'common:shortDescription': { '#text': 'Nested input should not be a process name' },
+            },
+          },
+        ],
+      },
+      administrativeInformation: {
+        dataEntryBy: {
+          'common:referenceToDataSetFormat': {
+            'common:shortDescription': { '#text': 'ILCD format' },
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(processProfile.names, ['Transport, freight, lorry']);
+  assert.equal(processProfile.fields.geography, 'CH');
+  assert.deepEqual(processProfile.fields.reference_flow_ids, [
+    'flow-reference',
+  ]);
+  assert.deepEqual(processProfile.fields.reference_flow_names, ['Reference product flow']);
+  assert.ok(processProfile.exchange_signature.includes('flow reference:output:1'));
+  assert.equal(
+    processProfile.names.includes('Nested input should not be a process name'),
+    false,
+  );
+  assert.equal(processProfile.names.includes('ILCD format'), false);
+
+  const flowProfile = __testInternals.flowProfile({
+    flowDataSet: {
+      flowInformation: {
+        dataSetInformation: {
+          name: {
+            baseName: { '#text': 'Carbon dioxide liquid, at plant' },
+            mixAndLocationTypes: { '#text': 'Not specified' },
+          },
+          classificationInformation: {
+            'common:classification': {
+              'common:class': {
+                '@classId': '9',
+                '#text': 'Emissions to air',
+              },
+            },
+          },
+        },
+      },
+      modellingAndValidation: {
+        LCIMethod: {
+          typeOfDataSet: 'Product flow',
+        },
+      },
+      flowProperties: {
+        flowProperty: {
+          referenceToFlowPropertyDataSet: {
+            'common:shortDescription': { '#text': 'Mass' },
+          },
+        },
+      },
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:referenceToOwnershipOfDataSet': {
+            'common:shortDescription': { '#text': 'Nested owner should not be a flow name' },
+          },
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(flowProfile.names, ['Carbon dioxide liquid, at plant']);
+  assert.equal(flowProfile.fields.type_of_dataset, 'Product flow');
+  assert.equal(flowProfile.fields.flow_property, 'Mass');
+  assert.equal(flowProfile.names.includes('Nested owner should not be a flow name'), false);
+});
+
+test('identity preflight reports candidates by local evidence score', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Product flow',
+        name_en: 'Carbon dioxide liquid, at plant',
+        flow_property: 'Mass',
+      },
+      candidates: [
+        {
+          id: 'less-relevant',
+          type_of_dataset: 'Product flow',
+          name_en: 'Carbon dioxide, in chemical industry',
+          flow_property: 'Volume',
+        },
+        {
+          id: 'missing-liquid',
+          type_of_dataset: 'Product flow',
+          name_en: ['Carbon dioxide', 'Production mix, at plant'],
+          flow_property: 'Mass',
+        },
+        {
+          id: 'more-relevant',
+          type_of_dataset: 'Product flow',
+          name_en: [
+            'Carbon dioxide, liquid',
+            '液态二氧化碳',
+            'at plant',
+            '厂内',
+            'CN, production mix',
+          ],
+          flow_property: 'Mass',
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.decision, 'manual_review');
+  assert.equal(report.candidates[0]?.id, 'more-relevant');
+  assert.equal(report.candidates[0]?.index, 2);
+  assert.ok(report.candidates[0]?.match_reasons.includes('similar_name_phrase'));
+  assert.equal(report.candidates[1]?.id, 'missing-liquid');
+  assert.equal(report.candidates[1]?.index, 1);
+});
+
 test('process identity preflight blocks exact exchange fingerprints with local candidate scans', async () => {
   const workDir = mkdtempSync(path.join(os.tmpdir(), 'identity-preflight-local-scan-'));
   const inputPath = path.join(workDir, 'process-preflight.json');
@@ -390,7 +558,13 @@ test('process identity preflight can block duplicates from remote hybrid search'
       remote_candidate_search: {
         enabled: true,
         query: 'electricity medium voltage',
+        data_source: 'tg',
         limit: 1,
+        match_threshold: 0.1,
+        full_text_weight: 0.55,
+        extracted_text_weight: 0.25,
+        semantic_weight: 0.2,
+        rrf_k: 30,
       },
     },
     env: buildSupabaseTestEnv({
@@ -440,10 +614,28 @@ test('process identity preflight can block duplicates from remote hybrid search'
   assert.equal(report.candidate_sources[0]?.endpoint, 'process_hybrid_search');
   assert.equal(report.candidate_sources[0]?.query, 'electricity medium voltage');
   assert.equal(report.candidate_sources[0]?.row_count, 1);
+  assert.deepEqual(report.candidate_sources[0]?.options, {
+    limit: 1,
+    match_count: 1,
+    page_size: 1,
+    data_source: 'tg',
+    match_threshold: 0.1,
+    full_text_weight: 0.55,
+    extracted_text_weight: 0.25,
+    semantic_weight: 0.2,
+    rrf_k: 30,
+  });
   assert.equal(observed.url, 'https://example.com/functions/v1/process_hybrid_search');
   assert.equal(observed.headers?.Authorization, 'Bearer access-token');
   assert.equal(observed.headers?.['x-region'], 'cn-east-1');
-  assert.equal(observed.body?.limit, 1);
+  assert.equal('limit' in (observed.body ?? {}), false);
+  assert.equal(observed.body?.match_count, 1);
+  assert.equal(observed.body?.page_size, 1);
+  assert.equal(observed.body?.match_threshold, 0.1);
+  assert.equal(observed.body?.full_text_weight, 0.55);
+  assert.equal(observed.body?.extracted_text_weight, 0.25);
+  assert.equal(observed.body?.semantic_weight, 0.2);
+  assert.equal(observed.body?.rrf_k, 30);
 });
 
 test('flow identity preflight sends type filters to remote hybrid search', async () => {
@@ -466,6 +658,7 @@ test('flow identity preflight sends type filters to remote hybrid search', async
     remoteCandidateSearch: true,
     remoteQuery: 'electricity flow',
     remoteLimit: 2,
+    remoteDataSource: 'co',
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.com/functions/v1',
     }),
@@ -498,7 +691,117 @@ test('flow identity preflight sends type filters to remote hybrid search', async
   assert.equal(report.candidate_sources[0]?.endpoint, 'flow_hybrid_search');
   assert.equal(observed.url, 'https://example.com/functions/v1/flow_hybrid_search');
   assert.deepEqual(observed.body?.filter, { flowType: 'Product flow' });
-  assert.equal(observed.body?.limit, 2);
+  assert.equal('limit' in (observed.body ?? {}), false);
+  assert.equal(observed.body?.match_count, 2);
+  assert.equal(observed.body?.page_size, 2);
+  assert.equal(observed.body?.data_source, 'co');
+});
+
+test('flow identity preflight profiles elementary flow categorization before default classification', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        flowDataSet: {
+          flowInformation: {
+            dataSetInformation: {
+              name: {
+                baseName: { '#text': 'Transformation, to industrial area' },
+              },
+              classificationInformation: {
+                'common:classification': {
+                  'common:class': [
+                    { '@level': '0', '@classId': 'Emissions', '#text': 'Emissions' },
+                    {
+                      '@level': '1',
+                      '@classId': 'Emissions to air',
+                      '#text': 'Emissions to air',
+                    },
+                  ],
+                },
+                'common:elementaryFlowCategorization': {
+                  'common:category': [
+                    { '@level': '0', '#text': 'resources' },
+                    { '@level': '1', '#text': 'land' },
+                  ],
+                },
+              },
+            },
+          },
+          modellingAndValidation: {
+            LCIMethod: {
+              typeOfDataSet: 'Elementary flow',
+            },
+          },
+          flowProperties: {
+            flowProperty: {
+              referenceToFlowPropertyDataSet: {
+                'common:shortDescription': 'Area',
+              },
+            },
+          },
+        },
+      },
+    },
+    schemas: { flow: passingSchema() },
+    now,
+  });
+
+  assert.deepEqual(report.target.fields.categories, ['resources', 'land']);
+  assert.doesNotMatch(report.target.identity_key, /emissions to air/u);
+  assert.match(report.target.identity_key, /resources\\|land/u);
+});
+
+test('identity preflight applies request profile hints to local target scoring only', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        flowDataSet: {
+          flowInformation: {
+            dataSetInformation: {
+              name: {
+                baseName: { '#text': 'Transformation, to industrial area' },
+              },
+              classificationInformation: {
+                'common:elementaryFlowCategorization': {
+                  'common:category': [
+                    { '@level': '0', '#text': 'Emissions' },
+                    { '@level': '1', '#text': 'Emissions to air' },
+                  ],
+                },
+              },
+            },
+          },
+          modellingAndValidation: {
+            LCIMethod: {
+              typeOfDataSet: 'Elementary flow',
+            },
+          },
+          flowProperties: {
+            flowProperty: {
+              referenceToFlowPropertyDataSet: {
+                'common:shortDescription': 'Area',
+              },
+            },
+          },
+        },
+      },
+      remote_candidate_search: {
+        enabled: false,
+        profile_hints: {
+          categories: ['resources', 'land'],
+        },
+      },
+    },
+    schemas: { flow: passingSchema() },
+    now,
+  });
+
+  assert.deepEqual(report.target.fields.categories, ['resources', 'land']);
+  assert.doesNotMatch(report.target.identity_key, /emissions to air/u);
+  assert.match(report.target.identity_key, /resources\\|land/u);
+  assert.equal(report.candidate_sources.length, 0);
 });
 
 test('identity preflight requires a remote query when the target has no identity text', async () => {
@@ -584,7 +887,7 @@ test('identity preflight can use process env and global fetch for remote candida
     });
 
     assert.equal(report.candidate_sources[0]?.row_count, 2);
-    assert.equal(observed.body?.query, 'market for heat');
+    assert.equal(observed.body?.query, 'process name: market for heat');
     assert.equal('limit' in (observed.body ?? {}), false);
   } finally {
     globalThis.fetch = originalFetch;
@@ -709,6 +1012,10 @@ test('flow identity preflight blocks equivalent flow identities and writes artif
     assert.equal(report.kind, 'flow');
     assert.equal(report.status, 'blocked');
     assert.equal(report.decision, 'block_duplicate');
+    assert.deepEqual(report.target.names, ['electricity, medium voltage']);
+    assert.equal(report.target.fields.flow_property, 'Energy');
+    assert.deepEqual(report.candidates[0]?.names, ['electricity, medium voltage']);
+    assert.equal(report.candidates[0]?.fields.flow_property, 'Energy');
     assert.equal(
       report.files.identity_decision,
       path.join(outDir, 'outputs', 'identity-decision.json'),
@@ -763,6 +1070,381 @@ test('flow identity preflight blocks alias-equivalent flow core fields', async (
   assert.equal(report.status, 'blocked');
   assert.equal(report.decision, 'block_duplicate');
   assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
+});
+
+test('flow identity preflight blocks elementary flows with CAS spelling and exact compartment matches', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Sulfur hexafluoride',
+        cas: '002551-62-4',
+        flow_property: 'Mass',
+        category: ['Emissions', 'Emissions to air', 'Emissions to air, unspecified'],
+      },
+      candidates: [
+        {
+          flow_id: 'indoor-sf6',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'sulphur hexafluoride',
+          cas: '2551-62-4',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, indoor'],
+        },
+        {
+          flow_id: 'unspecified-sf6',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'sulphur hexafluoride',
+          cas: '2551-62-4',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, unspecified'],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.equal(report.candidates[0]?.id, 'unspecified-sf6');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('same_cas'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('same_category_path'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
+  assert.equal(
+    report.candidates.find((candidate) => candidate.id === 'indoor-sf6')?.decision_hint,
+    'manual_review',
+  );
+});
+
+test('flow identity preflight ranks BAFU elementary air population compartments', async () => {
+  const lowPopulation = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Mercury',
+        cas: '7439-97-6',
+        flow_property: 'Mass',
+        category: ['emissions to air', 'low. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'mercury-soil',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'mercury',
+          cas: '7439-97-6',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to soil', 'Emissions to soil, unspecified'],
+        },
+        {
+          flow_id: 'mercury-indoor-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'mercury',
+          cas: '7439-97-6',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, indoor'],
+        },
+        {
+          flow_id: 'mercury-non-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'mercury',
+          cas: '7439-97-6',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to non-urban air or from high stacks',
+          ],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(lowPopulation.status, 'blocked');
+  assert.equal(lowPopulation.decision, 'block_duplicate');
+  assert.equal(lowPopulation.candidates[0]?.id, 'mercury-non-urban-air');
+  assert.ok(
+    lowPopulation.candidates[0]?.match_reasons.includes('equivalent_elementary_compartment'),
+  );
+  assert.ok(
+    lowPopulation.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'),
+  );
+
+  const highPopulation = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Mercury',
+        cas: '7439-97-6',
+        flow_property: 'Mass',
+        category: ['emissions to air', 'high. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'mercury-non-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'mercury',
+          cas: '7439-97-6',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to non-urban air or from high stacks',
+          ],
+        },
+        {
+          flow_id: 'mercury-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'mercury',
+          cas: '7439-97-6',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(highPopulation.status, 'blocked');
+  assert.equal(highPopulation.decision, 'block_duplicate');
+  assert.equal(highPopulation.candidates[0]?.id, 'mercury-urban-air');
+  assert.ok(
+    highPopulation.candidates[0]?.match_reasons.includes('equivalent_elementary_compartment'),
+  );
+});
+
+test('flow identity preflight downranks elementary compartment matches with conflicting names', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Ethene',
+        flow_property: 'Mass',
+        category: ['emissions to air', 'high. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'wrong-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'cypermethrin',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+        {
+          flow_id: 'ethene-indoor-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'Ethene',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, indoor'],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'needs_review');
+  assert.equal(report.decision, 'manual_review');
+  assert.equal(report.candidates[0]?.id, 'ethene-indoor-air');
+  assert.ok(
+    report.candidates.find((candidate) => candidate.id === 'wrong-urban-air')?.match_reasons
+      .includes('conflicting_flow_name'),
+  );
+});
+
+test('flow identity preflight blocks ethene elementary aliases in matching air compartments', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Ethene',
+        flow_property: 'Mass',
+        category: ['emissions to air', 'high. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'wrong-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'cypermethrin',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+        {
+          flow_id: 'ethylene-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'ethylene',
+          cas: '74-85-1',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.equal(report.candidates[0]?.id, 'ethylene-urban-air');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
+});
+
+test('flow identity preflight handles PAH and waste heat elementary aliases with matching compartments', async () => {
+  const pah = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'PAH, polycyclic aromatic hydrocarbons',
+        flow_property: 'Mass',
+        category: ['emissions to air', 'high. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'pah-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'polycyclic aromatic hydrocarbons',
+          flow_property: 'Mass',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(pah.status, 'blocked');
+  assert.equal(pah.decision, 'block_duplicate');
+  assert.ok(pah.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+  assert.ok(pah.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
+
+  const wasteHeat = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Heat, waste',
+        category: ['emissions to air', 'high. pop.'],
+      },
+      candidates: [
+        {
+          flow_id: 'waste-heat-urban-air',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'waste heat',
+          category: [
+            'Emissions',
+            'Emissions to air',
+            'Emissions to urban air close to ground',
+          ],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(wasteHeat.status, 'needs_review');
+  assert.equal(wasteHeat.decision, 'manual_review');
+  assert.ok(wasteHeat.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+  assert.equal(
+    wasteHeat.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'),
+    false,
+  );
+});
+
+test('flow identity preflight matches transformation elementary flow name variants', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Transformation, to industrial area',
+        flow_property: 'Area',
+        category: ['resources', 'land'],
+      },
+      candidates: [
+        {
+          flow_id: 'land-transformation-to-industrial',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'to industrial area',
+          flow_property: 'Area',
+          category: ['Land use', 'Land transformation'],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'needs_review');
+  assert.equal(report.candidates[0]?.id, 'land-transformation-to-industrial');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+});
+
+test('flow identity preflight blocks elementary flows with known chemical aliases', async () => {
+  const report = await runFlowIdentityPreflight({
+    inputPath: '/tmp/flow-preflight.json',
+    rawInput: {
+      target: {
+        type_of_dataset: 'Elementary flow',
+        name_en: 'Dinitrogen monoxide',
+        flow_property: 'Mass',
+        category: ['Emissions', 'Emissions to air', 'Emissions to air, unspecified'],
+      },
+      candidates: [
+        {
+          flow_id: 'nitrogen-monoxide',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'nitrogen monoxide',
+          cas: '10102-43-9',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, unspecified'],
+        },
+        {
+          flow_id: 'nitrous-oxide',
+          type_of_dataset: 'Elementary flow',
+          name_en: 'nitrous oxide',
+          cas: '10024-97-2',
+          flow_property: 'Mass',
+          category: ['Emissions', 'Emissions to air', 'Emissions to air, unspecified'],
+        },
+      ],
+    },
+    now,
+  });
+
+  assert.equal(report.status, 'blocked');
+  assert.equal(report.decision, 'block_duplicate');
+  assert.equal(report.candidates[0]?.id, 'nitrous-oxide');
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_name'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('same_category_path'));
+  assert.ok(report.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
+  assert.equal(
+    report.candidates.find((candidate) => candidate.id === 'nitrogen-monoxide')?.decision_hint,
+    'manual_review',
+  );
 });
 
 test('flow identity preflight accepts sparse file input and numeric text fields', async () => {
@@ -967,13 +1649,31 @@ test('identity preflight internals normalize remote search inputs', () => {
     enabled: false,
     query: null,
     filter: null,
+    profileHints: null,
     limit: null,
+    dataSource: null,
+    matchThreshold: null,
+    fullTextWeight: null,
+    extractedTextWeight: null,
+    semanticWeight: null,
+    rrfK: null,
+    pageSize: null,
+    pageCurrent: null,
   });
   assert.deepEqual(__testInternals.normalizeRemoteCandidateSearch(true), {
     enabled: true,
     query: null,
     filter: null,
+    profileHints: null,
     limit: null,
+    dataSource: null,
+    matchThreshold: null,
+    fullTextWeight: null,
+    extractedTextWeight: null,
+    semanticWeight: null,
+    rrfK: null,
+    pageSize: null,
+    pageCurrent: null,
   });
   assert.deepEqual(
     __testInternals.normalizeRemoteCandidateSearch({
@@ -981,12 +1681,28 @@ test('identity preflight internals normalize remote search inputs', () => {
       search_query: 'grid electricity',
       filter: { flowType: 'Product flow' },
       limit: '2',
+      data_source: 'tg',
+      match_threshold: '0.25',
+      full_text_weight: '0.5',
+      extracted_text_weight: '0.3',
+      semantic_weight: '0.2',
+      rrf_k: '40',
+      page_current: '2',
     }),
     {
-      enabled: false,
-      query: 'grid electricity',
-      filter: { flowType: 'Product flow' },
-      limit: 2,
+    enabled: false,
+    query: 'grid electricity',
+    filter: { flowType: 'Product flow' },
+    profileHints: null,
+    limit: 2,
+      dataSource: 'tg',
+      matchThreshold: 0.25,
+      fullTextWeight: 0.5,
+      extractedTextWeight: 0.3,
+      semanticWeight: 0.2,
+      rrfK: 40,
+      pageSize: null,
+      pageCurrent: 2,
     },
   );
   assert.equal(__testInternals.normalizeRemoteCandidateSearch({ limit: '' }).limit, null);
@@ -1027,6 +1743,80 @@ test('identity preflight internals normalize remote search inputs', () => {
       identity_key: 'fallback-key',
     }),
     'fallback-key',
+  );
+  assert.equal(
+    __testInternals.defaultRemoteQuery({
+      id: null,
+      version: null,
+      state_code: null,
+      names: ['Electricity, medium voltage'],
+      normalized_names: [],
+      fields: {
+        type_of_dataset: 'Product flow',
+        flow_property: 'Net calorific value',
+        reference_unit: 'kWh',
+        categories: ['electricity'],
+        geography: 'CH',
+      },
+      exchange_signature: [],
+      identity_key: '',
+    }),
+    [
+      'flow name: Electricity, medium voltage',
+      'flow type: Product flow',
+      'reference property: Net calorific value',
+      'reference unit: kWh',
+      'category or compartment: electricity',
+      'geography or market: CH',
+    ].join('\n'),
+  );
+  assert.equal(
+    __testInternals.defaultRemoteQuery({
+      id: null,
+      version: null,
+      state_code: null,
+      names: ['Heat, hard coal coke, at stove 5-15kW'],
+      normalized_names: [],
+      fields: {
+        reference_flow_ids: ['heat-flow-id'],
+        geography: 'RER',
+        categories: ['Energy carriers and technologies'],
+        technology_route: 'stove 5-15kW',
+        system_boundary: 'at plant',
+      },
+      exchange_signature: ['input-flow-id:input:1', 'output-flow-id:output:1'],
+      identity_key: '',
+    }),
+    [
+      'process name: Heat, hard coal coke, at stove 5-15kW',
+      'reference flow: heat-flow-id',
+      'geography: RER',
+      'classification or sector: Energy carriers and technologies',
+      'technology route: stove 5-15kW',
+      'system boundary: at plant',
+      'exchange flow refs: input-flow-id; output-flow-id',
+    ].join('\n'),
+  );
+  assert.equal(
+    __testInternals.defaultRemoteQuery({
+      id: null,
+      version: null,
+      state_code: null,
+      names: ['Not specified', 'methane'],
+      normalized_names: [],
+      fields: {
+        type_of_dataset: 'Elementary flow',
+        categories: ['ILCD format', 'Emissions to air'],
+        geography: 'Not specified by the BAFU ecoSpold1 source.',
+      },
+      exchange_signature: [],
+      identity_key: '',
+    }),
+    [
+      'flow name: methane',
+      'flow type: Elementary flow',
+      'category or compartment: Emissions to air',
+    ].join('\n'),
   );
   assert.deepEqual(
     __testInternals.remoteSearchFilter(
@@ -1087,6 +1877,14 @@ test('identity preflight internals normalize remote search inputs', () => {
   assert.throws(
     () => __testInternals.normalizeRemoteCandidateSearch({ limit: 0 }),
     /positive integer/u,
+  );
+  assert.throws(
+    () => __testInternals.normalizeRemoteCandidateSearch({ data_source: 'public' }),
+    /data_source must be one of tg, co, my, or te/u,
+  );
+  assert.throws(
+    () => __testInternals.normalizeRemoteCandidateSearch({ match_threshold: 2 }),
+    /between 0 and 1/u,
   );
 });
 
