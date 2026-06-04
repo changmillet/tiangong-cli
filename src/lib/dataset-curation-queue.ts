@@ -479,9 +479,7 @@ function extractDeferredProcessFlowRefs(payload: unknown): DeferredFlowRef[] {
   const refs = new Map<string, DeferredFlowRef>();
   scanForDeferredProcessFlowRefs(payload, refs);
   return [...refs.values()].sort((a, b) =>
-    `${a.id}@${a.version ?? ''}@${a.path}`.localeCompare(
-      `${b.id}@${b.version ?? ''}@${b.path}`,
-    ),
+    `${a.id}@${a.version ?? ''}@${a.path}`.localeCompare(`${b.id}@${b.version ?? ''}@${b.path}`),
   );
 }
 

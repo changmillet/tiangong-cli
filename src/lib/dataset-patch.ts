@@ -213,7 +213,11 @@ function actionItemClosureKey(value: ActionItemClosure): string {
 }
 
 function normalizeClosureList(value: unknown): ActionItemClosure[] {
-  const values = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  const values = Array.isArray(value)
+    ? value
+    : value === undefined || value === null
+      ? []
+      : [value];
   const closures = values
     .map(normalizeClosure)
     .filter((closure): closure is ActionItemClosure => closure !== null);
@@ -239,9 +243,7 @@ function actionItemFromPackage(value: unknown): ActionItemClosure | null {
     return null;
   }
   const code =
-    nonEmptyString(value.code) ??
-    nonEmptyString(value.rule_id) ??
-    nonEmptyString(value.ruleId);
+    nonEmptyString(value.code) ?? nonEmptyString(value.rule_id) ?? nonEmptyString(value.ruleId);
   if (!code) {
     return null;
   }
@@ -251,7 +253,10 @@ function actionItemFromPackage(value: unknown): ActionItemClosure | null {
   };
 }
 
-function closureMatchesActionItem(closure: ActionItemClosure, actionItem: ActionItemClosure): boolean {
+function closureMatchesActionItem(
+  closure: ActionItemClosure,
+  actionItem: ActionItemClosure,
+): boolean {
   return (
     closure.code === actionItem.code &&
     (!closure.path || !actionItem.path || closure.path === actionItem.path)
@@ -289,7 +294,8 @@ function normalizePatchSet(value: unknown): NormalizedPatchSet | null {
       nonEmptyString(value.uuid) ??
       nonEmptyString(value.entity_id),
     datasetVersion: nonEmptyString(value.dataset_version) ?? nonEmptyString(value.version),
-    authoringPackage: nonEmptyString(value.authoring_package) ?? nonEmptyString(value.authoringPackage),
+    authoringPackage:
+      nonEmptyString(value.authoring_package) ?? nonEmptyString(value.authoringPackage),
     operations,
   };
 }
@@ -376,7 +382,8 @@ function normalizePatchPayload(rawPatch: unknown): NormalizePatchResult {
 
   blockers.push({
     code: 'patch_payload_invalid',
-    message: 'Patch payload must contain operations[], patches[], patch_sets[], suggestions[], or items[].',
+    message:
+      'Patch payload must contain operations[], patches[], patch_sets[], suggestions[], or items[].',
   });
   return { patches, blockers };
 }
@@ -449,7 +456,9 @@ function resolvePatchTarget(root: JsonObject, pointer: string, allowAdd: boolean
 
 function targetExists(target: PatchTarget): boolean {
   if (Array.isArray(target.container)) {
-    return typeof target.key === 'number' && target.key >= 0 && target.key < target.container.length;
+    return (
+      typeof target.key === 'number' && target.key >= 0 && target.key < target.container.length
+    );
   }
   return typeof target.key === 'string' && hasOwn(target.container, target.key);
 }
@@ -660,7 +669,8 @@ function findTargetRow(
   }
 
   const matches = rows.filter(
-    (row) => row.id === patch.datasetId && (!patch.datasetVersion || row.version === patch.datasetVersion),
+    (row) =>
+      row.id === patch.datasetId && (!patch.datasetVersion || row.version === patch.datasetVersion),
   );
   if (matches.length === 0) {
     return {
@@ -752,8 +762,8 @@ function readAuthoringPackageContext(options: {
     return { context: null, blockers };
   }
 
-  let rawText = '';
-  let payload: unknown = null;
+  let rawText: string;
+  let payload: unknown;
   try {
     rawText = readFileSync(packagePath, 'utf8');
     payload = JSON.parse(rawText);
@@ -857,11 +867,13 @@ export async function runDatasetPatchApply(
     operationCount += patch.operations.length;
     const target = findTargetRow(patch, rows, patchIndex);
     if (target.blocker || target.rowIndex === null) {
-      blockers.push(target.blocker ?? {
-        code: 'patch_row_required',
-        message: 'Patch set could not be matched to an input row.',
-        patch_index: patchIndex,
-      });
+      blockers.push(
+        target.blocker ?? {
+          code: 'patch_row_required',
+          message: 'Patch set could not be matched to an input row.',
+          patch_index: patchIndex,
+        },
+      );
       return;
     }
     if (patch.operations.length === 0) {
@@ -1018,12 +1030,13 @@ export async function runDatasetPatchApply(
     operation_count: operationCount,
     applied_operation_count: status === 'completed' ? tentativeAppliedCount : 0,
     evidence_count: status === 'completed' ? evidenceEntries.length : 0,
-    closed_action_item_count: status === 'completed'
-      ? evidenceEntries.reduce(
-          (total, entry) => total + (entry.closes_action_items?.length ?? 0),
-          0,
-        )
-      : 0,
+    closed_action_item_count:
+      status === 'completed'
+        ? evidenceEntries.reduce(
+            (total, entry) => total + (entry.closes_action_items?.length ?? 0),
+            0,
+          )
+        : 0,
     blockers,
     files: {
       patched_rows: resolvedOut,

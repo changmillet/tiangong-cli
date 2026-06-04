@@ -20,10 +20,7 @@ import {
   collectProcessPlaceholderIssues,
   collectProcessRequiredFieldIssues,
 } from './process-required-fields.js';
-import {
-  buildDatasetCommandTransport,
-  deriveSupabaseFunctionsBaseUrl,
-} from './dataset-command.js';
+import { buildDatasetCommandTransport } from './dataset-command.js';
 import {
   createSupabaseDataClient,
   requireSupabaseRestRuntime,
@@ -273,14 +270,11 @@ function normalizeType(value: string | null | undefined): DatasetSaveDraftType {
     return 'process';
   }
 
-  throw new CliError(
-    'Expected --type to be auto, contact, source, flow, or process.',
-    {
-      code: 'DATASET_SAVE_DRAFT_TYPE_INVALID',
-      exitCode: 2,
-      details: value,
-    },
-  );
+  throw new CliError('Expected --type to be auto, contact, source, flow, or process.', {
+    code: 'DATASET_SAVE_DRAFT_TYPE_INVALID',
+    exitCode: 2,
+    details: value,
+  });
 }
 
 function unwrapPayload(row: JsonObject): JsonObject {
@@ -306,7 +300,11 @@ function schemaForConfig(config: DatasetTypeConfig): {
   createEntity: SdkValidationFactory | null;
 } {
   const schema = (tidasSdk as Record<string, unknown>)[config.schemaName];
-  if (!schema || typeof schema !== 'object' || typeof (schema as SafeParseSchema).safeParse !== 'function') {
+  if (
+    !schema ||
+    typeof schema !== 'object' ||
+    typeof (schema as SafeParseSchema).safeParse !== 'function'
+  ) {
     throw new CliError(`${String(config.schemaName)} is unavailable in @tiangong-lca/tidas-sdk.`, {
       code: 'DATASET_SAVE_DRAFT_SCHEMA_UNAVAILABLE',
       exitCode: 2,
@@ -360,7 +358,11 @@ function validatePayload(
   };
 }
 
-function extractIdentity(payload: JsonObject, row: JsonObject, config: DatasetTypeConfig): {
+function extractIdentity(
+  payload: JsonObject,
+  row: JsonObject,
+  config: DatasetTypeConfig,
+): {
   id: string | null;
   version: string | null;
 } {
@@ -382,9 +384,7 @@ function extractIdentity(payload: JsonObject, row: JsonObject, config: DatasetTy
   return {
     id: trimToken(row.id) ?? trimToken(dataSetInformation['common:UUID']),
     version:
-      trimToken(row.version) ??
-      trimToken(publicationAndOwnership['common:dataSetVersion']) ??
-      null,
+      trimToken(row.version) ?? trimToken(publicationAndOwnership['common:dataSetVersion']) ?? null,
   };
 }
 
@@ -425,7 +425,12 @@ function buildFiles(outDir: string): DatasetSaveDraftReport['files'] {
 function defaultOutDir(inputPath: string, commit: boolean, now: Date): string {
   const mode = commit ? 'commit' : 'dry-run';
   const timestamp = now.toISOString().replace(/[:.]/gu, '').replace(/Z$/u, 'Z');
-  return path.join(path.dirname(inputPath), 'artifacts', 'dataset-save-draft', `${mode}-${timestamp}`);
+  return path.join(
+    path.dirname(inputPath),
+    'artifacts',
+    'dataset-save-draft',
+    `${mode}-${timestamp}`,
+  );
 }
 
 function operationCount(rows: DatasetSaveDraftRowReport[]): Record<string, number> {
@@ -471,8 +476,7 @@ function buildPreparedFailure(row: PreparedDatasetRow): DatasetSaveDraftRowRepor
       operation: 'type_unknown',
       validation: null,
       error: {
-        message:
-          'Could not detect dataset type. Use --type or provide a supported TIDAS wrapper.',
+        message: 'Could not detect dataset type. Use --type or provide a supported TIDAS wrapper.',
       },
     };
   }
@@ -530,7 +534,12 @@ function buildPreparedFailure(row: PreparedDatasetRow): DatasetSaveDraftRowRepor
   return null;
 }
 
-function buildVisibleRowsUrl(restBaseUrl: string, table: DatasetCommandTable, id: string, version: string): string {
+function buildVisibleRowsUrl(
+  restBaseUrl: string,
+  table: DatasetCommandTable,
+  id: string,
+  version: string,
+): string {
   const url = new URL(`${restBaseUrl.replace(/\/+$/u, '')}/${table}`);
   url.searchParams.set('select', 'id,version,user_id,state_code');
   url.searchParams.set('id', `eq.${id}`);
@@ -621,7 +630,9 @@ export async function runDatasetSaveDraft(
         })
       : null;
   const dataClient =
-    runtime && options.fetchImpl ? createSupabaseDataClient(runtime, options.fetchImpl, timeoutMs) : null;
+    runtime && options.fetchImpl
+      ? createSupabaseDataClient(runtime, options.fetchImpl, timeoutMs)
+      : null;
 
   const reports: DatasetSaveDraftRowReport[] = [];
   for (const row of preparedRows) {

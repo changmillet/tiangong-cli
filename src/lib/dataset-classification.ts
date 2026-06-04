@@ -980,7 +980,7 @@ export async function runDatasetClassificationChildren(
   options: RunDatasetClassificationChildrenOptions,
 ): Promise<DatasetClassificationChildrenReport> {
   const type = normalizeType(options.type);
-  const { config, schema, navigator } = navigatorFor(type);
+  const { config, navigator } = navigatorFor(type);
   const parentCode = firstNonEmpty(options.parent);
   const rawChildren = navigator.childMap.get(parentCode ?? '') ?? [];
   const parentKnown = !parentCode || navigator.entriesByCode.has(parentCode);

@@ -345,9 +345,7 @@ function buildLayout(options: {
       'lifecyclemodel-validate-build-report.json',
     ),
     qaInputSummaryPath:
-      options.inputMode === 'rows_file'
-        ? path.join(outDir, 'qa_input_summary.json')
-        : null,
+      options.inputMode === 'rows_file' ? path.join(outDir, 'qa_input_summary.json') : null,
     modelSummariesPath: path.join(outDir, 'model_summaries.jsonl'),
     findingsPath: path.join(outDir, 'findings.jsonl'),
     summaryPath: path.join(outDir, 'lifecyclemodel_qa_summary.json'),
@@ -379,7 +377,11 @@ function resolveLayout(options: RunLifecyclemodelQaOptions): LifecyclemodelQaLay
   if (rowsFile) {
     const resolvedRowsFile = path.resolve(rowsFile);
     return buildLayout({
-      runRoot: path.join(path.resolve(outDir), 'qa-input', sanitizeFileName(path.basename(rowsFile))),
+      runRoot: path.join(
+        path.resolve(outDir),
+        'qa-input',
+        sanitizeFileName(path.basename(rowsFile)),
+      ),
       rowsFile: resolvedRowsFile,
       inputMode: 'rows_file',
       outDir: path.resolve(outDir),

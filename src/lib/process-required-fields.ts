@@ -202,18 +202,14 @@ function unresolvedTraceEntries(root: JsonObject): JsonObject[] {
   const commonOther = isRecord(dataSetInformation['common:other'])
     ? dataSetInformation['common:other']
     : {};
-  return asList(commonOther['tiangongfoundry:unresolvedTrace']).filter(
-    (item): item is JsonObject => isRecord(item),
+  return asList(commonOther['tiangongfoundry:unresolvedTrace']).filter((item): item is JsonObject =>
+    isRecord(item),
   );
 }
 
 function hasDeferredAnnualSupplyTrace(root: JsonObject): boolean {
   return unresolvedTraceEntries(root).some((entry) => {
-    const actionItemCode = firstNonEmpty(
-      entry.action_item_code,
-      entry.actionItemCode,
-      entry.code,
-    );
+    const actionItemCode = firstNonEmpty(entry.action_item_code, entry.actionItemCode, entry.code);
     const blockedPath = firstNonEmpty(
       entry.blocked_path,
       entry.blockedPath,

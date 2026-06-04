@@ -510,7 +510,15 @@ test('executeCli dispatches dataset and lifecyclemodel friction-fix commands', a
             total: 1,
             valid: 1,
             invalid: 0,
-            by_type: { flow: 0, process: 1, lifecyclemodel: 0 },
+            by_type: {
+              flow: 0,
+              process: 1,
+              lifecyclemodel: 0,
+              source: 0,
+              contact: 0,
+              flowproperty: 0,
+              unitgroup: 0,
+            },
           },
           files: { report: null, valid_rows: null, invalid_rows: null },
           rows: [],
@@ -533,7 +541,15 @@ test('executeCli dispatches dataset and lifecyclemodel friction-fix commands', a
           total: 1,
           valid: 0,
           invalid: 1,
-          by_type: { flow: 0, process: 1, lifecyclemodel: 0 },
+          by_type: {
+            flow: 0,
+            process: 1,
+            lifecyclemodel: 0,
+            source: 0,
+            contact: 0,
+            flowproperty: 0,
+            unitgroup: 0,
+          },
         },
         files: { report: null, valid_rows: null, invalid_rows: null },
         rows: [],
@@ -2082,6 +2098,8 @@ test('executeCli executes process identity-preflight with injected implementatio
           target: {
             id: null,
             version: null,
+            names: [],
+            fields: {},
             identity_key: 'process-key',
             exchange_signature: ['flow-a:input:1'],
             schema_validation: {
@@ -2097,6 +2115,9 @@ test('executeCli executes process identity-preflight with injected implementatio
               id: 'process-existing',
               version: '01.00.000',
               state_code: 100,
+              names: [],
+              fields: {},
+              exchange_signature: ['flow-a:input:1'],
               identity_key: 'process-key',
               match_score: 100,
               match_reasons: ['same_identity_key'],
@@ -2154,6 +2175,8 @@ test('executeCli maps process identity-preflight success and argument errors', a
           target: {
             id: null,
             version: null,
+            names: [],
+            fields: {},
             identity_key: 'process-key',
             exchange_signature: [],
             schema_validation: {
@@ -2668,6 +2691,8 @@ test('executeCli executes flow identity-preflight with injected implementation',
           target: {
             id: null,
             version: null,
+            names: [],
+            fields: {},
             identity_key: 'flow-key',
             exchange_signature: [],
             schema_validation: {
@@ -2719,6 +2744,8 @@ test('executeCli maps flow identity-preflight blocker reports to exit code 1', a
         target: {
           id: null,
           version: null,
+          names: [],
+          fields: {},
           identity_key: 'flow-key',
           exchange_signature: [],
           schema_validation: {
@@ -4747,6 +4774,8 @@ test('executeCli dispatches qa lifecyclemodel to the implemented CLI module', as
             status: 'completed_local_lifecyclemodel_qa',
             run_id: 'lm-run-001',
             run_root: path.join(dir, 'run'),
+            rows_file: path.join(dir, 'run', 'outputs', 'lifecyclemodels.jsonl'),
+            input_mode: 'run_dir',
             out_dir: path.join(dir, 'review'),
             logic_version: 'review-v1',
             model_count: 1,
@@ -4764,6 +4793,7 @@ test('executeCli dispatches qa lifecyclemodel to the implemented CLI module', as
             files: {
               run_manifest: path.join(dir, 'run', 'manifests', 'run-manifest.json'),
               invocation_index: path.join(dir, 'run', 'manifests', 'invocation-index.json'),
+              qa_input_summary: null,
               validation_report: path.join(
                 dir,
                 'run',
@@ -4841,6 +4871,7 @@ test('executeCli dispatches qa flow to the implemented CLI module', async () => 
             status: 'completed_local_flow_qa',
             run_id: 'flow-run',
             out_dir: path.join(dir, 'review'),
+            rows_file: rowsFile,
             input_mode: 'rows_file',
             effective_flows_dir: path.join(dir, 'qa-input', 'flows'),
             logic_version: 'flow-v1.0-cli',
@@ -5980,6 +6011,7 @@ test('executeCli supports alternate qa flow input modes and validates numeric fl
         status: 'completed_local_flow_qa' as const,
         run_id: options.runId ?? 'flow-run',
         out_dir: options.outDir,
+        rows_file: options.rowsFile ?? path.join(options.outDir, 'flows.jsonl'),
         input_mode: inputMode,
         effective_flows_dir: effectiveFlowsDir,
         logic_version: options.logicVersion ?? 'flow-v1.0-cli',

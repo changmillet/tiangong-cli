@@ -111,7 +111,16 @@ test('executeCli maps generic dataset save-draft failures and rejects mode confl
   assert.equal(failed.exitCode, 1);
 
   const conflict = await executeCli(
-    ['dataset', 'save-draft', '--input', 'contacts.jsonl', '--type', 'contact', '--commit', '--dry-run'],
+    [
+      'dataset',
+      'save-draft',
+      '--input',
+      'contacts.jsonl',
+      '--type',
+      'contact',
+      '--commit',
+      '--dry-run',
+    ],
     makeDeps(),
   );
   assert.equal(conflict.exitCode, 2);

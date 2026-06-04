@@ -363,15 +363,10 @@ test('identity profiles prefer canonical TIDAS fields over nested payload noise'
 
   assert.deepEqual(processProfile.names, ['Transport, freight, lorry']);
   assert.equal(processProfile.fields.geography, 'CH');
-  assert.deepEqual(processProfile.fields.reference_flow_ids, [
-    'flow-reference',
-  ]);
+  assert.deepEqual(processProfile.fields.reference_flow_ids, ['flow-reference']);
   assert.deepEqual(processProfile.fields.reference_flow_names, ['Reference product flow']);
   assert.ok(processProfile.exchange_signature.includes('flow reference:output:1'));
-  assert.equal(
-    processProfile.names.includes('Nested input should not be a process name'),
-    false,
-  );
+  assert.equal(processProfile.names.includes('Nested input should not be a process name'), false);
   assert.equal(processProfile.names.includes('ILCD format'), false);
 
   const flowProfile = __testInternals.flowProfile({
@@ -1169,9 +1164,7 @@ test('flow identity preflight ranks BAFU elementary air population compartments'
   assert.ok(
     lowPopulation.candidates[0]?.match_reasons.includes('equivalent_elementary_compartment'),
   );
-  assert.ok(
-    lowPopulation.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'),
-  );
+  assert.ok(lowPopulation.candidates[0]?.match_reasons.includes('equivalent_flow_core_fields'));
 
   const highPopulation = await runFlowIdentityPreflight({
     inputPath: '/tmp/flow-preflight.json',
@@ -1202,11 +1195,7 @@ test('flow identity preflight ranks BAFU elementary air population compartments'
           name_en: 'mercury',
           cas: '7439-97-6',
           flow_property: 'Mass',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
       ],
     },
@@ -1237,11 +1226,7 @@ test('flow identity preflight downranks elementary compartment matches with conf
           type_of_dataset: 'Elementary flow',
           name_en: 'cypermethrin',
           flow_property: 'Mass',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
         {
           flow_id: 'ethene-indoor-air',
@@ -1259,8 +1244,9 @@ test('flow identity preflight downranks elementary compartment matches with conf
   assert.equal(report.decision, 'manual_review');
   assert.equal(report.candidates[0]?.id, 'ethene-indoor-air');
   assert.ok(
-    report.candidates.find((candidate) => candidate.id === 'wrong-urban-air')?.match_reasons
-      .includes('conflicting_flow_name'),
+    report.candidates
+      .find((candidate) => candidate.id === 'wrong-urban-air')
+      ?.match_reasons.includes('conflicting_flow_name'),
   );
 });
 
@@ -1280,11 +1266,7 @@ test('flow identity preflight blocks ethene elementary aliases in matching air c
           type_of_dataset: 'Elementary flow',
           name_en: 'cypermethrin',
           flow_property: 'Mass',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
         {
           flow_id: 'ethylene-urban-air',
@@ -1292,11 +1274,7 @@ test('flow identity preflight blocks ethene elementary aliases in matching air c
           name_en: 'ethylene',
           cas: '74-85-1',
           flow_property: 'Mass',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
       ],
     },
@@ -1326,11 +1304,7 @@ test('flow identity preflight handles PAH and waste heat elementary aliases with
           type_of_dataset: 'Elementary flow',
           name_en: 'polycyclic aromatic hydrocarbons',
           flow_property: 'Mass',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
       ],
     },
@@ -1355,11 +1329,7 @@ test('flow identity preflight handles PAH and waste heat elementary aliases with
           flow_id: 'waste-heat-urban-air',
           type_of_dataset: 'Elementary flow',
           name_en: 'waste heat',
-          category: [
-            'Emissions',
-            'Emissions to air',
-            'Emissions to urban air close to ground',
-          ],
+          category: ['Emissions', 'Emissions to air', 'Emissions to urban air close to ground'],
         },
       ],
     },
@@ -1585,6 +1555,9 @@ test('identity preflight internals cover schema lookup and decision confidence e
           id: 'candidate-a',
           version: null,
           state_code: null,
+          names: [],
+          fields: {},
+          exchange_signature: [],
           identity_key: 'weak',
           match_score: 50,
           match_reasons: ['same_identity_key'],
@@ -1607,6 +1580,9 @@ test('identity preflight internals cover schema lookup and decision confidence e
           id: null,
           version: null,
           state_code: null,
+          names: [],
+          fields: {},
+          exchange_signature: [],
           identity_key: 'manual',
           match_score: 60,
           match_reasons: ['same_exchange_signature', 'overlapping_name'],
@@ -1629,6 +1605,9 @@ test('identity preflight internals cover schema lookup and decision confidence e
           id: 'process-a',
           version: null,
           state_code: null,
+          names: [],
+          fields: {},
+          exchange_signature: [],
           identity_key: 'weak',
           match_score: 50,
           match_reasons: ['same_dataset_id'],
@@ -1690,11 +1669,11 @@ test('identity preflight internals normalize remote search inputs', () => {
       page_current: '2',
     }),
     {
-    enabled: false,
-    query: 'grid electricity',
-    filter: { flowType: 'Product flow' },
-    profileHints: null,
-    limit: 2,
+      enabled: false,
+      query: 'grid electricity',
+      filter: { flowType: 'Product flow' },
+      profileHints: null,
+      limit: 2,
       dataSource: 'tg',
       matchThreshold: 0.25,
       fullTextWeight: 0.5,

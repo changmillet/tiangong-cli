@@ -330,10 +330,7 @@ function normalizeRemoteCandidateSearch(value: unknown): RemoteCandidateSearchCo
       ? null
       : normalizeToRecord(profileHintsInput, 'remote_candidate_search.profile_hints');
   const dataSource =
-    textValue(value.data_source) ??
-    textValue(value.dataSource) ??
-    textValue(value.source) ??
-    null;
+    textValue(value.data_source) ?? textValue(value.dataSource) ?? textValue(value.source) ?? null;
   if (dataSource && !REMOTE_DATA_SOURCES.has(dataSource)) {
     throw new CliError('remote_candidate_search.data_source must be one of tg, co, my, or te.', {
       code: 'IDENTITY_PREFLIGHT_INVALID_REMOTE_DATA_SOURCE',
@@ -348,9 +345,7 @@ function normalizeRemoteCandidateSearch(value: unknown): RemoteCandidateSearchCo
     profileHints,
     limit: normalizePositiveInteger(value.limit, 'remote_candidate_search.limit'),
     dataSource,
-    matchThreshold: normalizeMatchThreshold(
-      value.match_threshold ?? value.matchThreshold,
-    ),
+    matchThreshold: normalizeMatchThreshold(value.match_threshold ?? value.matchThreshold),
     fullTextWeight: normalizeNonNegativeNumber(
       value.full_text_weight ?? value.fullTextWeight,
       'remote_candidate_search.full_text_weight',
@@ -554,7 +549,12 @@ function queryFieldValues(value: string | null | string[], limit = 4): string[] 
     .slice(0, limit);
 }
 
-function appendQueryLine(lines: string[], label: string, value: string | null | string[], limit = 4) {
+function appendQueryLine(
+  lines: string[],
+  label: string,
+  value: string | null | string[],
+  limit = 4,
+) {
   const values = queryFieldValues(value, limit);
   if (values.length === 0) {
     return;
@@ -613,10 +613,15 @@ function flowRemoteQuery(profile: IdentityProfile): string | null {
 function processRemoteQuery(profile: IdentityProfile): string | null {
   const lines: string[] = [];
   appendQueryLine(lines, 'process name', profile.names, 4);
-  appendQueryLine(lines, 'reference flow', [
-    ...queryFieldValues(profile.fields.reference_flow_names, 4),
-    ...queryFieldValues(profile.fields.reference_flow_ids, 4),
-  ], 8);
+  appendQueryLine(
+    lines,
+    'reference flow',
+    [
+      ...queryFieldValues(profile.fields.reference_flow_names, 4),
+      ...queryFieldValues(profile.fields.reference_flow_ids, 4),
+    ],
+    8,
+  );
   appendQueryLine(lines, 'quantitative reference', profile.fields.quantitative_reference);
   appendQueryLine(lines, 'geography', profile.fields.geography);
   appendQueryLine(lines, 'time', profile.fields.time);
@@ -625,7 +630,12 @@ function processRemoteQuery(profile: IdentityProfile): string | null {
   appendQueryLine(lines, 'system boundary', profile.fields.system_boundary);
   appendQueryLine(lines, 'operation', profile.fields.operation);
   appendQueryLine(lines, 'provider role', profile.fields.provider_role);
-  appendQueryLine(lines, 'exchange flow refs', exchangeFlowRefsFromSignature(profile.exchange_signature), 8);
+  appendQueryLine(
+    lines,
+    'exchange flow refs',
+    exchangeFlowRefsFromSignature(profile.exchange_signature),
+    8,
+  );
   return compactRemoteQuery(lines, fallbackRemoteQueryText(profile));
 }
 
@@ -1077,12 +1087,7 @@ function exchangeRecordSignature(record: JsonObject): string | null {
       record.inputGroup,
       record.outputGroup,
     ) ??
-    fieldFromKeys(record, record, [
-      'exchangeDirection',
-      'direction',
-      'inputGroup',
-      'outputGroup',
-    ]);
+    fieldFromKeys(record, record, ['exchangeDirection', 'direction', 'inputGroup', 'outputGroup']);
   const amount =
     firstTextInOrder(
       record.meanAmount,
@@ -1147,11 +1152,7 @@ function tidasRoot(payload: JsonObject, kind: IdentityPreflightKind): JsonObject
 }
 
 function processCanonicalNames(root: JsonObject): string[] {
-  const nameRoot = pathValue(root, [
-    'processInformation',
-    'dataSetInformation',
-    'name',
-  ]);
+  const nameRoot = pathValue(root, ['processInformation', 'dataSetInformation', 'name']);
   return meaningfulTexts(
     uniqueTextsInOrder([
       pathValue(nameRoot, ['baseName']),
@@ -1213,7 +1214,9 @@ function processReferenceExchange(root: JsonObject): JsonObject | null {
   const exchanges = recordsFromValue(pathValue(root, ['exchanges', 'exchange']));
   const referenceExchanges =
     internalIdSet.size > 0
-      ? exchanges.filter((exchange) => internalIdSet.has(normalizeText(textValue(exchange['@dataSetInternalID']) ?? '')))
+      ? exchanges.filter((exchange) =>
+          internalIdSet.has(normalizeText(textValue(exchange['@dataSetInternalID']) ?? '')),
+        )
       : [];
   return referenceExchanges[0] ?? exchanges[0] ?? null;
 }
@@ -1227,14 +1230,9 @@ function processReferenceFlowValues(root: JsonObject): { ids: string[]; names: s
     ? selected.referenceToFlowDataSet
     : {};
   return {
-    ids: meaningfulTexts(
-      uniqueTextsInOrder([reference['@refObjectId'], selected['@refObjectId']]),
-    ),
+    ids: meaningfulTexts(uniqueTextsInOrder([reference['@refObjectId'], selected['@refObjectId']])),
     names: meaningfulTexts(
-      uniqueTextsInOrder([
-        reference['common:shortDescription'],
-        reference.shortDescription,
-      ]),
+      uniqueTextsInOrder([reference['common:shortDescription'], reference.shortDescription]),
     ),
   };
 }
@@ -1256,34 +1254,38 @@ function processCanonicalFields(root: JsonObject): {
     names,
     referenceFlowIds: referenceFlow.ids,
     referenceFlowNames: referenceFlow.names,
-    quantitativeReference: meaningfulText(textAtPath(root, [
-      'processInformation',
-      'quantitativeReference',
-      'functionalUnitOrOther',
-    ])) ?? meaningfulText(textAtPath(root, [
-      'processInformation',
-      'quantitativeReference',
-      'referenceToReferenceFlow',
-    ])),
-    geography: meaningfulText(textAtPath(root, [
-      'processInformation',
-      'geography',
-      'locationOfOperationSupplyOrProduction',
-      '@location',
-    ])),
-    time: meaningfulText(firstTextInOrder(
-      pathValue(root, ['processInformation', 'time', 'common:referenceYear']),
-      pathValue(root, [
+    quantitativeReference:
+      meaningfulText(
+        textAtPath(root, ['processInformation', 'quantitativeReference', 'functionalUnitOrOther']),
+      ) ??
+      meaningfulText(
+        textAtPath(root, [
+          'processInformation',
+          'quantitativeReference',
+          'referenceToReferenceFlow',
+        ]),
+      ),
+    geography: meaningfulText(
+      textAtPath(root, [
         'processInformation',
-        'time',
-        'common:timeRepresentativenessDescription',
+        'geography',
+        'locationOfOperationSupplyOrProduction',
+        '@location',
       ]),
-    )),
-    technologyRoute: meaningfulText(textAtPath(root, [
-      'processInformation',
-      'technology',
-      'technologyDescriptionAndIncludedProcesses',
-    ])),
+    ),
+    time: meaningfulText(
+      firstTextInOrder(
+        pathValue(root, ['processInformation', 'time', 'common:referenceYear']),
+        pathValue(root, ['processInformation', 'time', 'common:timeRepresentativenessDescription']),
+      ),
+    ),
+    technologyRoute: meaningfulText(
+      textAtPath(root, [
+        'processInformation',
+        'technology',
+        'technologyDescriptionAndIncludedProcesses',
+      ]),
+    ),
     systemBoundary: meaningfulText(
       textAtPath(root, ['processInformation', 'technology', 'includedProcesses']),
     ),
@@ -1310,21 +1312,20 @@ function flowCanonicalFields(root: JsonObject): {
     names: flowCanonicalNames(root),
     typeOfDataset,
     cas: meaningfulText(textAtPath(root, ['flowInformation', 'dataSetInformation', 'CASNumber'])),
-    flowProperty: meaningfulText(firstTextInOrder(
-      ...flowProperties.map((property) =>
-        pathValue(property, ['referenceToFlowPropertyDataSet', 'common:shortDescription']),
+    flowProperty: meaningfulText(
+      firstTextInOrder(
+        ...flowProperties.map((property) =>
+          pathValue(property, ['referenceToFlowPropertyDataSet', 'common:shortDescription']),
+        ),
       ),
-    )),
+    ),
     referenceUnit: null,
     categories: elementaryCategories.length
       ? elementaryCategories
       : classificationTexts(root, ['flowInformation']),
-    geography: meaningfulText(textAtPath(root, [
-      'flowInformation',
-      'dataSetInformation',
-      'name',
-      'mixAndLocationTypes',
-    ])),
+    geography: meaningfulText(
+      textAtPath(root, ['flowInformation', 'dataSetInformation', 'name', 'mixAndLocationTypes']),
+    ),
   };
 }
 
@@ -1333,23 +1334,27 @@ function processProfile(row: JsonObject): IdentityProfile {
   const identity = profileDatasetIdentity(row, payload, 'process');
   const canonicalRoot = tidasRoot(payload, 'process');
   const canonical = canonicalRoot ? processCanonicalFields(canonicalRoot) : null;
-  const names = canonical?.names.length ? canonical.names : textListFromKeys(row, payload, [
-    'name',
-    'baseName',
-    'shortDescription',
-    'name_en',
-    'name_zh',
-  ]);
-  const referenceFlowIds = canonical?.referenceFlowIds.length ? canonical.referenceFlowIds : textListFromKeys(row, payload, [
-    'reference_flow_id',
-    'referenceFlowId',
-    'reference_product_flow',
-    'referenceProductFlow',
-    'referenceToReferenceFlow',
-    'referenceToFlowDataSet',
-    '@refObjectId',
-    'refObjectId',
-  ]);
+  const names = canonical?.names.length
+    ? canonical.names
+    : textListFromKeys(row, payload, [
+        'name',
+        'baseName',
+        'shortDescription',
+        'name_en',
+        'name_zh',
+      ]);
+  const referenceFlowIds = canonical?.referenceFlowIds.length
+    ? canonical.referenceFlowIds
+    : textListFromKeys(row, payload, [
+        'reference_flow_id',
+        'referenceFlowId',
+        'reference_product_flow',
+        'referenceProductFlow',
+        'referenceToReferenceFlow',
+        'referenceToFlowDataSet',
+        '@refObjectId',
+        'refObjectId',
+      ]);
   const referenceFlowNames = canonical?.referenceFlowNames.length
     ? canonical.referenceFlowNames
     : textListFromKeys(row, payload, [
@@ -1363,11 +1368,11 @@ function processProfile(row: JsonObject): IdentityProfile {
     canonicalRoot && canonical
       ? canonical.quantitativeReference
       : fieldFromKeys(row, payload, [
-      'quantitative_reference',
-      'quantitativeReference',
-      'qref',
-      'referenceToReferenceFlow',
-    ]);
+          'quantitative_reference',
+          'quantitativeReference',
+          'qref',
+          'referenceToReferenceFlow',
+        ]);
   const geography =
     canonicalRoot && canonical
       ? canonical.geography
@@ -1379,12 +1384,7 @@ function processProfile(row: JsonObject): IdentityProfile {
   const time =
     canonicalRoot && canonical
       ? canonical.time
-      : fieldFromKeys(row, payload, [
-          'time',
-          'reference_year',
-          'referenceYear',
-          'timePeriod',
-        ]);
+      : fieldFromKeys(row, payload, ['time', 'reference_year', 'referenceYear', 'timePeriod']);
   const technologyRoute =
     canonicalRoot && canonical
       ? canonical.technologyRoute
@@ -1397,11 +1397,7 @@ function processProfile(row: JsonObject): IdentityProfile {
   const systemBoundary =
     canonicalRoot && canonical
       ? canonical.systemBoundary
-      : fieldFromKeys(row, payload, [
-          'system_boundary',
-          'systemBoundary',
-          'boundary',
-        ]);
+      : fieldFromKeys(row, payload, ['system_boundary', 'systemBoundary', 'boundary']);
   const providerRole = fieldFromKeys(row, payload, ['provider_role', 'providerRole']);
   const categories = canonical?.categories.length
     ? canonical.categories
@@ -1450,23 +1446,20 @@ function flowProfile(row: JsonObject): IdentityProfile {
   const identity = profileDatasetIdentity(row, payload, 'flow');
   const canonicalRoot = tidasRoot(payload, 'flow');
   const canonical = canonicalRoot ? flowCanonicalFields(canonicalRoot) : null;
-  const names = canonical?.names.length ? canonical.names : textListFromKeys(row, payload, [
-    'name',
-    'baseName',
-    'shortDescription',
-    'name_en',
-    'name_zh',
-    'synonyms',
-  ]);
+  const names = canonical?.names.length
+    ? canonical.names
+    : textListFromKeys(row, payload, [
+        'name',
+        'baseName',
+        'shortDescription',
+        'name_en',
+        'name_zh',
+        'synonyms',
+      ]);
   const typeOfDataset =
     canonicalRoot && canonical
       ? canonical.typeOfDataset
-      : fieldFromKeys(row, payload, [
-          'type_of_dataset',
-          'typeOfDataSet',
-          'flow_type',
-          'flowType',
-        ]);
+      : fieldFromKeys(row, payload, ['type_of_dataset', 'typeOfDataSet', 'flow_type', 'flowType']);
   const cas =
     canonicalRoot && canonical
       ? canonical.cas
@@ -1487,21 +1480,11 @@ function flowProfile(row: JsonObject): IdentityProfile {
       : fieldFromKeys(row, payload, ['reference_unit', 'referenceUnit', 'unit']);
   const categories = canonical?.categories.length
     ? canonical.categories
-    : textListFromKeys(row, payload, [
-        'category',
-        'class',
-        'classification',
-        'compartment',
-      ]);
+    : textListFromKeys(row, payload, ['category', 'class', 'classification', 'compartment']);
   const geography =
     canonicalRoot && canonical
       ? canonical.geography
-      : fieldFromKeys(row, payload, [
-          'geography',
-          'location',
-          'market',
-          'mixAndLocationTypes',
-        ]);
+      : fieldFromKeys(row, payload, ['geography', 'location', 'market', 'mixAndLocationTypes']);
   const keyParts = [
     normalizeText(typeOfDataset ?? ''),
     ...normalizedList(names).slice(0, 4),
@@ -1531,16 +1514,9 @@ function flowProfile(row: JsonObject): IdentityProfile {
   };
 }
 
-const PROFILE_ARRAY_FIELDS = new Set([
-  'categories',
-  'reference_flow_ids',
-  'reference_flow_names',
-]);
+const PROFILE_ARRAY_FIELDS = new Set(['categories', 'reference_flow_ids', 'reference_flow_names']);
 
-const PROFILE_HINT_KEYS: Record<
-  IdentityPreflightKind,
-  Record<string, string[]>
-> = {
+const PROFILE_HINT_KEYS: Record<IdentityPreflightKind, Record<string, string[]>> = {
   flow: {
     type_of_dataset: ['type_of_dataset', 'typeOfDataSet', 'flow_type', 'flowType'],
     cas: ['cas', 'CAS', 'CASNumber', 'cas_number'],
@@ -1602,7 +1578,9 @@ function identityKeyFromProfile(
       normalizeText(typeof fields.provider_role === 'string' ? fields.provider_role : ''),
       ...normalizedList(normalizedFieldValues(fields.categories)).slice(0, 4),
       exchangeSignature.join(','),
-    ].filter(Boolean).join('|');
+    ]
+      .filter(Boolean)
+      .join('|');
   }
 
   return [
@@ -1613,7 +1591,9 @@ function identityKeyFromProfile(
     normalizeText(typeof fields.reference_unit === 'string' ? fields.reference_unit : ''),
     ...normalizedList(normalizedFieldValues(fields.categories)).slice(0, 4),
     normalizeText(typeof fields.geography === 'string' ? fields.geography : ''),
-  ].filter(Boolean).join('|');
+  ]
+    .filter(Boolean)
+    .join('|');
 }
 
 function applyIdentityProfileHints(
@@ -1634,7 +1614,7 @@ function applyIdentityProfileHints(
     if (values.length === 0) {
       continue;
     }
-    fields[field] = PROFILE_ARRAY_FIELDS.has(field) ? values : values[0] ?? null;
+    fields[field] = PROFILE_ARRAY_FIELDS.has(field) ? values : (values[0] ?? null);
   }
 
   return {
@@ -1694,9 +1674,7 @@ function expandedFlowNameVariants(value: string): string[] {
 }
 
 function flowNameVariants(names: string[]): string[] {
-  return normalizedList(names)
-    .flatMap(expandedFlowNameVariants)
-    .filter(Boolean);
+  return normalizedList(names).flatMap(expandedFlowNameVariants).filter(Boolean);
 }
 
 function nameTokens(names: string[]): Set<string> {
@@ -1766,10 +1744,7 @@ function hasStrongEquivalentFlowName(target: IdentityProfile, candidate: Identit
 }
 
 function hasEquivalentFlowName(target: IdentityProfile, candidate: IdentityProfile): boolean {
-  return (
-    hasStrongEquivalentFlowName(target, candidate) ||
-    hasSimilarNamePhrase(target, candidate)
-  );
+  return hasStrongEquivalentFlowName(target, candidate) || hasSimilarNamePhrase(target, candidate);
 }
 
 function isElementaryFlowProfile(profile: IdentityProfile): boolean {
@@ -1825,13 +1800,19 @@ function lastNormalizedValue(value: string | null | string[]): string | null {
   return values.length > 0 ? values[values.length - 1] : null;
 }
 
-function sameCategoryLeaf(left: string | null | string[], right: string | null | string[]): boolean {
+function sameCategoryLeaf(
+  left: string | null | string[],
+  right: string | null | string[],
+): boolean {
   const leftLeaf = lastNormalizedValue(left);
   const rightLeaf = lastNormalizedValue(right);
   return Boolean(leftLeaf && rightLeaf && leftLeaf === rightLeaf);
 }
 
-function sameCategoryPath(left: string | null | string[], right: string | null | string[]): boolean {
+function sameCategoryPath(
+  left: string | null | string[],
+  right: string | null | string[],
+): boolean {
   const leftValues = normalizedFieldValues(left);
   const rightValues = normalizedFieldValues(right);
   return (
@@ -1940,7 +1921,8 @@ function hasEquivalentFlowCore(target: IdentityProfile, candidate: IdentityProfi
     sameNonEmptyField(target.fields.type_of_dataset, 'Elementary flow') &&
     sameNonEmptyField(candidate.fields.type_of_dataset, 'Elementary flow');
   const hasEquivalentElementaryCompartment =
-    isElementary && sameElementaryCompartment(target.fields.categories, candidate.fields.categories);
+    isElementary &&
+    sameElementaryCompartment(target.fields.categories, candidate.fields.categories);
 
   if (isElementary) {
     return (

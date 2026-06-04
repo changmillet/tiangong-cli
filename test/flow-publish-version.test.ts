@@ -679,7 +679,10 @@ test('runFlowPublishVersion blocks import placeholder content before remote plan
       .split(/\r?\n/u)
       .filter(Boolean)
       .map((line) => JSON.parse(line) as JsonRecord);
-    assert.equal(((failures[0].reason as JsonRecord[])[0] as JsonRecord).validator, 'import_content');
+    assert.equal(
+      ((failures[0].reason as JsonRecord[])[0] as JsonRecord).validator,
+      'import_content',
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

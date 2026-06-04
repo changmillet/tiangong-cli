@@ -80,7 +80,10 @@ function lookup(exactVersion: string | null, latestVersion: string | null): Remo
   };
 }
 
-function payloadLookup(payload: Record<string, unknown>, overrides: Partial<RemoteDatasetPayloadLookup> = {}) {
+function payloadLookup(
+  payload: Record<string, unknown>,
+  overrides: Partial<RemoteDatasetPayloadLookup> = {},
+) {
   return {
     id: 'fixture',
     version: '01.00.000',
@@ -519,12 +522,15 @@ test('runDatasetRemoteVerify skips Foundry unresolvedTrace evidence references',
     assert.equal(report.status, 'passed_remote_verification');
     assert.equal(report.counts.references, 2);
     assert.equal(report.counts.by_status.unsupported_type, 0);
-    assert.deepEqual(
-      calls.map((call) => `${call.table}:${call.id}`).sort(),
-      ['flows:flow-real', 'processes:proc-with-trace'],
-    );
+    assert.deepEqual(calls.map((call) => `${call.table}:${call.id}`).sort(), [
+      'flows:flow-real',
+      'processes:proc-with-trace',
+    ]);
     const checks = readJsonl(report.files.checks) as Array<{ path: string }>;
-    assert.equal(checks.some((check) => check.path.includes('unresolvedTrace')), false);
+    assert.equal(
+      checks.some((check) => check.path.includes('unresolvedTrace')),
+      false,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -1208,6 +1214,7 @@ test('runDatasetRemoteRefresh patches latest reachable reference versions and re
                 path: '/processDataSet/exchanges/exchange/0/referenceToFlowDataSet',
                 short_description: 'Reference flow',
                 status: 'version_outdated',
+                exact_version: '01.00.000',
                 latest_version: '01.00.002',
                 exact_source_url: 'https://example.test/exact',
                 latest_source_url: 'https://example.test/latest',
@@ -1223,6 +1230,7 @@ test('runDatasetRemoteRefresh patches latest reachable reference versions and re
                 path: '/processDataSet/administrativeInformation/dataEntryBy/common:referenceToPersonOrEntityEnteringTheData',
                 short_description: null,
                 status: 'version_missing',
+                exact_version: null,
                 latest_version: '01.00.001',
                 exact_source_url: null,
                 latest_source_url: 'https://example.test/latest-contact',
@@ -1433,6 +1441,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
                 path: '/missing',
                 short_description: null,
                 status: 'version_outdated',
+                exact_version: '01.00.000',
                 latest_version: '01.00.001',
                 exact_source_url: null,
                 latest_source_url: null,
@@ -1448,6 +1457,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
                 path: '/processDataSet/exchanges/exchange/9/referenceToFlowDataSet',
                 short_description: null,
                 status: 'version_outdated',
+                exact_version: '01.00.000',
                 latest_version: '01.00.001',
                 exact_source_url: null,
                 latest_source_url: null,
@@ -1463,6 +1473,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
                 path: '/processDataSet/exchanges/exchange/0/referenceToFlowDataSet',
                 short_description: null,
                 status: 'version_outdated',
+                exact_version: '01.00.000',
                 latest_version: '01.00.000',
                 exact_source_url: null,
                 latest_source_url: null,
@@ -1556,6 +1567,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
           path: '/model/link/@flowUUID',
           short_description: null,
           status: 'version_outdated',
+          exact_version: '01.00.000',
           latest_version: '01.00.001',
           exact_source_url: null,
           latest_source_url: null,
@@ -1594,6 +1606,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
             path: '/model/link/@flowUUID',
             short_description: null,
             status: 'version_outdated',
+            exact_version: '01.00.000',
             latest_version: '01.00.001',
             exact_source_url: null,
             latest_source_url: null,
@@ -1617,6 +1630,7 @@ test('runDatasetRemoteRefresh validates required flags and skips unpatchable che
         path: '/',
         short_description: null,
         status: 'version_outdated',
+        exact_version: '01.00.000',
         latest_version: '01.00.001',
         exact_source_url: null,
         latest_source_url: null,

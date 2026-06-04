@@ -582,7 +582,10 @@ function stableJson(value: unknown): unknown {
 }
 
 function sha256Json(value: unknown): string {
-  return crypto.createHash('sha256').update(JSON.stringify(stableJson(value))).digest('hex');
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify(stableJson(value)))
+    .digest('hex');
 }
 
 function buildRemotePayloadUrl(
@@ -1002,7 +1005,7 @@ export async function runDatasetRemoteVerify(
     );
     for (const check of rootChecks) {
       const localPayload = unwrapDatasetPayload(rows[check.row_index]);
-      let remotePayload: RemoteDatasetPayloadLookup | null = null;
+      let remotePayload: RemoteDatasetPayloadLookup | null;
       try {
         if (!rootPayloadLookupImpl) {
           throw new Error('root payload lookup is not available');
@@ -1049,7 +1052,9 @@ export async function runDatasetRemoteVerify(
     }
   });
   const rootReadbackChecksCount = checks.filter((check) => check.path.endsWith('#readback')).length;
-  const rootPayloadMismatches = checks.filter((check) => check.status === 'payload_mismatch').length;
+  const rootPayloadMismatches = checks.filter(
+    (check) => check.status === 'payload_mismatch',
+  ).length;
 
   const files = buildFiles(outDir);
   const report: DatasetRemoteVerificationReport = {

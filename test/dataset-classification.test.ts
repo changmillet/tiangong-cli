@@ -334,10 +334,12 @@ test('dataset classification location apply targets lifecyclemodel rows by UUID 
     });
     assert.equal(report.status, 'completed');
     assert.equal(report.counts.applied, 1);
-    const rows = readJsonl(outPath) as Array<ReturnType<typeof sampleLifecyclemodelRowWithLocation>>;
+    const rows = readJsonl(outPath) as Array<
+      ReturnType<typeof sampleLifecyclemodelRowWithLocation>
+    >;
     assert.equal(
-      rows[0]?.lifeCycleModelDataSet.lifeCycleModelInformation.technology.processes
-        .processInstance.connections.outputExchange.downstreamProcess['@location'],
+      rows[0]?.lifeCycleModelDataSet.lifeCycleModelInformation.technology.processes.processInstance
+        .connections.outputExchange.downstreamProcess['@location'],
       'CH',
     );
   } finally {

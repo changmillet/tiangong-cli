@@ -926,6 +926,7 @@ test('qa lifecyclemodel model helpers cover direct payload roots, fallbacks, and
       summaryPath: path.join(dir, 'mismatch-artifacts', 'summary.json'),
       connectionsPath: path.join(dir, 'mismatch-artifacts', 'connections.json'),
       processCatalogPath: path.join(dir, 'mismatch-artifacts', 'process-catalog.json'),
+      inputMode: 'run_dir' as const,
     };
     writeJson(mismatchEntry.summaryPath, {
       process_count: 2,
@@ -979,6 +980,7 @@ test('qa lifecyclemodel model helpers cover direct payload roots, fallbacks, and
       summaryPath: path.join(invalidArtifactsDir, 'summary.json'),
       connectionsPath: path.join(invalidArtifactsDir, 'connections.json'),
       processCatalogPath: path.join(invalidArtifactsDir, 'process-catalog.json'),
+      inputMode: 'run_dir' as const,
     };
 
     writeJson(invalidArtifactsEntry.summaryPath, []);

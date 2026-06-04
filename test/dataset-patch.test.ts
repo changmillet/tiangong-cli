@@ -127,8 +127,13 @@ test('runDatasetPatchApply applies evidenced JSON patch operations transactional
     assert.equal(report.evidence_count, 1);
     const rows = readJsonl(outPath);
     assert.equal(
-      (rows[0] as { processDataSet: { processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } } } })
-        .processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
+      (
+        rows[0] as {
+          processDataSet: {
+            processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } };
+          };
+        }
+      ).processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
       'Curated process name',
     );
     assert.equal(existsSync(report.files.patch_evidence ?? ''), true);
@@ -185,8 +190,13 @@ test('runDatasetPatchApply blocks patches without completed status before applyi
     assert.equal(report.applied_operation_count, 0);
     const rows = readJsonl(outPath);
     assert.equal(
-      (rows[0] as { processDataSet: { processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } } } })
-        .processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
+      (
+        rows[0] as {
+          processDataSet: {
+            processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } };
+          };
+        }
+      ).processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
       'Old process name',
     );
   } finally {
@@ -229,8 +239,13 @@ test('runDatasetPatchApply blocks unevidenced changes and leaves output rows unc
     assert.equal(report.applied_operation_count, 0);
     const rows = readJsonl(outPath);
     assert.equal(
-      (rows[0] as { processDataSet: { processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } } } })
-        .processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
+      (
+        rows[0] as {
+          processDataSet: {
+            processInformation: { dataSetInformation: { name: { baseName: { '#text': string } } } };
+          };
+        }
+      ).processDataSet.processInformation.dataSetInformation.name.baseName['#text'],
       'Old process name',
     );
   } finally {
