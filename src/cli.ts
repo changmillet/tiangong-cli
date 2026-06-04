@@ -488,6 +488,7 @@ Implemented Commands:
 Planned Surface (not implemented yet):
   auth       whoami | doctor-auth
   job        get | wait | logs
+  dataset maintenance plan | apply | verify
 
 Planned commands currently print an explicit "not implemented yet" message and exit with code 2.
 
@@ -529,6 +530,7 @@ Examples:
   tiangong-lca dataset evidence-search plan --query "中国2026年电力结构数据" --out-dir ./evidence-search
   tiangong-lca dataset evidence-search run --input ./evidence-search.request.json --results ./search-results.json --out-dir ./evidence-search
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir /abs/path/to/dataset-rewrite
+  tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir /abs/path/to/dataset-maintenance
   tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run
@@ -684,6 +686,9 @@ Implemented Subcommands:
   references rewrite   Rewrite flow references in local process and lifecyclemodel rows
   references refresh-remote Refresh local TIDAS reference versions to latest reachable remote rows
 
+Planned Subcommands:
+  maintenance plan/apply/verify Plan, execute, and verify RLS-scoped dataset delete/redo maintenance
+
 Examples:
   tiangong-lca dataset contract get --type process --include schema,methodology,ruleset --out-dir ./contract --help
   tiangong-lca dataset context-pack --type process --profile ai-import --out-dir ./context-pack --help
@@ -707,6 +712,35 @@ Examples:
   tiangong-lca dataset evidence-search run --input ./request.json --results ./search-results.json --out-dir ./evidence-search --help
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
   tiangong-lca dataset references refresh-remote --input ./rows.jsonl --out ./rows.refreshed.jsonl --out-dir ./dataset-reference-refresh --help
+  tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir ./dataset-maintenance --help
+`.trim();
+}
+
+function renderDatasetMaintenanceHelp(): string {
+  return `Usage:
+  tiangong-lca dataset maintenance <plan|apply|verify> [options]
+
+Status:
+  Planned surface. This command family is reserved for RLS-scoped cleanup and redo workflows and currently exits with code 2 for executable actions.
+
+Planned Actions:
+  plan    Build an immutable maintenance plan from a scope manifest, visible remote snapshot, dependency impact report, and intended operation.
+  apply   Execute an approved plan through current-user RLS and platform dataset command paths; never bypass RLS or delete rows outside the visible scope.
+  verify  Re-fetch affected rows and references, then prove that deleted, updated, skipped, protected, and redone rows match the plan.
+
+Required Artifact Contract:
+  - maintenance-plan.json
+  - rls-visible-snapshot.json
+  - protected-rows.jsonl
+  - reference-impact-report.json
+  - dry-run-report.json
+  - commit-report.json
+  - readback-verify-report.json
+
+Examples:
+  tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir ./dataset-maintenance
+  tiangong-lca dataset maintenance apply --plan ./dataset-maintenance/maintenance-plan.json --commit
+  tiangong-lca dataset maintenance verify --plan ./dataset-maintenance/maintenance-plan.json --out-dir ./dataset-maintenance/verify
 `.trim();
 }
 
@@ -6304,6 +6338,20 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         stdout: stringifyJson(report, datasetFlags.json),
         stderr: '',
       };
+    }
+
+    if (command === 'dataset' && subcommand === 'maintenance') {
+      const action = commandArgs[0] ?? '';
+      if (!action || action === '--help' || action === '-h') {
+        return { exitCode: 0, stdout: `${renderDatasetMaintenanceHelp()}\n`, stderr: '' };
+      }
+      if (!['plan', 'apply', 'verify'].includes(action)) {
+        throw new CliError("dataset maintenance action must be 'plan', 'apply', or 'verify'.", {
+          code: 'DATASET_MAINTENANCE_ACTION_INVALID',
+          exitCode: 2,
+        });
+      }
+      return plannedCommand('dataset', `maintenance ${action}`);
     }
 
     if (command === 'lifecyclemodel' && !subcommand) {

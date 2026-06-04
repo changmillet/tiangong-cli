@@ -68,6 +68,7 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /lifecyclemodel auto-build \| validate-build \| publish-build/u);
   assert.match(result.stdout, /publish-resulting-process/u);
   assert.match(result.stdout, /qa\s+process \| flow \| lifecyclemodel/u);
+  assert.match(result.stdout, /dataset maintenance plan \| apply \| verify/u);
   assert.match(result.stdout, /exit with code 2/u);
   assert.equal(result.stderr, '');
 });
@@ -437,6 +438,7 @@ test('executeCli exposes dataset and lifecyclemodel friction-fix commands', asyn
   assert.match(datasetHelp.stdout, /tiangong-lca dataset <subcommand>/u);
   assert.match(datasetHelp.stdout, /validate/u);
   assert.match(datasetHelp.stdout, /references rewrite/u);
+  assert.match(datasetHelp.stdout, /maintenance plan\/apply\/verify/u);
 
   const datasetValidateHelp = await executeCli(['dataset', 'validate', '--help'], makeDeps());
   assert.equal(datasetValidateHelp.exitCode, 0);
@@ -460,6 +462,21 @@ test('executeCli exposes dataset and lifecyclemodel friction-fix commands', asyn
   assert.match(datasetEvidenceHelp.stdout, /tiangong-lca dataset evidence-search <plan\|run>/u);
   assert.match(datasetEvidenceHelp.stdout, /--provider-url/u);
   assert.doesNotMatch(datasetEvidenceHelp.stdout, /Planned command/u);
+
+  const datasetMaintenanceHelp = await executeCli(['dataset', 'maintenance', '--help'], makeDeps());
+  assert.equal(datasetMaintenanceHelp.exitCode, 0);
+  assert.match(datasetMaintenanceHelp.stdout, /RLS-scoped cleanup and redo workflows/u);
+  assert.match(datasetMaintenanceHelp.stdout, /maintenance-plan\.json/u);
+
+  const datasetMaintenancePlan = await executeCli(
+    ['dataset', 'maintenance', 'plan'],
+    makeDeps(),
+  );
+  assert.equal(datasetMaintenancePlan.exitCode, 2);
+  assert.match(
+    datasetMaintenancePlan.stderr,
+    /Command 'dataset maintenance plan' is part of the planned unified surface/u,
+  );
 
   const lifecyclemodelSaveDraftHelp = await executeCli(
     ['lifecyclemodel', 'save-draft', '--help'],
