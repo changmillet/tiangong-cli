@@ -268,6 +268,24 @@ function formatPostgrestError(error: PostgrestError): {
   };
 }
 
+function isPostgrestInvalidJsonError(error: PostgrestError, status: number): boolean {
+  const code = trimToken(error.code);
+  const message = trimToken(error.message);
+  if (code) {
+    return false;
+  }
+
+  if (status === 0 && /^SyntaxError:/u.test(message)) {
+    return true;
+  }
+
+  return status >= 200 && status < 300;
+}
+
+function postgrestInvalidJsonDetails(error: PostgrestError): string {
+  return trimToken(error.details) || trimToken(error.message) || 'invalid JSON response';
+}
+
 export async function runSupabaseArrayQuery<T>(
   queryPromise: PromiseLike<SupabaseQueryResult<T[]>>,
   sourceUrl: string,
@@ -283,15 +301,11 @@ export async function runSupabaseQuery<T>(
   try {
     const result = await queryPromise;
     if (result.error) {
-      if (
-        result.status === 0 &&
-        result.error.code === '' &&
-        /^SyntaxError:/u.test(result.error.message)
-      ) {
+      if (isPostgrestInvalidJsonError(result.error, result.status)) {
         throw new CliError(`Remote response was not valid JSON for ${sourceUrl}`, {
           code: 'REMOTE_INVALID_JSON',
           exitCode: 1,
-          details: result.error.details || result.error.message,
+          details: postgrestInvalidJsonDetails(result.error),
         });
       }
 
@@ -333,15 +347,11 @@ export async function runSupabaseMutation(
   try {
     const result = await queryPromise;
     if (result.error) {
-      if (
-        result.status === 0 &&
-        result.error.code === '' &&
-        /^SyntaxError:/u.test(result.error.message)
-      ) {
+      if (isPostgrestInvalidJsonError(result.error, result.status)) {
         throw new CliError(`Remote response was not valid JSON for ${sourceUrl}`, {
           code: 'REMOTE_INVALID_JSON',
           exitCode: 1,
-          details: result.error.details || result.error.message,
+          details: postgrestInvalidJsonDetails(result.error),
         });
       }
 

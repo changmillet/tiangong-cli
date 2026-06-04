@@ -395,6 +395,26 @@ test('runSupabaseQuery and runSupabaseArrayQuery cover success, null arrays, and
       error.code === 'REMOTE_INVALID_JSON' &&
       error.details === 'SyntaxError: Unexpected token < in JSON at position 0',
   );
+
+  await assert.rejects(
+    async () =>
+      runSupabaseQuery(
+        Promise.resolve({
+          data: null,
+          error: makePostgrestError({
+            code: '',
+            message: '{"broken"',
+            details: null,
+          }) as never,
+          status: 200,
+        }),
+        'https://example.supabase.co/rest/v1/flows',
+      ),
+    (error) =>
+      error instanceof CliError &&
+      error.code === 'REMOTE_INVALID_JSON' &&
+      error.details === '{"broken"',
+  );
 });
 
 test('runSupabaseMutation covers success, CliError passthrough, and wrapped failures', async () => {
@@ -489,6 +509,25 @@ test('runSupabaseMutation covers success, CliError passthrough, and wrapped fail
       error instanceof CliError &&
       error.code === 'REMOTE_INVALID_JSON' &&
       error.details === 'SyntaxError: Unexpected token < in JSON at position 0',
+  );
+
+  await assert.rejects(
+    async () =>
+      runSupabaseMutation(
+        Promise.resolve({
+          error: makePostgrestError({
+            code: '',
+            message: '{"broken"',
+            details: null,
+          }) as never,
+          status: 200,
+        }),
+        'https://example.supabase.co/rest/v1/processes',
+      ),
+    (error) =>
+      error instanceof CliError &&
+      error.code === 'REMOTE_INVALID_JSON' &&
+      error.details === '{"broken"',
   );
 
   await assert.rejects(
