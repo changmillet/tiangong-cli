@@ -1867,6 +1867,264 @@ test('identity preflight internals normalize remote search inputs', () => {
   );
 });
 
+test('identity preflight internals cover remote search edge helpers', () => {
+  const normalized = __testInternals.normalizeRemoteCandidateSearch({
+    query: 'hydrogen',
+    limit: 2,
+    data_source: 'tg',
+  });
+
+  assert.equal(__testInternals.normalizeNonNegativeNumber(undefined, 'weight'), null);
+  assert.throws(
+    () => __testInternals.normalizeNonNegativeNumber(-1, 'weight'),
+    /non-negative number/u,
+  );
+  assert.throws(() => __testInternals.normalizeMatchThreshold(2), /between 0 and 1/u);
+  assert.throws(
+    () =>
+      __testInternals.mergeRemoteCandidateSearchConfig(normalized, {
+        inputPath: '/tmp/identity-preflight.json',
+        remoteDataSource: 'public',
+      }),
+    /--remote-data-source must be one of tg, co, my, or te/u,
+  );
+
+  assert.deepEqual(
+    __testInternals.mergeRemoteCandidateSearchConfig(normalized, {
+      inputPath: '/tmp/identity-preflight.json',
+      remoteCandidateSearch: false,
+      remoteQuery: ' methane ',
+      remoteFilter: { flowType: 'Elementary flow' },
+      remoteLimit: 4,
+      remoteDataSource: 'co',
+    }),
+    {
+      ...normalized,
+      enabled: false,
+      query: 'methane',
+      filter: { flowType: 'Elementary flow' },
+      limit: 4,
+      dataSource: 'co',
+    },
+  );
+
+  assert.equal(__testInternals.isRemoteQueryNoiseText(''), true);
+  assert.equal(__testInternals.isRemoteQueryNoiseText('ILCD format'), true);
+  assert.equal(__testInternals.isRemoteQueryNoiseText('ILCD Data Network - Entry-level'), true);
+  assert.equal(__testInternals.isRemoteQueryNoiseText('not specified by the BAFU source.'), true);
+  assert.deepEqual(__testInternals.queryFieldValues(['Not specified', ' value '], 1), ['value']);
+
+  const lines: string[] = [];
+  __testInternals.appendQueryLine(lines, 'field', ['Not specified', 'usable value']);
+  assert.deepEqual(lines, ['field: usable value']);
+
+  assert.deepEqual(
+    __testInternals.exchangeFlowRefsFromSignature([
+      'flow-1:input:1',
+      'flow-2:input:1',
+      'flow-3:input:1',
+      'flow-4:input:1',
+      'flow-5:input:1',
+      'flow-6:input:1',
+      'flow-7:input:1',
+      'flow-8:input:1',
+      'flow-9:input:1',
+    ]),
+    ['flow-1', 'flow-2', 'flow-3', 'flow-4', 'flow-5', 'flow-6', 'flow-7', 'flow-8'],
+  );
+  assert.equal(__testInternals.compactRemoteQuery(['  alpha   beta  '], 'fallback'), 'alpha beta');
+  assert.equal(__testInternals.compactRemoteQuery([], '  fallback value  '), 'fallback value');
+  assert.equal(__testInternals.compactRemoteQuery([], '   '), null);
+});
+
+test('identity preflight internals cover profile hints and identity key branches', () => {
+  const processKey = __testInternals.identityKeyFromProfile(
+    'process',
+    ['Heat, hard coal'],
+    {
+      reference_flow_ids: ['flow-a'],
+      reference_flow_names: ['heat'],
+      operation: 'produce',
+      quantitative_reference: '1 MJ',
+      geography: 'CH',
+      time: '2025',
+      technology_route: 'stove',
+      system_boundary: 'at plant',
+      provider_role: 'provider',
+      categories: ['energy', 'heat'],
+    },
+    ['flow-a:output:1'],
+  );
+  assert.equal(
+    processKey,
+    'heat hard coal|flow a|heat|produce|1 mj|ch|2025|stove|at plant|provider|energy|heat|flow-a:output:1',
+  );
+
+  const flowKey = __testInternals.identityKeyFromProfile(
+    'flow',
+    ['Methane'],
+    {
+      type_of_dataset: 'Elementary flow',
+      cas: '74-82-8',
+      flow_property: 'Mass',
+      reference_unit: 'kg',
+      categories: ['Emissions', 'Air'],
+      geography: 'GLO',
+    },
+    [],
+  );
+  assert.equal(flowKey, 'elementary flow|methane|74 82 8|mass|kg|air|emissions|glo');
+
+  const baseProfile = __testInternals.profileForKind(
+    {
+      name_en: 'Base process',
+      reference_flow_id: 'old-flow',
+      geography: 'RER',
+    },
+    'process',
+  );
+  const hinted = __testInternals.applyIdentityProfileHints(
+    baseProfile,
+    {
+      name: ['Hinted process'],
+      reference_flow_id: ['flow-hint', 'Not specified'],
+      geography: 'CN',
+      classification: ['energy', 'heat'],
+    },
+    'process',
+  );
+  assert.deepEqual(hinted.names, ['Hinted process']);
+  assert.deepEqual(hinted.fields.reference_flow_ids, ['flow-hint']);
+  assert.equal(hinted.fields.geography, 'CN');
+  assert.deepEqual(hinted.fields.categories, ['energy', 'heat']);
+  assert.equal(
+    __testInternals.applyIdentityProfileHints(baseProfile, null, 'process'),
+    baseProfile,
+  );
+
+  assert.deepEqual(
+    __testInternals.processReferenceFlowValues({
+      exchanges: {
+        exchange: {
+          '@dataSetInternalID': '1',
+          '@refObjectId': 'flow-fallback',
+        },
+      },
+    }),
+    { ids: ['flow-fallback'], names: [] },
+  );
+
+  const rowFallbackProfile = __testInternals.processProfile({
+    name_en: 'Fallback profile',
+    category: ['energy', 'heat'],
+  });
+  assert.deepEqual(rowFallbackProfile.fields.categories, ['energy', 'heat']);
+});
+
+test('identity preflight internals cover elementary flow comparison edges', () => {
+  const productFlow = __testInternals.flowProfile({
+    name_en: 'market flow',
+    type_of_dataset: 'Product flow',
+  });
+  const emptyElementary = __testInternals.flowProfile({
+    type_of_dataset: 'Elementary flow',
+  });
+  const methane = __testInternals.flowProfile({
+    name_en: 'Methane',
+    type_of_dataset: 'Elementary flow',
+    cas: '74-82-8',
+  });
+  const methaneAlias = __testInternals.flowProfile({
+    name_en: 'Marsh gas',
+    type_of_dataset: 'Elementary flow',
+    cas: '00074-82-8',
+  });
+  const ethene = __testInternals.flowProfile({
+    name_en: 'Ethene',
+    type_of_dataset: 'Elementary flow',
+  });
+  const ethylene = __testInternals.flowProfile({
+    name_en: 'Ethylene',
+    type_of_dataset: 'Elementary flow',
+  });
+  const carbonDioxide = __testInternals.flowProfile({
+    name_en: 'Carbon dioxide',
+    type_of_dataset: 'Elementary flow',
+    cas: '124-38-9',
+  });
+
+  assert.equal(__testInternals.hasConflictingFlowName(productFlow, methane), false);
+  assert.equal(__testInternals.hasConflictingFlowName(emptyElementary, methane), false);
+  assert.equal(__testInternals.hasConflictingFlowName(ethene, ethylene), false);
+  assert.equal(__testInternals.hasConflictingFlowName(methane, methaneAlias), false);
+  assert.equal(__testInternals.hasConflictingFlowName(methane, carbonDioxide), true);
+  assert.deepEqual(__testInternals.expandedFlowNameVariants('transformation to air'), [
+    'transformation to air',
+    'to air',
+  ]);
+  assert.deepEqual(__testInternals.expandedFlowNameVariants('occupation forest'), [
+    'occupation forest',
+    'occupation forest',
+  ]);
+  assert.equal(__testInternals.tokenCoverageRatio(new Set(), new Set(['methane'])), 0);
+
+  assert.equal(__testInternals.elementaryCompartmentKey(''), null);
+  assert.equal(
+    __testInternals.elementaryCompartmentKey('low pop air'),
+    'air_non_urban_or_high_stacks',
+  );
+  assert.equal(
+    __testInternals.elementaryCompartmentKey('urban air close to ground'),
+    'air_urban_close_to_ground',
+  );
+  assert.equal(__testInternals.elementaryCompartmentKey('indoor air'), 'air_indoor');
+  assert.equal(
+    __testInternals.elementaryCompartmentKey('air unspecified long term'),
+    'air_unspecified_long_term',
+  );
+  assert.equal(__testInternals.elementaryCompartmentKey('air unspecified'), 'air_unspecified');
+  assert.equal(__testInternals.elementaryCompartmentKey('fresh water'), 'water_fresh');
+  assert.equal(__testInternals.elementaryCompartmentKey('sea water'), 'water_sea');
+  assert.equal(
+    __testInternals.elementaryCompartmentKey('water unspecified long term'),
+    'water_unspecified_long_term',
+  );
+  assert.equal(__testInternals.elementaryCompartmentKey('water unspecified'), 'water_unspecified');
+  assert.equal(__testInternals.elementaryCompartmentKey('agricultural soil'), 'soil_agricultural');
+  assert.equal(
+    __testInternals.elementaryCompartmentKey('non agricultural soil'),
+    'soil_non_agricultural',
+  );
+  assert.equal(__testInternals.elementaryCompartmentKey('soil unspecified'), 'soil_unspecified');
+  assert.equal(
+    __testInternals.sameElementaryCompartment(
+      ['Emissions to air', 'air unspecified long term'],
+      ['Air', 'air unspecified long term'],
+    ),
+    true,
+  );
+
+  const leafTarget = __testInternals.flowProfile({
+    name_en: 'Acetone',
+    type_of_dataset: 'Elementary flow',
+    flow_property: 'Mass',
+    reference_unit: 'kg',
+    category: ['Emissions to air', 'urban'],
+  });
+  const leafCandidate = __testInternals.flowProfile({
+    name_en: 'Acetone candidate',
+    type_of_dataset: 'Elementary flow',
+    flow_property: 'Mass',
+    reference_unit: 'kg',
+    category: ['Emissions to water', 'urban'],
+  });
+  assert.ok(
+    __testInternals
+      .candidateEvaluation(leafTarget, leafCandidate, 'flow', 0)
+      .report.match_reasons.includes('same_category_leaf'),
+  );
+});
+
 test('identity preflight internals normalize candidate input aliases', () => {
   const normalized = __testInternals.normalizePreflightInput(
     {

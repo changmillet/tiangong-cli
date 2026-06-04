@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -463,6 +463,210 @@ test('dataset curation queue flow ref extraction covers supported reference shap
     refs.map((ref) => `${ref.id}@${ref.version ?? ''}`),
     ['flow-a@01', 'flow-b@02', 'flow-c@03', 'flow-d@', 'flow-e@'],
   );
+});
+
+test('dataset curation queue internals cover parsing, scope, and checkpoint states', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-curation-queue-internals-'));
+  const passedCheckpoint = path.join(dir, 'passed.json');
+  const blockedCheckpoint = path.join(dir, 'blocked.json');
+  const primitiveCheckpoint = path.join(dir, 'primitive.json');
+  const invalidCheckpoint = path.join(dir, 'invalid.json');
+  writeFileSync(passedCheckpoint, '{"status":"passed"}', 'utf8');
+  writeFileSync(blockedCheckpoint, '{"state":"failed"}', 'utf8');
+  writeFileSync(primitiveCheckpoint, '1', 'utf8');
+  writeFileSync(invalidCheckpoint, '{bad-json}', 'utf8');
+  try {
+    assert.deepEqual(
+      __testInternals.normalizeQueueScope({ entityType: 'flow', taskId: ' task ' }),
+      {
+        entity_type: 'flow',
+        task_id: 'task',
+      },
+    );
+    assert.equal(__testInternals.normalizeProcessLimit(undefined), null);
+    assert.equal(__testInternals.normalizeProcessLimit(2), 2);
+    assert.throws(() => __testInternals.normalizeProcessLimit(0), /--process-limit/u);
+    assert.throws(() => __testInternals.requirePath('', '--flows'), /--flows is required/u);
+    assert.throws(
+      () => __testInternals.requireExistingPath(path.join(dir, 'missing'), '--flows'),
+      /does not exist/u,
+    );
+    assert.equal(__testInternals.entityDirPlural('process'), 'processes');
+    assert.equal(__testInternals.entityDirPlural('flow'), 'flows');
+    assert.equal(__testInternals.entityDirPlural('support'), 'supports');
+    assert.equal(__testInternals.sanitizePathToken(' a/b:c '), 'a_b_c');
+    assert.equal(__testInternals.sanitizePathToken('@@@'), 'unknown');
+    assert.equal(__testInternals.entityDirName('a/b', '01:00'), 'a_b__01_00');
+    assert.equal(__testInternals.taskIdFor('flow', 'flow-1', '01.00.000'), 'flow:flow-1@01.00.000');
+    assert.equal(__testInternals.jsonLines([{ a: 1 }]), '{"a":1}\n');
+    assert.equal(__testInternals.jsonLines([]), '');
+
+    const task = __testInternals.parseQueueTask(
+      {
+        entity_type: 'flow',
+        task_id: 'flow:flow-1@01.00.000',
+        entity_id: 'flow-1',
+        version: '01.00.000',
+        lock_key: 'flow:flow-1@01.00.000',
+        depends_on: ['support:ug@1', 1],
+        input_rows_file: 'input.jsonl',
+        work_dir: 'work',
+        checkpoint_file: passedCheckpoint,
+        run_plan_file: 'plan.json',
+        closure_file: 'closure.json',
+      },
+      'tasks.jsonl',
+      0,
+    );
+    assert.deepEqual(task.depends_on, ['support:ug@1']);
+    assert.throws(
+      () => __testInternals.parseQueueTask(null, 'tasks.jsonl', 0),
+      /Invalid queue task/u,
+    );
+    assert.throws(
+      () => __testInternals.parseQueueTask({ entity_type: 'bad' }, 'tasks.jsonl', 0),
+      /Invalid queue task entity_type/u,
+    );
+    assert.throws(
+      () => __testInternals.parseQueueTask({ entity_type: 'flow' }, 'tasks.jsonl', 0),
+      /Invalid or missing task_id/u,
+    );
+    assert.deepEqual(
+      __testInternals.parseQueueBlocker(
+        {
+          entity_type: 'process',
+          code: 'missing_flow',
+          message: 'Missing flow',
+          details: { id: 'flow-1' },
+        },
+        'blockers.jsonl',
+        0,
+      ),
+      {
+        schema_version: 1,
+        code: 'missing_flow',
+        severity: 'blocker',
+        entity_type: 'process',
+        entity_id: null,
+        version: null,
+        message: 'Missing flow',
+        details: { id: 'flow-1' },
+      },
+    );
+    assert.throws(
+      () => __testInternals.parseQueueBlocker(null, 'blockers.jsonl', 0),
+      /Invalid queue blocker/u,
+    );
+    assert.throws(
+      () => __testInternals.parseQueueBlocker({ entity_type: 'bad' }, 'blockers.jsonl', 0),
+      /Invalid queue blocker entity_type/u,
+    );
+
+    assert.equal(__testInternals.readCheckpointStatus(path.join(dir, 'missing.json')), null);
+    assert.equal(__testInternals.readCheckpointStatus(passedCheckpoint), 'passed');
+    assert.equal(__testInternals.readCheckpointStatus(blockedCheckpoint), 'failed');
+    assert.equal(__testInternals.readCheckpointStatus(primitiveCheckpoint), 'blocked');
+    assert.equal(__testInternals.readCheckpointStatus(invalidCheckpoint), 'blocked');
+    assert.equal(__testInternals.taskRuntimeStatus('completed', []), 'complete');
+    assert.equal(__testInternals.taskRuntimeStatus('failed', []), 'blocked');
+    assert.equal(__testInternals.taskRuntimeStatus(null, ['dep']), 'waiting_dependencies');
+    assert.equal(__testInternals.taskRuntimeStatus(null, []), 'pending');
+
+    const states = __testInternals.buildTaskStates([
+      task,
+      {
+        ...task,
+        task_id: 'flow:flow-2@01.00.000',
+        entity_id: 'flow-2',
+        checkpoint_file: path.join(dir, 'missing.json'),
+        depends_on: [task.task_id],
+      },
+      {
+        ...task,
+        task_id: 'flow:flow-3@01.00.000',
+        entity_id: 'flow-3',
+        checkpoint_file: blockedCheckpoint,
+        depends_on: [],
+      },
+    ]);
+    assert.deepEqual(
+      states.map((state) => state.status),
+      ['complete', 'pending', 'blocked'],
+    );
+    assert.deepEqual(__testInternals.countTaskStates(states), {
+      total: 3,
+      complete: 1,
+      pending: 1,
+      waiting_dependencies: 0,
+      blocked: 1,
+    });
+    assert.equal(
+      __testInternals.taskMatchesScope(task, { entity_type: 'process', task_id: null }),
+      false,
+    );
+    assert.equal(
+      __testInternals.taskMatchesScope(task, { entity_type: 'flow', task_id: 'missing' }),
+      false,
+    );
+    assert.equal(__testInternals.withQueueAction(task).action.input_artifact, 'input.jsonl');
+
+    const emptyJsonl = path.join(dir, 'empty.jsonl');
+    const badJsonl = path.join(dir, 'bad.jsonl');
+    writeFileSync(emptyJsonl, '\n', 'utf8');
+    writeFileSync(badJsonl, '{bad-json}\n', 'utf8');
+    assert.deepEqual(__testInternals.readJsonlFile(emptyJsonl), []);
+    assert.throws(() => __testInternals.readJsonlFile(badJsonl), /Invalid JSONL/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset curation queue next and verify cover runtime blocker and complete states', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-curation-queue-runtime-'));
+  const outputs = path.join(dir, 'outputs');
+  mkdirSync(outputs, { recursive: true });
+  const checkpoint = path.join(dir, 'checkpoint.json');
+  writeFileSync(checkpoint, '{"status":"passed"}', 'utf8');
+  const task = {
+    schema_version: 1,
+    entity_type: 'flow',
+    task_id: 'flow:flow-1@01.00.000',
+    entity_id: 'flow-1',
+    version: '01.00.000',
+    lock_key: 'flow:flow-1@01.00.000',
+    depends_on: [],
+    input_rows_file: path.join(dir, 'input.jsonl'),
+    work_dir: dir,
+    checkpoint_file: checkpoint,
+    run_plan_file: path.join(dir, 'plan.json'),
+    closure_file: path.join(dir, 'closure.json'),
+  };
+  writeJsonl(path.join(outputs, 'curation-queue-tasks.jsonl'), [task]);
+  writeJsonl(path.join(outputs, 'curation-queue-blockers.jsonl'), []);
+  try {
+    assert.equal((await runDatasetCurationQueueNext({ queueDir: dir })).status, 'complete');
+    assert.equal((await runDatasetCurationQueueVerify({ queueDir: dir })).status, 'passed');
+    const runtime = __testInternals.readQueueRuntime(dir);
+    assert.equal(runtime.tasks.length, 1);
+
+    writeJsonl(path.join(outputs, 'curation-queue-blockers.jsonl'), [
+      {
+        entity_type: 'flow',
+        code: 'blocked',
+        message: 'Blocked queue',
+      },
+    ]);
+    assert.equal((await runDatasetCurationQueueNext({ queueDir: dir })).status, 'blocked');
+    assert.equal((await runDatasetCurationQueueVerify({ queueDir: dir })).status, 'blocked');
+
+    rmSync(path.join(outputs, 'curation-queue-tasks.jsonl'));
+    assert.throws(() => __testInternals.readQueueRuntime(dir), /tasks file does not exist/u);
+    writeJsonl(path.join(outputs, 'curation-queue-tasks.jsonl'), [task]);
+    rmSync(path.join(outputs, 'curation-queue-blockers.jsonl'));
+    assert.throws(() => __testInternals.readQueueRuntime(dir), /blockers file does not exist/u);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('executeCli executes dataset curation-queue build with injected implementation', async () => {

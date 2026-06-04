@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { executeCli } from '../src/cli.js';
 import {
+  __testInternals,
   runDatasetClassificationApply,
   runDatasetClassificationAudit,
   runDatasetClassificationChildren,
@@ -341,6 +342,256 @@ test('dataset classification location apply targets lifecyclemodel rows by UUID 
       rows[0]?.lifeCycleModelDataSet.lifeCycleModelInformation.technology.processes.processInstance
         .connections.outputExchange.downstreamProcess['@location'],
       'CH',
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset classification internals cover schema navigation and decision normalization', () => {
+  assert.equal(__testInternals.normalizeType('Flow Elementary'), 'flow-elementary');
+  assert.equal(__testInternals.normalizeType('product_flows'), 'flow-product');
+  assert.throws(
+    () => __testInternals.normalizeType('bad-kind'),
+    /Unsupported classification type/u,
+  );
+  assert.throws(
+    () => __testInternals.schemasDir([path.join(os.tmpdir(), 'missing-tidas-schemas')]),
+    /Bundled TIDAS schemas/u,
+  );
+
+  const entries: Array<{ level: number; code: string; text: string; value_key: '@classId' }> = [];
+  __testInternals.collectEntriesFromNode(
+    [
+      {
+        properties: {
+          '@level': { const: '0' },
+          '@classId': { const: 'A' },
+          '#text': { const: 'Root' },
+        },
+      },
+      {
+        properties: {
+          '@level': { const: '1' },
+          '@classId': { const: 'A1' },
+          '#text': { const: 'Child' },
+        },
+      },
+      { const: 'LOC', description: 'Location' },
+    ],
+    '@classId',
+    entries,
+  );
+  const navigator = __testInternals.buildNavigator(entries);
+  assert.deepEqual(
+    __testInternals.pathForCode(navigator, 'A1').map((entry) => entry.code),
+    ['A', 'A1'],
+  );
+  assert.deepEqual(__testInternals.pathForCode(navigator, 'missing'), []);
+  assert.deepEqual(__testInternals.toPathEntry(entries[0]!), {
+    '@level': '0',
+    '@classId': 'A',
+    '#text': 'Root',
+  });
+  assert.equal(__testInternals.classCode({ classId: 'class-id' }), 'class-id');
+  assert.equal(__testInternals.classCode(null), null);
+  assert.equal(__testInternals.constText({ const: '42' }), '42');
+  assert.equal(__testInternals.constText({ const: 42 }), null);
+  assert.equal(
+    __testInternals.lastSchemaPropertyName(['properties', 'location', '$ref']),
+    'location',
+  );
+  const locationKeys = new Set<string>();
+  __testInternals.collectLocationRefKeysFromSchema(
+    { properties: { customLocation: { $ref: 'tidas_locations_category.json' } } },
+    [],
+    locationKeys,
+  );
+  assert.equal(locationKeys.has('customLocation'), true);
+
+  assert.equal(__testInternals.normalizeTargetPath('/a~1b/c~0d'), 'a/b.c~d');
+  assert.equal(__testInternals.decisionTargetPath({ jsonPointer: '/x/y' }), 'x.y');
+  assert.deepEqual(__testInternals.normalizeStructuredDecisions({ rows: [{ a: 1 }, 2] }), [
+    { a: 1 },
+  ]);
+  assert.deepEqual(__testInternals.normalizeStructuredDecisions('bad'), []);
+  const blockers: Array<{ code: string }> = [];
+  assert.equal(__testInternals.normalizeDecision({}, 0, null, blockers as never), null);
+  assert.equal(blockers[0]?.code, 'classification_decision_target_missing');
+  const typeBlockers: Array<{ code: string }> = [];
+  assert.equal(
+    __testInternals.normalizeDecision(
+      { row_index: 0, code: '1080' },
+      0,
+      null,
+      typeBlockers as never,
+    ),
+    null,
+  );
+  assert.equal(typeBlockers[0]?.code, 'classification_decision_type_missing');
+  const pathBlockers: Array<{ code: string }> = [];
+  assert.equal(
+    __testInternals.normalizeDecision(
+      { row_index: 0, category_type: 'process', code: 'missing-code' },
+      0,
+      null,
+      pathBlockers as never,
+    ),
+    null,
+  );
+  assert.equal(pathBlockers[0]?.code, 'classification_decision_path_invalid');
+});
+
+test('dataset classification internals cover rows, containers, and location targets', () => {
+  const rows = __testInternals.prepareRows('memory', { rows: [sampleProcessRowWithLocations()] });
+  const processRow = rows[0]!;
+  assert.equal(processRow.id, 'process-1');
+  assert.equal(__testInternals.currentClassification(processRow, 'process') !== null, true);
+  const processPath = __testInternals.normalizePathFromDecision('process', { code: '1080' });
+  assert.equal(__testInternals.setClassification(processRow, 'process', processPath), true);
+  assert.deepEqual(__testInternals.currentClassification(processRow, 'process'), processPath);
+  const elementaryContainer = __testInternals.classificationContainer(
+    __testInternals.prepareRows('memory', {
+      rows: [
+        {
+          flowDataSet: {
+            flowInformation: { dataSetInformation: {} },
+          },
+        },
+      ],
+    })[0]!,
+    'flow-elementary',
+  );
+  assert.equal(Boolean(elementaryContainer), true);
+  assert.equal(
+    __testInternals.setClassification(
+      { ...processRow, rootKey: null, informationKey: null },
+      'process',
+      processPath,
+    ),
+    false,
+  );
+  assert.deepEqual(__testInternals.locationTargetStringValue(' RER '), {
+    parent: null,
+    key: null,
+    pathSuffix: [],
+    value: 'RER',
+  });
+  assert.deepEqual(__testInternals.locationTargetStringValue({ '#text': ' US ' }), {
+    parent: { '#text': ' US ' },
+    key: '#text',
+    pathSuffix: ['#text'],
+    value: 'US',
+  });
+  assert.equal(__testInternals.locationTargetStringValue({ value: 'US' }), null);
+  const targets = __testInternals.collectLocationTargets(sampleProcessRowWithLocations());
+  assert.equal(
+    targets.some((target) => target.path.endsWith('@location')),
+    true,
+  );
+  assert.equal(
+    __testInternals.resolveLocationTarget(processRow, {
+      targetPath:
+        'processDataSet.processInformation.geography.locationOfOperationSupplyOrProduction.@location',
+    } as never).length,
+    1,
+  );
+  assert.equal(
+    __testInternals.decisionMatchesRow(
+      { rowIndex: 0, datasetId: null, datasetVersion: null } as never,
+      processRow,
+    ),
+    true,
+  );
+  assert.equal(
+    __testInternals.decisionMatchesRow(
+      { rowIndex: null, datasetId: 'process-1', datasetVersion: 'bad' } as never,
+      processRow,
+    ),
+    false,
+  );
+  assert.equal(__testInternals.locationCodeFromPath(processPath), '1080');
+});
+
+test('dataset classification commands cover blocked branches', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-classification-blocks-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const decisionsPath = path.join(dir, 'decisions.jsonl');
+  const outPath = path.join(dir, 'classified.jsonl');
+  writeJsonl(inputPath, [sampleProcessRow(), sampleProcessRow()]);
+  writeJsonl(decisionsPath, [
+    { dataset_id: 'process-1', category_type: 'process', code: '1080' },
+    { row_index: 0, category_type: 'location', code: 'RER' },
+    {
+      row_index: 0,
+      category_type: 'location',
+      code: 'RER',
+      target_path: 'missing.location',
+    },
+  ]);
+  try {
+    const queried = await runDatasetClassificationChildren({
+      type: 'process',
+      parent: 'A',
+      query: 'crop',
+      limit: 1,
+    });
+    assert.equal(queried.counts.returned <= 1, true);
+    const unknownParent = await runDatasetClassificationChildren({
+      type: 'process',
+      parent: 'missing',
+    });
+    assert.equal(unknownParent.status, 'blocked');
+    const unknownPath = await runDatasetClassificationPath({ type: 'process', code: 'missing' });
+    assert.equal(unknownPath.status, 'blocked');
+    await assert.rejects(
+      () => runDatasetClassificationPath({ type: 'process', code: '' }),
+      /Missing required --code/u,
+    );
+    await assert.rejects(
+      () => runDatasetClassificationAudit({ type: 'process', inputPath, rawInput: [] }),
+      /supports only --type location/u,
+    );
+    await assert.rejects(
+      () => runDatasetClassificationAudit({ type: 'location', inputPath: '', rawInput: [] }),
+      /Missing required --input/u,
+    );
+    await assert.rejects(
+      () => runDatasetClassificationApply({ inputPath: '', decisionsPath, outPath }),
+      /Missing required --input/u,
+    );
+    await assert.rejects(
+      () => runDatasetClassificationApply({ inputPath, decisionsPath, outPath: '' }),
+      /Missing required --out/u,
+    );
+    await assert.rejects(
+      () => runDatasetClassificationApply({ inputPath, decisionsPath: '', outPath }),
+      /Missing required --decisions/u,
+    );
+    await assert.rejects(
+      () =>
+        runDatasetClassificationApply({
+          inputPath,
+          decisionsPath: path.join(dir, 'missing.json'),
+          outPath,
+        }),
+      /decisions file not found/u,
+    );
+
+    const blocked = await runDatasetClassificationApply({
+      inputPath,
+      decisionsPath,
+      outPath,
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(blocked.status, 'blocked');
+    assert.equal(
+      blocked.blockers.some((blocker) => blocker.code === 'classification_target_ambiguous'),
+      true,
+    );
+    assert.equal(
+      blocked.blockers.some((blocker) => blocker.code === 'location_target_not_found'),
+      true,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

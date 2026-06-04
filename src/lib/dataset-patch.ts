@@ -181,6 +181,10 @@ function sha256Text(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function caughtErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function normalizeClosure(value: unknown): ActionItemClosure | null {
   if (typeof value === 'string') {
     const code = value.trim();
@@ -301,13 +305,14 @@ function normalizePatchSet(value: unknown): NormalizedPatchSet | null {
 }
 
 function patchPayloadCompletionStatus(rawPatch: unknown): string | null {
-  if (!isRecord(rawPatch)) {
+  if (typeof rawPatch !== 'object' || rawPatch === null) {
     return null;
   }
+  const value = rawPatch as Record<string, unknown>;
   return (
-    nonEmptyString(rawPatch.patch_status) ??
-    nonEmptyString(rawPatch.patchStatus) ??
-    nonEmptyString(rawPatch.status)
+    nonEmptyString(value.patch_status) ??
+    nonEmptyString(value.patchStatus) ??
+    nonEmptyString(value.status)
   );
 }
 
@@ -348,25 +353,18 @@ function normalizePatchPayload(rawPatch: unknown): NormalizePatchResult {
     return { patches, blockers };
   }
 
-  if (!isRecord(rawPatch)) {
-    blockers.push({
-      code: 'patch_payload_invalid',
-      message: 'Patch payload must be an object or an array of patch sets.',
-    });
-    return { patches, blockers };
-  }
-
-  const directPatch = normalizePatchSet(rawPatch);
+  const patchObject = rawPatch as JsonObject;
+  const directPatch = normalizePatchSet(patchObject);
   if (directPatch) {
     patches.push(directPatch);
     return { patches, blockers };
   }
 
   const candidateList =
-    (Array.isArray(rawPatch.patch_sets) ? rawPatch.patch_sets : null) ??
-    (Array.isArray(rawPatch.patches) ? rawPatch.patches : null) ??
-    (Array.isArray(rawPatch.suggestions) ? rawPatch.suggestions : null) ??
-    (Array.isArray(rawPatch.items) ? rawPatch.items : null);
+    (Array.isArray(patchObject.patch_sets) ? patchObject.patch_sets : null) ??
+    (Array.isArray(patchObject.patches) ? patchObject.patches : null) ??
+    (Array.isArray(patchObject.suggestions) ? patchObject.suggestions : null) ??
+    (Array.isArray(patchObject.items) ? patchObject.items : null);
 
   if (candidateList) {
     if (candidateList.every(looksLikeOperation)) {
@@ -421,10 +419,6 @@ function parseArrayIndex(token: string, length: number, allowAppend: boolean): n
 
 function resolvePatchTarget(root: JsonObject, pointer: string, allowAdd: boolean): PatchTarget {
   const tokens = parsePointer(pointer);
-  if (tokens.length === 0) {
-    throw new Error('Root-level patches are not supported for dataset rows.');
-  }
-
   let current: unknown = root;
   for (const token of tokens.slice(0, -1)) {
     if (Array.isArray(current)) {
@@ -441,7 +435,7 @@ function resolvePatchTarget(root: JsonObject, pointer: string, allowAdd: boolean
     throw new Error(`Patch parent is not an object or array at ${token}.`);
   }
 
-  const keyToken = tokens[tokens.length - 1] ?? '';
+  const keyToken = tokens[tokens.length - 1]!;
   if (Array.isArray(current)) {
     return {
       container: current,
@@ -546,7 +540,7 @@ function validateOperationShape(
       patch_index: patchIndex,
       operation_index: operationIndex,
       op: operation.op,
-      path: typeof operation.path === 'string' ? operation.path : undefined,
+      path: operation.path,
     };
   }
   if (['add', 'replace', 'test'].includes(operation.op) && !hasOwn(operation, 'value')) {
@@ -610,7 +604,7 @@ function findTargetRow(
   patch: NormalizedPatchSet,
   rows: ReturnType<typeof materializeDatasetRows>,
   patchIndex: number,
-): { rowIndex: number | null; blocker: DatasetPatchApplyBlocker | null } {
+): { rowIndex: number; blocker: null } | { rowIndex: null; blocker: DatasetPatchApplyBlocker } {
   if (patch.rowIndex !== null) {
     if (patch.rowIndex >= rows.length) {
       return {
@@ -696,7 +690,7 @@ function findTargetRow(
       },
     };
   }
-  return { rowIndex: matches[0]?.index ?? null, blocker: null };
+  return { rowIndex: matches[0]!.index, blocker: null };
 }
 
 function resolveAuthoringPackagePath(
@@ -743,8 +737,8 @@ function readAuthoringPackageContext(options: {
         code: 'authoring_package_required',
         message: 'Strict patch apply requires each patch set to identify an authoring_package.',
         row_index: options.rowIndex,
-        dataset_id: options.rowId ?? options.patch.datasetId,
-        dataset_version: options.rowVersion ?? options.patch.datasetVersion,
+        dataset_id: options.rowId,
+        dataset_version: options.rowVersion,
         patch_index: options.patchIndex,
       });
     }
@@ -755,8 +749,8 @@ function readAuthoringPackageContext(options: {
       code: 'authoring_package_not_found',
       message: `Authoring package was not found: ${packagePath}`,
       row_index: options.rowIndex,
-      dataset_id: options.rowId ?? options.patch.datasetId,
-      dataset_version: options.rowVersion ?? options.patch.datasetVersion,
+      dataset_id: options.rowId,
+      dataset_version: options.rowVersion,
       patch_index: options.patchIndex,
     });
     return { context: null, blockers };
@@ -770,10 +764,10 @@ function readAuthoringPackageContext(options: {
   } catch (error) {
     blockers.push({
       code: 'authoring_package_invalid',
-      message: error instanceof Error ? error.message : String(error),
+      message: caughtErrorMessage(error),
       row_index: options.rowIndex,
-      dataset_id: options.rowId ?? options.patch.datasetId,
-      dataset_version: options.rowVersion ?? options.patch.datasetVersion,
+      dataset_id: options.rowId,
+      dataset_version: options.rowVersion,
       patch_index: options.patchIndex,
     });
     return { context: null, blockers };
@@ -783,8 +777,8 @@ function readAuthoringPackageContext(options: {
       code: 'authoring_package_invalid',
       message: 'Authoring package must be a JSON object.',
       row_index: options.rowIndex,
-      dataset_id: options.rowId ?? options.patch.datasetId,
-      dataset_version: options.rowVersion ?? options.patch.datasetVersion,
+      dataset_id: options.rowId,
+      dataset_version: options.rowVersion,
       patch_index: options.patchIndex,
     });
     return { context: null, blockers };
@@ -866,41 +860,28 @@ export async function runDatasetPatchApply(
   normalized.patches.forEach((patch, patchIndex) => {
     operationCount += patch.operations.length;
     const target = findTargetRow(patch, rows, patchIndex);
-    if (target.blocker || target.rowIndex === null) {
-      blockers.push(
-        target.blocker ?? {
-          code: 'patch_row_required',
-          message: 'Patch set could not be matched to an input row.',
-          patch_index: patchIndex,
-        },
-      );
+    if (target.blocker) {
+      blockers.push(target.blocker);
       return;
     }
+
+    const rowIndex = target.rowIndex;
+    const row = rows[rowIndex]!;
+    const rowId = row.id ?? patch.datasetId;
+    const rowVersion = row.version ?? patch.datasetVersion;
     if (patch.operations.length === 0) {
       blockers.push({
         code: 'patch_operations_missing',
         message: 'Patch set operations[] must not be empty.',
-        row_index: target.rowIndex,
-        dataset_id: rows[target.rowIndex]?.id ?? patch.datasetId,
-        dataset_version: rows[target.rowIndex]?.version ?? patch.datasetVersion,
+        row_index: rowIndex,
+        dataset_id: rowId,
+        dataset_version: rowVersion,
         patch_index: patchIndex,
       });
       return;
     }
 
-    const row = rows[target.rowIndex];
-    const candidateRow = candidateRows[target.rowIndex];
-    if (!isRecord(candidateRow)) {
-      blockers.push({
-        code: 'patch_row_invalid',
-        message: 'Patch target row is not a JSON object.',
-        row_index: target.rowIndex,
-        dataset_id: row?.id ?? patch.datasetId,
-        dataset_version: row?.version ?? patch.datasetVersion,
-        patch_index: patchIndex,
-      });
-      return;
-    }
+    const candidateRow = candidateRows[rowIndex] as JsonObject;
     const shouldValidateAuthoringPackage =
       Boolean(options.authoringPackageDir) ||
       options.requireAuthoringPackage === true ||
@@ -908,9 +889,9 @@ export async function runDatasetPatchApply(
     const packageResult = shouldValidateAuthoringPackage
       ? readAuthoringPackageContext({
           patch,
-          rowIndex: target.rowIndex,
-          rowId: row?.id,
-          rowVersion: row?.version,
+          rowIndex,
+          rowId: row.id,
+          rowVersion: row.version,
           patchIndex,
           authoringPackageDir: options.authoringPackageDir,
           requireAuthoringPackage:
@@ -929,9 +910,9 @@ export async function runDatasetPatchApply(
         operation,
         patchIndex,
         operationIndex,
-        target.rowIndex ?? -1,
-        row?.id ?? patch.datasetId,
-        row?.version ?? patch.datasetVersion,
+        rowIndex,
+        rowId,
+        rowVersion,
       );
       if (shapeBlocker) {
         blockers.push(shapeBlocker);
@@ -944,9 +925,9 @@ export async function runDatasetPatchApply(
             blockers.push({
               code: 'authoring_action_item_unknown',
               message: `Patch operation closes unknown authoring action item ${closure.code}.`,
-              row_index: target.rowIndex ?? -1,
-              dataset_id: row?.id ?? patch.datasetId,
-              dataset_version: row?.version ?? patch.datasetVersion,
+              row_index: rowIndex,
+              dataset_id: rowId,
+              dataset_version: rowVersion,
               patch_index: patchIndex,
               operation_index: operationIndex,
               op: operation.op,
@@ -962,9 +943,9 @@ export async function runDatasetPatchApply(
         tentativeAppliedCount += operation.op === 'test' ? 0 : 1;
         if (operation.op !== 'test') {
           evidenceEntries.push({
-            row_index: target.rowIndex ?? -1,
-            dataset_id: row?.id ?? patch.datasetId,
-            dataset_version: row?.version ?? patch.datasetVersion,
+            row_index: rowIndex,
+            dataset_id: rowId,
+            dataset_version: rowVersion,
             patch_index: patchIndex,
             operation_index: operationIndex,
             op: operation.op as PatchOperationName,
@@ -980,10 +961,10 @@ export async function runDatasetPatchApply(
       } catch (error) {
         blockers.push({
           code: operation.op === 'test' ? 'patch_test_failed' : 'patch_apply_failed',
-          message: error instanceof Error ? error.message : String(error),
-          row_index: target.rowIndex ?? undefined,
-          dataset_id: row?.id ?? patch.datasetId,
-          dataset_version: row?.version ?? patch.datasetVersion,
+          message: caughtErrorMessage(error),
+          row_index: rowIndex,
+          dataset_id: rowId,
+          dataset_version: rowVersion,
           patch_index: patchIndex,
           operation_index: operationIndex,
           op: operation.op,
@@ -997,9 +978,9 @@ export async function runDatasetPatchApply(
           blockers.push({
             code: 'authoring_action_item_unclosed',
             message: `Authoring action item ${actionItem.code} was not closed by the AI patch set.`,
-            row_index: target.rowIndex,
-            dataset_id: row?.id ?? patch.datasetId,
-            dataset_version: row?.version ?? patch.datasetVersion,
+            row_index: rowIndex,
+            dataset_id: rowId,
+            dataset_version: rowVersion,
             patch_index: patchIndex,
             path: actionItem.path ?? undefined,
           });
@@ -1032,10 +1013,7 @@ export async function runDatasetPatchApply(
     evidence_count: status === 'completed' ? evidenceEntries.length : 0,
     closed_action_item_count:
       status === 'completed'
-        ? evidenceEntries.reduce(
-            (total, entry) => total + (entry.closes_action_items?.length ?? 0),
-            0,
-          )
+        ? evidenceEntries.reduce((total, entry) => total + entry.closes_action_items!.length, 0)
         : 0,
     blockers,
     files: {
@@ -1050,6 +1028,30 @@ export async function runDatasetPatchApply(
 }
 
 export const __testInternals = {
+  actionItemFromPackage,
+  applyOperation,
+  closureMatchesActionItem,
+  caughtErrorMessage,
+  evidenceIsPresent,
+  findTargetRow,
+  getTargetValue,
+  looksLikeOperation,
+  normalizeClosure,
+  normalizeClosureList,
+  normalizeOperationArray,
   normalizePatchPayload,
+  normalizePatchSet,
+  operationBasis,
+  operationClosures,
+  parseArrayIndex,
   parsePointer,
+  parseRowIndex,
+  patchPayloadCompletionStatus,
+  readAuthoringPackageContext,
+  removeTargetValue,
+  resolveAuthoringPackagePath,
+  resolvePatchTarget,
+  setTargetValue,
+  targetExists,
+  validateOperationShape,
 };

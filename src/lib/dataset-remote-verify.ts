@@ -1086,12 +1086,18 @@ export async function runDatasetRemoteVerify(
 }
 
 export const __testInternals = {
+  buildRemotePayloadUrl,
   buildRemoteUrl,
   collectRemoteReferences,
   compareVersions,
   isFoundryTracePath,
+  lookupRemoteDatasetPayload,
   lookupRemoteDataset,
+  makeRootReadbackCheck,
+  normalizePayloadRow,
   normalizeRows,
+  rootReadbackChecks,
+  sha256Json,
   shortDescription,
   tableFromPath,
   tableFromType,

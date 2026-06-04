@@ -4,7 +4,11 @@ import { existsSync, readFileSync, rmSync, mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FetchLike, ResponseLike } from '../src/lib/http.js';
-import { runDatasetMaintenanceClearAccount } from '../src/lib/dataset-maintenance-clear-account.js';
+import type { DatasetCommandTransport } from '../src/lib/dataset-command.js';
+import {
+  __testInternals,
+  runDatasetMaintenanceClearAccount,
+} from '../src/lib/dataset-maintenance-clear-account.js';
 import {
   buildSupabaseTestEnv,
   isSupabaseAuthTokenUrl,
@@ -22,6 +26,21 @@ function jsonResponse(body: unknown, status = 200): ResponseLike {
     },
     async text(): Promise<string> {
       return JSON.stringify(body);
+    },
+  };
+}
+
+function textResponse(body: string, status = 200): ResponseLike {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    headers: {
+      get(): string | null {
+        return 'text/plain';
+      },
+    },
+    async text(): Promise<string> {
+      return body;
     },
   };
 }
@@ -175,4 +194,263 @@ test('runDatasetMaintenanceClearAccount requires matching commit confirmation', 
       }),
     /--commit requires --confirm/u,
   );
+});
+
+test('dataset maintenance internals normalize inputs and remote response failures', async () => {
+  assert.equal(__testInternals.normalizeEmail(' User@Example.COM '), 'user@example.com');
+  assert.equal(__testInternals.normalizeEmail(null), '');
+  assert.equal(__testInternals.normalizeStateCode(0), 0);
+  assert.equal(__testInternals.normalizeStateCode(' -1 '), -1);
+  assert.equal(__testInternals.normalizeStateCode('1.2'), null);
+  assert.deepEqual(__testInternals.normalizeStateCodes([2, 0, 2, 1.5]), [0, 2]);
+  assert.equal(__testInternals.normalizeStateCodes([]), null);
+  assert.equal(__testInternals.normalizeStateCodes(null), null);
+  assert.equal(__testInternals.normalizePageSize(undefined), 1000);
+  assert.equal(__testInternals.normalizeTimeoutMs(undefined), 10000);
+  assert.throws(() => __testInternals.normalizePageSize(0), /--page-size/u);
+  assert.throws(() => __testInternals.normalizePageSize(5001), /--page-size/u);
+  assert.throws(() => __testInternals.normalizeTimeoutMs(0), /--timeout-ms/u);
+
+  assert.equal(__testInternals.normalizeRow('flows', null), null);
+  assert.deepEqual(
+    __testInternals.normalizeRow('flows', {
+      id: ' flow-1 ',
+      version: ' 01.00.000 ',
+      user_id: ' user-1 ',
+      state_code: '0',
+      modified_at: ' now ',
+    }),
+    {
+      table: 'flows',
+      id: 'flow-1',
+      version: '01.00.000',
+      user_id: 'user-1',
+      state_code: 0,
+      modified_at: 'now',
+    },
+  );
+  const filterUrl = __testInternals.buildTableFilterUrl({
+    restBaseUrl: 'https://example.test/rest/v1',
+    table: 'flows',
+    userId: 'user-1',
+    stateCodes: [0, 2],
+  });
+  assert.match(filterUrl.toString(), /state_code=in.%280%2C2%29/u);
+
+  await assert.rejects(
+    () =>
+      __testInternals.fetchJson({
+        url: 'https://example.test/rest/v1/flows',
+        init: { method: 'GET' },
+        fetchImpl: async () => textResponse('nope', 500),
+        timeoutMs: 1000,
+        label: 'flows',
+      }),
+    /HTTP 500/u,
+  );
+  await assert.rejects(
+    () =>
+      __testInternals.fetchJson({
+        url: 'https://example.test/rest/v1/flows',
+        init: { method: 'GET' },
+        fetchImpl: async () => textResponse('{bad-json}', 200),
+        timeoutMs: 1000,
+        label: 'flows',
+      }),
+    /not valid JSON/u,
+  );
+  const empty = await __testInternals.fetchJson({
+    url: 'https://example.test/rest/v1/flows',
+    init: { method: 'GET' },
+    fetchImpl: async () => textResponse('', 200),
+    timeoutMs: 1000,
+    label: 'flows',
+  });
+  assert.equal(empty.body, null);
+  await assert.rejects(
+    () =>
+      __testInternals.fetchCurrentUser({
+        projectBaseUrl: 'https://example.test',
+        publishableKey: 'anon',
+        accessToken: 'token',
+        fetchImpl: async () => jsonResponse({ email: 'user@example.com' }),
+        timeoutMs: 1000,
+      }),
+    /without a user id/u,
+  );
+});
+
+test('dataset maintenance internals page through rows and protect delete requests', async () => {
+  const observedOffsets: string[] = [];
+  const rows = await __testInternals.fetchTableRows({
+    restBaseUrl: 'https://example.test/rest/v1',
+    table: 'flows',
+    userId: 'user-1',
+    stateCodes: [0],
+    pageSize: 1,
+    publishableKey: 'anon',
+    accessToken: 'token',
+    timeoutMs: 1000,
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      observedOffsets.push(url.searchParams.get('offset') ?? '');
+      if (url.searchParams.get('offset') === '0') {
+        return jsonResponse([
+          { id: 'flow-1', version: '01.00.000', user_id: 'user-1', state_code: 0 },
+        ]);
+      }
+      return jsonResponse([]);
+    },
+  });
+  assert.equal(rows.rows.length, 1);
+  assert.deepEqual(observedOffsets, ['0', '1']);
+  await assert.rejects(
+    () =>
+      __testInternals.fetchTableRows({
+        restBaseUrl: 'https://example.test/rest/v1',
+        table: 'flows',
+        userId: 'user-1',
+        stateCodes: null,
+        pageSize: 100,
+        publishableKey: 'anon',
+        accessToken: 'token',
+        timeoutMs: 1000,
+        fetchImpl: async () => jsonResponse({ rows: [] }),
+      }),
+    /snapshot response was not an array/u,
+  );
+
+  const observedDeletes: unknown[] = [];
+  const transport: DatasetCommandTransport = {
+    functionsBaseUrl: 'https://example.test/functions/v1',
+    publishableKey: 'anon',
+    accessToken: 'token',
+    timeoutMs: 1000,
+    fetchImpl: async (_input, init) => {
+      observedDeletes.push(JSON.parse(String(init?.body)));
+      return jsonResponse({ ok: true, data: {} });
+    },
+  };
+  const result = await __testInternals.deleteTableRows({
+    transport,
+    table: 'flows',
+    rows: [
+      {
+        table: 'flows',
+        id: null,
+        version: '01.00.000',
+        user_id: 'user-1',
+        state_code: 0,
+        modified_at: null,
+      },
+      {
+        table: 'flows',
+        id: 'flow-2',
+        version: '01.00.000',
+        user_id: 'user-1',
+        state_code: 1,
+        modified_at: null,
+      },
+      {
+        table: 'flows',
+        id: 'flow-3',
+        version: '01.00.000',
+        user_id: 'user-1',
+        state_code: 0,
+        modified_at: null,
+      },
+    ],
+  });
+  assert.equal(result.deletedRows.length, 1);
+  assert.equal(result.failures.length, 2);
+  assert.deepEqual(observedDeletes, [{ table: 'flows', id: 'flow-3', version: '01.00.000' }]);
+
+  const summary = __testInternals.buildSummary([
+    {
+      table: 'flows',
+      status: 'failed',
+      candidates: 3,
+      deleted: 1,
+      remaining: 2,
+      source_urls: [],
+      delete_url: null,
+      error: 'failed',
+    },
+  ]);
+  assert.equal(summary.total_failures, 1);
+  assert.equal(summary.by_table.contacts.status, 'skipped_after_failure');
+});
+
+test('runDatasetMaintenanceClearAccount blocks later tables after delete readback failure', async () => {
+  const outDir = mkdtempSync(path.join(os.tmpdir(), 'tg-clear-account-failure-'));
+  const deletedTables: string[] = [];
+  const fetchImpl: FetchLike = async (input, init) => {
+    const url = String(input);
+    if (isSupabaseAuthTokenUrl(url)) {
+      return makeSupabaseAuthResponse({ email: 'user@example.com', userId: 'user-1' });
+    }
+    if (url.endsWith('/auth/v1/user')) {
+      return jsonResponse({ id: 'user-1', email: 'user@example.com' });
+    }
+    if (init?.method === 'POST' && url.endsWith('/functions/v1/app_dataset_delete')) {
+      const body = JSON.parse(String(init.body)) as { table: string };
+      deletedTables.push(body.table);
+      return jsonResponse({ ok: true, data: {} });
+    }
+
+    const table = new URL(url).pathname.split('/').pop() ?? '';
+    if (table === 'lifecyclemodels') {
+      return jsonResponse([]);
+    }
+    if (table === 'processes') {
+      return jsonResponse([
+        {
+          id: 'proc-1',
+          version: '01.00.000',
+          user_id: 'user-1',
+          state_code: 0,
+          modified_at: '2026-06-01T00:00:00.000Z',
+        },
+      ]);
+    }
+    if (table === 'flows') {
+      return jsonResponse([
+        {
+          id: 'flow-1',
+          version: '01.00.000',
+          user_id: 'user-1',
+          state_code: 0,
+          modified_at: '2026-06-01T00:00:00.000Z',
+        },
+      ]);
+    }
+    return jsonResponse([]);
+  };
+
+  try {
+    const report = await runDatasetMaintenanceClearAccount({
+      outDir,
+      commit: true,
+      confirm: 'USER@example.com',
+      now: new Date('2026-06-04T00:00:00.000Z'),
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co/functions/v1',
+        TIANGONG_LCA_DISABLE_SESSION_CACHE: '1',
+      }),
+      fetchImpl,
+    });
+    assert.equal(report.status, 'completed_with_failures');
+    assert.equal(
+      report.tables.find((table) => table.table === 'lifecyclemodels')?.status,
+      'skipped_empty',
+    );
+    assert.equal(report.tables.find((table) => table.table === 'processes')?.status, 'failed');
+    assert.equal(
+      report.tables.find((table) => table.table === 'flows')?.status,
+      'skipped_after_failure',
+    );
+    assert.deepEqual(deletedTables, ['processes']);
+  } finally {
+    rmSync(outDir, { recursive: true, force: true });
+  }
 });

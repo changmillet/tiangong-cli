@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { executeCli } from '../src/cli.js';
+import { CliError } from '../src/lib/errors.js';
 import { __testInternals, runDatasetSaveDraft } from '../src/lib/dataset-save-draft-run.js';
 import type { DatasetSaveDraftReport } from '../src/lib/dataset-save-draft-run.js';
 import type { DotEnvLoadResult } from '../src/lib/dotenv.js';
@@ -187,6 +188,7 @@ function makeSaveDraftFetch(options: {
   resolveContacts?: boolean;
   resolveSources?: boolean;
   createBody?: { ok: true; data?: unknown };
+  saveDraftBody?: unknown;
   observedUrls: string[];
   observedBodies?: unknown[];
 }): FetchLike {
@@ -224,6 +226,12 @@ function makeSaveDraftFetch(options: {
         options.observedBodies?.push(JSON.parse(init.body));
       }
       return jsonResponse(options.createBody ?? { ok: true, data: { id: 'created' } });
+    }
+    if (parsed.pathname.endsWith('/functions/v1/app_dataset_save_draft')) {
+      if (typeof init?.body === 'string') {
+        options.observedBodies?.push(JSON.parse(init.body));
+      }
+      return jsonResponse(options.saveDraftBody ?? { ok: true, data: { id: 'saved' } });
     }
     return jsonResponse({ ok: true });
   };
@@ -338,6 +346,373 @@ test('dataset save-draft rejects explicit reference-only support types', () => {
     () => __testInternals.normalizeType('unitgroup'),
     /Unit groups are reference-only support data/u,
   );
+  assert.equal(__testInternals.normalizeType(undefined), 'auto');
+  assert.equal(__testInternals.normalizeType(' Contacts '), 'contact');
+  assert.equal(__testInternals.normalizeType('sources'), 'source');
+  assert.equal(__testInternals.normalizeType('flows'), 'flow');
+  assert.equal(__testInternals.normalizeType('processes'), 'process');
+  assert.throws(() => __testInternals.normalizeType('unit-groups'), /reference-only/u);
+  assert.throws(() => __testInternals.normalizeType('flow-properties'), /reference-only/u);
+  assert.throws(() => __testInternals.normalizeType('unknown'), /Expected --type/u);
+});
+
+test('dataset save-draft internals cover row preparation and failure reports', () => {
+  const flow = makeFlow('Product flow');
+  const rows = __testInternals.prepareRows(
+    'memory.json',
+    { rows: [{ json_ordered: flow }] },
+    'auto',
+  );
+  assert.equal(rows[0]?.type, 'flow');
+  assert.equal(rows[0]?.config?.table, 'flows');
+  assert.equal(rows[0]?.id, '11111111-1111-1111-1111-111111111111');
+  assert.equal(rows[0]?.version, '00.00.001');
+  assert.deepEqual(__testInternals.unwrapPayload({ payload: { contactDataSet: {} } }), {
+    contactDataSet: {},
+  });
+  assert.deepEqual(__testInternals.unwrapPayload({ jsonOrdered: { sourceDataSet: {} } }), {
+    sourceDataSet: {},
+  });
+  assert.equal(__testInternals.detectType({}), null);
+  assert.deepEqual(
+    __testInternals.extractIdentity({}, {}, __testInternals.DATASET_CONFIGS.contact),
+    { id: null, version: null },
+  );
+  assert.deepEqual(
+    __testInternals.extractIdentity(
+      {
+        contactDataSet: {
+          contactInformation: { dataSetInformation: { 'common:UUID': 'payload-id' } },
+        },
+      },
+      { id: ' row-id ', version: ' row-version ' },
+      __testInternals.DATASET_CONFIGS.contact,
+    ),
+    { id: 'row-id', version: 'row-version' },
+  );
+
+  const files = __testInternals.buildFiles('/tmp/out');
+  assert.equal(files.summary_json, '/tmp/out/outputs/dataset-save-draft/summary.json');
+  assert.match(
+    __testInternals.defaultOutDir(
+      '/tmp/input/rows.jsonl',
+      true,
+      new Date('2026-06-04T00:00:00.000Z'),
+    ),
+    /dataset-save-draft\/commit-2026-06-04T000000000Z/u,
+  );
+  assert.deepEqual(
+    __testInternals.operationCount([
+      { operation: 'insert', status: 'executed' },
+      { operation: null, status: 'prepared' },
+    ] as never),
+    { insert: 1, none: 1 },
+  );
+  assert.deepEqual(__testInternals.byTable(rows), { flows: 1 });
+  assert.equal(__testInternals.selectedRow(rows[0] as never).table, 'flows');
+
+  assert.equal(
+    __testInternals.buildPreparedFailure({
+      index: 0,
+      row: {},
+      payload: {},
+      type: null,
+      config: null,
+      id: null,
+      version: null,
+      validation: null,
+    })?.operation,
+    'type_unknown',
+  );
+  assert.equal(
+    __testInternals.buildPreparedFailure({
+      index: 0,
+      row: {},
+      payload: {},
+      type: 'unitgroup',
+      config: __testInternals.DATASET_CONFIGS.unitgroup,
+      id: 'ug-1',
+      version: '01.00.000',
+      validation: { ok: true, validator: 'test', issue_count: 0, issues: [] },
+    })?.operation,
+    'reference_only_type',
+  );
+  assert.equal(
+    __testInternals.buildPreparedFailure({
+      index: 0,
+      row: {},
+      payload: {},
+      type: 'contact',
+      config: __testInternals.DATASET_CONFIGS.contact,
+      id: null,
+      version: '01.00.000',
+      validation: { ok: true, validator: 'test', issue_count: 0, issues: [] },
+    })?.operation,
+    'identity_missing',
+  );
+  assert.equal(
+    __testInternals.buildPreparedFailure({
+      index: 0,
+      row: {},
+      payload: {},
+      type: 'contact',
+      config: __testInternals.DATASET_CONFIGS.contact,
+      id: 'contact-1',
+      version: '01.00.000',
+      validation: {
+        ok: false,
+        validator: 'test',
+        issue_count: 1,
+        issues: [{ path: '/x', message: 'bad', code: 'custom' }],
+      },
+    })?.operation,
+    'skipped_invalid',
+  );
+
+  assert.deepEqual(
+    __testInternals.parseVisibleRows(
+      [{ id: ' id ', version: ' v ', user_id: ' user ', state_code: '0' }],
+      'https://example.test',
+    ),
+    [{ id: 'id', version: 'v', user_id: 'user', state_code: null }],
+  );
+  assert.throws(
+    () => __testInternals.parseVisibleRows({}, 'https://example.test'),
+    /not a JSON array/u,
+  );
+  assert.throws(
+    () => __testInternals.parseVisibleRows([null], 'https://example.test'),
+    /was not a JSON object/u,
+  );
+  assert.deepEqual(__testInternals.serializeError(new Error('boom')), { message: 'boom' });
+  assert.deepEqual(
+    __testInternals.serializeError(
+      new CliError('bad', {
+        code: 'BAD',
+        details: { reason: 'test' },
+      }),
+    ),
+    { message: 'bad', details: { reason: 'test' } },
+  );
+  assert.deepEqual(__testInternals.serializeError('plain'), { message: 'plain' });
+  assert.equal(__testInternals.compareVersions(null, null), 0);
+  assert.equal(__testInternals.compareVersions(null, '01.00.000'), -1);
+  assert.equal(__testInternals.compareVersions('02.00.000', '01.00.000'), 1);
+  assert.equal(__testInternals.compareVersions('01.00.000', null), 1);
+  assert.equal(__testInternals.compareVersions('01.00.000', '01.00.000'), 0);
+  assert.equal(__testInternals.compareVersions('alpha', 'beta'), -1);
+  assert.equal(__testInternals.compareVersions('beta', 'alpha'), 1);
+  assert.throws(
+    () =>
+      __testInternals.validatePayload({}, 'contact', {
+        table: 'contacts',
+        rootKey: 'contactDataSet',
+        informationKey: 'contactInformation',
+        schemaName: 'MissingSchema' as never,
+        factoryName: 'MissingFactory' as never,
+      }),
+    /MissingSchema is unavailable/u,
+  );
+  const invalidProcess = __testInternals.validatePayload(
+    { processDataSet: {} },
+    'process',
+    __testInternals.DATASET_CONFIGS.process,
+  );
+  assert.equal(invalidProcess.ok, false);
+});
+
+test('dataset save-draft internals classify unresolved flow references', async () => {
+  const unsupported = __testInternals.uniqueFlowRemoteReferences({
+    flowDataSet: {
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:referenceToOwnershipOfDataSet': {
+            '@type': 'unknown data set',
+            '@refObjectId': 'owner-1',
+            '@version': '01.00.000',
+          },
+        },
+      },
+    },
+  });
+  assert.equal(__testInternals.isLookupableRemoteReference(unsupported[0] as never), false);
+
+  const missingVersionPayload = {
+    flowDataSet: {
+      flowProperties: {
+        flowProperty: {
+          referenceToFlowPropertyDataSet: {
+            '@type': 'flow property data set',
+            '@refObjectId': 'fp-1',
+          },
+        },
+      },
+    },
+  };
+  const noVersion = await __testInternals.missingFlowRemoteReferences({
+    runtime: {} as never,
+    fetchImpl: (async () => jsonResponse([])) as FetchLike,
+    timeoutMs: 1000,
+    cache: new Map(),
+    payload: missingVersionPayload,
+  });
+  assert.equal(noVersion[0]?.status, 'version_missing');
+  const unsupportedMissing = await __testInternals.missingFlowRemoteReferences({
+    runtime: {} as never,
+    fetchImpl: (async () => jsonResponse([])) as FetchLike,
+    timeoutMs: 1000,
+    cache: new Map(),
+    payload: {
+      flowDataSet: {
+        administrativeInformation: {
+          publicationAndOwnership: {
+            'common:referenceToOwnershipOfDataSet': {
+              '@type': 'unknown data set',
+              '@refObjectId': 'owner-1',
+              '@version': '01.00.000',
+            },
+          },
+        },
+      },
+    },
+  });
+  assert.equal(unsupportedMissing[0]?.status, 'unsupported_type');
+
+  const outdatedPayload = {
+    flowDataSet: {
+      flowProperties: {
+        flowProperty: {
+          referenceToFlowPropertyDataSet: {
+            '@type': 'flow property data set',
+            '@refObjectId': 'fp-2',
+            '@version': '01.00.000',
+          },
+        },
+      },
+    },
+  };
+  const cache = new Map();
+  cache.set(
+    __testInternals.supportLookupKey({
+      table: 'flowproperties',
+      id: 'fp-2',
+      version: '01.00.000',
+    }),
+    Promise.resolve({
+      exact: { id: 'fp-2', version: '01.00.000' },
+      latest: { id: 'fp-2', version: '02.00.000' },
+      exact_source_url: null,
+      latest_source_url: null,
+    }),
+  );
+  const outdated = await __testInternals.missingFlowRemoteReferences({
+    runtime: {} as never,
+    fetchImpl: (async () => jsonResponse([])) as FetchLike,
+    timeoutMs: 1000,
+    cache,
+    payload: outdatedPayload,
+  });
+  assert.equal(outdated[0]?.status, 'version_outdated');
+  assert.equal(outdated[0]?.latest_version, '02.00.000');
+
+  const missingCache = new Map();
+  missingCache.set(
+    __testInternals.supportLookupKey({
+      table: 'flowproperties',
+      id: 'fp-2',
+      version: '01.00.000',
+    }),
+    Promise.resolve({
+      exact: null,
+      latest: null,
+      exact_source_url: null,
+      latest_source_url: null,
+    }),
+  );
+  const missing = await __testInternals.missingFlowRemoteReferences({
+    runtime: {} as never,
+    fetchImpl: (async () => jsonResponse([])) as FetchLike,
+    timeoutMs: 1000,
+    cache: missingCache,
+    payload: outdatedPayload,
+  });
+  assert.equal(missing[0]?.status, 'missing_dataset');
+});
+
+test('runDatasetSaveDraft covers dry-run, runtime errors, and save-draft updates', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-save-draft-extra-'));
+  const flow = makeFlow('Product flow');
+  const supportId = flowPropertyId(flow);
+  try {
+    const dryRun = await runDatasetSaveDraft({
+      inputPath: path.join(dir, 'flows.json'),
+      rawInput: { rows: [flow] },
+      type: 'flow',
+      outDir: path.join(dir, 'dry'),
+      commit: false,
+      now: new Date('2026-06-04T00:00:00.000Z'),
+    });
+    assert.equal(dryRun.rows[0]?.operation, 'would_sync');
+    await assert.rejects(
+      () =>
+        runDatasetSaveDraft({
+          inputPath: path.join(dir, 'flows.json'),
+          rawInput: { rows: [flow] },
+          type: 'flow',
+          outDir: path.join(dir, 'bad-runtime'),
+          commit: true,
+        }),
+      /requires env and fetch runtime/u,
+    );
+
+    const urls: string[] = [];
+    const report = await runDatasetSaveDraft({
+      inputPath: path.join(dir, 'flows.json'),
+      rawInput: { rows: [flow] },
+      type: 'flow',
+      outDir: path.join(dir, 'commit'),
+      commit: true,
+      now: new Date('2026-06-04T00:00:00.000Z'),
+      env: buildSupabaseTestEnv(),
+      fetchImpl: makeSaveDraftFetch({
+        observedUrls: urls,
+        rootRows: [{ id: '11111111-1111-1111-1111-111111111111', version: '00.00.001' }],
+        exactSupportRows: [{ id: supportId, version: '00.00.001' }],
+        latestSupportRows: [{ id: supportId, version: '00.00.001' }],
+      }),
+    });
+    assert.equal(report.rows[0]?.operation, 'save_draft');
+    assert.equal(
+      urls.some((url) => url.endsWith('/functions/v1/app_dataset_save_draft')),
+      true,
+    );
+
+    const failingWrite = await runDatasetSaveDraft({
+      inputPath: path.join(dir, 'flows.json'),
+      rawInput: { rows: [flow] },
+      type: 'flow',
+      outDir: path.join(dir, 'commit-failure'),
+      commit: true,
+      now: new Date('2026-06-04T00:00:00.000Z'),
+      env: buildSupabaseTestEnv(),
+      fetchImpl: makeSaveDraftFetch({
+        observedUrls: urls,
+        rootRows: [{ id: '11111111-1111-1111-1111-111111111111', version: '00.00.001' }],
+        exactSupportRows: [{ id: supportId, version: '00.00.001' }],
+        latestSupportRows: [{ id: supportId, version: '00.00.001' }],
+        saveDraftBody: {
+          ok: false,
+          code: 'REMOTE_WRITE_REJECTED',
+          message: 'write rejected',
+        },
+      }),
+    });
+    assert.equal(failingWrite.status, 'completed_with_failures');
+    assert.equal(failingWrite.rows[0]?.status, 'failed');
+    assert.equal(failingWrite.rows[0]?.error?.message, 'write rejected');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('dataset save-draft reference helpers find unique remote references', () => {

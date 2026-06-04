@@ -406,6 +406,7 @@ export function createSupabaseDataClient(
 }
 
 export const __testInternals = {
+  postgrestInvalidJsonDetails,
   parseBooleanEnv,
   trimToken,
 };

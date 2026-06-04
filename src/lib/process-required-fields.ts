@@ -297,11 +297,7 @@ export function collectProcessRequiredFieldIssues(
     return issues;
   }
 
-  if (!dataSources) {
-    return issues;
-  }
-
-  const annualSupply = dataSources.annualSupplyOrProductionVolume;
+  const annualSupply = dataSources!.annualSupplyOrProductionVolume;
   if (isValidAnnualSupplyVolume(annualSupply)) {
     return issues;
   }
@@ -1172,6 +1168,7 @@ export const __testInternals = {
   completeProcessRow,
   ensureDataSources,
   fieldPathFromEvidenceEntry,
+  hasDeferredAnnualSupplyTrace,
   findAnnualSupplyEvidenceValue,
   findAnnualSupplyEvidenceEntry,
   buildFlowUnitIndex,

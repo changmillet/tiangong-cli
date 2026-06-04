@@ -123,6 +123,10 @@ function normalizeEmail(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+function caughtErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function normalizeStateCode(value: unknown): number | null {
   if (typeof value === 'number' && Number.isInteger(value)) {
     return value;
@@ -385,7 +389,7 @@ async function deleteTableRows(options: {
     } catch (error) {
       failures.push({
         row,
-        error: error instanceof Error ? error.message : String(error),
+        error: caughtErrorMessage(error),
       });
     }
   }
@@ -620,7 +624,7 @@ export async function runDatasetMaintenanceClearAccount(
         remaining: snapshot.rows.length,
         source_urls: snapshot.sourceUrls,
         delete_url: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: caughtErrorMessage(error),
       });
     }
   }
@@ -689,3 +693,19 @@ export async function runDatasetMaintenanceClearAccount(
 
   return report;
 }
+
+export const __testInternals = {
+  buildSummary,
+  buildTableFilterUrl,
+  caughtErrorMessage,
+  deleteTableRows,
+  fetchCurrentUser,
+  fetchJson,
+  fetchTableRows,
+  normalizeEmail,
+  normalizePageSize,
+  normalizeRow,
+  normalizeStateCode,
+  normalizeStateCodes,
+  normalizeTimeoutMs,
+};

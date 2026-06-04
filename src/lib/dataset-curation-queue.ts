@@ -799,14 +799,14 @@ function buildDependencyClosure(options: {
           deferredRefKeys.has(flowRefKey(ref)),
       )
       .map((ref) => {
-        const deferredRef = deferredRefKeys.get(flowRefKey(ref));
+        const deferredRef = deferredRefKeys.get(flowRefKey(ref))!;
         return {
           entity_type: 'flow',
           entity_id: ref.id,
           version: ref.version,
           ref_path: ref.path,
-          action_item_code: deferredRef?.actionItemCode ?? null,
-          reason: deferredRef?.reason ?? null,
+          action_item_code: deferredRef.actionItemCode,
+          reason: deferredRef.reason ?? null,
         };
       }),
     unresolved_refs: options.flowRefs
@@ -1100,5 +1100,26 @@ function jsonLines(rows: unknown[]): string {
 }
 
 export const __testInternals = {
+  buildTaskStates,
+  countTaskStates,
+  entityDirName,
+  entityDirPlural,
+  extractDeferredProcessFlowRefs,
   extractProcessFlowRefs,
+  jsonLines,
+  normalizeReferencePath,
+  normalizeProcessLimit,
+  normalizeQueueScope,
+  parseQueueBlocker,
+  parseQueueTask,
+  readCheckpointStatus,
+  readJsonlFile,
+  readQueueRuntime,
+  requireExistingPath,
+  requirePath,
+  sanitizePathToken,
+  taskIdFor,
+  taskMatchesScope,
+  taskRuntimeStatus,
+  withQueueAction,
 };

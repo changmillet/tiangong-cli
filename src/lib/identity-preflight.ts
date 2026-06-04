@@ -1614,7 +1614,7 @@ function applyIdentityProfileHints(
     if (values.length === 0) {
       continue;
     }
-    fields[field] = PROFILE_ARRAY_FIELDS.has(field) ? values : (values[0] ?? null);
+    fields[field] = PROFILE_ARRAY_FIELDS.has(field) ? values : values[0]!;
   }
 
   return {
@@ -2375,17 +2375,44 @@ export async function runFlowIdentityPreflight(
 }
 
 export const __testInternals = {
-  normalizePreflightInput,
-  schemaForKind,
-  entityFactoryExports: ENTITY_FACTORY_EXPORTS,
-  processProfile,
-  flowProfile,
+  appendQueryLine,
+  applyIdentityProfileHints,
   candidateEvaluation,
   chooseDecision,
   collectCandidateFilesFromStats,
-  readCandidateSource,
+  compactRemoteQuery,
   defaultRemoteQuery,
+  elementaryCompartmentKey,
+  entityFactoryExports: ENTITY_FACTORY_EXPORTS,
+  exchangeFlowRefsFromSignature,
+  expandedFlowNameVariants,
+  flowNameVariants,
+  flowProfile,
+  hasConflictingFlowName,
+  identityKeyFromProfile,
+  isRemoteQueryNoiseText,
+  mergeRemoteCandidateSearchConfig,
+  nameTokens,
+  nextActionForDecision,
+  normalizeMatchThreshold,
+  normalizeNonNegativeNumber,
+  normalizePreflightInput,
   normalizeRemoteCandidateSearch,
+  normalizePositiveInteger,
+  processProfile,
+  processReferenceExchange,
+  processReferenceFlowValues,
+  profileForKind,
+  queryFieldValues,
+  readCandidateSource,
+  remoteSearchOptions,
   remoteSearchFilter,
   rowsFromRemoteSearchResponse,
+  sameCasField,
+  sameElementaryCompartment,
+  sameNonEmptyField,
+  schemaForKind,
+  statusForDecision,
+  tokenCoverageRatio,
+  tokenOverlapRatio,
 };

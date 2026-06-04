@@ -291,6 +291,81 @@ test('dataset contract internals cover fallback-only branches', () => {
   assert.match(markdownWithoutContext, /# TIDAS flow AI Context/u);
 });
 
+test('dataset contract internals build full fallback packs and AI context', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-contract-full-fallback-'));
+  const runtimeRoot = path.join(dir, 'runtime-assets');
+  mkdirSync(path.join(runtimeRoot, 'tidas/schemas'), { recursive: true });
+  mkdirSync(path.join(runtimeRoot, 'tidas/methodologies'), { recursive: true });
+  writeFileSync(
+    path.join(runtimeRoot, 'tidas/schemas/tidas_flows.json'),
+    '{"title":"Flow"}',
+    'utf8',
+  );
+  writeFileSync(
+    path.join(runtimeRoot, 'tidas/methodologies/tidas_flows.yaml'),
+    'title: Flow Methodology\n',
+    'utf8',
+  );
+  writeFileSync(
+    path.join(runtimeRoot, 'tidas/methodologies/runtime_rulesets.json'),
+    JSON.stringify({
+      $schema: 'rules-schema',
+      schema_version: 1,
+      ruleset_version: '2026-06-04',
+      purpose: 'test',
+      rulesets: [{ dataset_type: 'flow', id: 'flow-ruleset' }],
+      rules: [{ dataset_type: 'flow', id: 'flow-rule' }],
+    }),
+    'utf8',
+  );
+
+  try {
+    const sdkEntry = path.join(dir, 'sdk/dist/index.js');
+    mkdirSync(path.dirname(sdkEntry), { recursive: true });
+    mkdirSync(path.join(path.dirname(sdkEntry), 'runtime-assets'), { recursive: true });
+    assert.match(
+      __testInternals.resolveSdkRuntimeAssetsRoot(undefined, sdkEntry),
+      /runtime-assets$/u,
+    );
+
+    const pack = __testInternals.loadFallbackContractPack({
+      type: 'flow',
+      includes: ['schema', 'methodology', 'ruleset'],
+      profile: 'ai-import',
+      includeAiContext: true,
+      runtimeAssetsRoot: runtimeRoot,
+    });
+    assert.equal(pack.schemaText, '{"title":"Flow"}');
+    assert.match(pack.methodologyText ?? '', /Flow Methodology/u);
+    assert.deepEqual((pack.runtimeRuleset as { rules?: Array<{ id: string }> }).rules?.[0], {
+      dataset_type: 'flow',
+      id: 'flow-rule',
+    });
+    assert.equal((pack.aiContext as { kind?: string }).kind, 'flow');
+    assert.match(
+      JSON.stringify((pack.manifest as { ruleset?: unknown }).ruleset),
+      /runtime_rulesets/u,
+    );
+
+    const aiContext = __testInternals.buildAiContext({
+      type: 'source',
+      profile: 'default',
+      schemaText: '{}',
+      methodologyText: 'method: true',
+      runtimeRuleset: { rules: [] },
+    }) as { instructions: string[]; schema_text: string };
+    assert.match(aiContext.instructions.join('\n'), /canonical TIDAS source/u);
+    assert.equal(aiContext.schema_text, '{}');
+    assert.deepEqual(__testInternals.artifactManifest('x.json', '{}'), {
+      name: 'x.json',
+      sha256: '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
+      bytes: 2,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runDatasetContract can consume a future SDK contract API', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-sdk-contract-api-'));
   try {

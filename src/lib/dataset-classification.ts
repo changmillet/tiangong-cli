@@ -345,9 +345,9 @@ function normalizeType(value: unknown): DatasetClassificationType {
   return normalized;
 }
 
-function schemasDir(): string {
+function schemasDir(candidatesOverride?: string[]): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  const candidates = [
+  const candidates = candidatesOverride ?? [
     path.resolve(here, '../../assets/tidas-schemas'),
     path.resolve(here, '../../../assets/tidas-schemas'),
     path.resolve(process.cwd(), 'assets/tidas-schemas'),
@@ -384,7 +384,7 @@ function lastSchemaPropertyName(schemaPathSegments: string[]): string | null {
   let propertyName: string | null = null;
   for (let index = 0; index < schemaPathSegments.length - 1; index += 1) {
     if (schemaPathSegments[index] === 'properties') {
-      propertyName = schemaPathSegments[index + 1] ?? propertyName;
+      propertyName = schemaPathSegments[index + 1]!;
     }
   }
   return propertyName;
@@ -416,13 +416,16 @@ function locationTargetKeys(): Set<string> {
   if (cachedLocationTargetKeys) return cachedLocationTargetKeys;
   const keys = new Set<string>();
   const dir = schemasDir();
-  for (const fileName of readdirSync(dir)) {
-    if (!fileName.endsWith('.json')) continue;
+  for (const fileName of readdirSync(dir).filter(isJsonSchemaFileName)) {
     const document = JSON.parse(readFileSync(path.join(dir, fileName), 'utf8')) as unknown;
     collectLocationRefKeysFromSchema(document, [], keys);
   }
   cachedLocationTargetKeys = new Set([...FALLBACK_LOCATION_TARGET_KEYS, ...keys]);
   return cachedLocationTargetKeys;
+}
+
+function isJsonSchemaFileName(fileName: string): boolean {
+  return fileName.endsWith('.json');
 }
 
 function constText(value: unknown): string | null {
@@ -853,12 +856,11 @@ function collectLocationTargets(
         const leafPath = [...childPath, ...targetValue.pathSuffix];
         const parent = targetValue.pathSuffix.length > 0 ? targetValue.parent : value;
         const targetKey = targetValue.pathSuffix.length > 0 ? targetValue.key : key;
-        if (!parent || !targetKey) continue;
         targets.push({
           path: pathExpression(leafPath),
           parentPath: pathExpression(targetValue.pathSuffix.length > 0 ? childPath : pathSegments),
-          parent,
-          key: targetKey,
+          parent: parent as JsonObject,
+          key: targetKey as string,
           value: targetValue.value,
         });
       }
@@ -1276,9 +1278,36 @@ export async function runDatasetClassificationApply(
 }
 
 export const __testInternals = {
+  buildNavigator,
+  classCode,
+  classificationContainer,
+  collectEntriesFromNode,
+  collectLocationRefKeysFromSchema,
+  collectLocationTargets,
+  constText,
+  currentClassification,
+  decisionMatchesRow,
+  decisionTargetPath,
+  isJsonSchemaFileName,
+  lastSchemaPropertyName,
   loadEntries,
+  locationCodeFromPath,
+  locationTargetStringValue,
   locationTargetKeys,
+  maybeWriteReport,
   navigatorFor,
+  normalizeDecision,
+  normalizeDecisionType,
+  normalizePathFromClasses,
+  normalizePathFromDecision,
+  normalizeStructuredDecisions,
+  normalizeTargetPath,
   normalizeType,
   pathForCode,
+  prepareRows,
+  readDecisions,
+  resolveLocationTarget,
+  schemasDir,
+  setClassification,
+  toPathEntry,
 };

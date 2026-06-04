@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { executeCli } from '../src/cli.js';
-import { runDatasetPatchApply, type DatasetPatchApplyReport } from '../src/lib/dataset-patch.js';
+import {
+  __testInternals,
+  runDatasetPatchApply,
+  type DatasetPatchApplyReport,
+} from '../src/lib/dataset-patch.js';
 import type { DotEnvLoadResult } from '../src/lib/dotenv.js';
 
 const dotEnvStatus: DotEnvLoadResult = {
@@ -148,6 +152,531 @@ test('runDatasetPatchApply applies evidenced JSON patch operations transactional
       'ruleset',
     ]);
     assert.deepEqual(readJson(report.files.report ?? ''), report);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset patch internals cover pointer, operation, and target row guards', () => {
+  assert.equal(__testInternals.parseRowIndex(0), 0);
+  assert.equal(__testInternals.parseRowIndex('2'), 2);
+  assert.equal(__testInternals.parseRowIndex(-1), null);
+  assert.equal(__testInternals.parseRowIndex('bad'), null);
+  assert.deepEqual(__testInternals.parsePointer('/a~1b/c~0d'), ['a/b', 'c~d']);
+  assert.throws(() => __testInternals.parsePointer('a/b'), /starting with/u);
+  assert.throws(() => __testInternals.parsePointer('/bad~2escape'), /Invalid JSON Pointer/u);
+  assert.equal(__testInternals.parseArrayIndex('-', 2, true), 2);
+  assert.equal(__testInternals.parseArrayIndex('0', 2, false), 0);
+  assert.throws(() => __testInternals.parseArrayIndex('01', 2, true), /Expected array index/u);
+  assert.throws(() => __testInternals.parseArrayIndex('2', 2, false), /out of bounds/u);
+
+  const row = { items: ['a', 'b'], nested: { value: 1 } };
+  const appendTarget = __testInternals.resolvePatchTarget(row, '/items/-', true);
+  __testInternals.setTargetValue(appendTarget, 'c', true);
+  assert.deepEqual(row.items, ['a', 'b', 'c']);
+  const replaceTarget = __testInternals.resolvePatchTarget(row, '/nested/value', false);
+  assert.equal(__testInternals.targetExists(replaceTarget), true);
+  assert.equal(__testInternals.getTargetValue(replaceTarget), 1);
+  __testInternals.setTargetValue(replaceTarget, 2, false);
+  assert.equal(row.nested.value, 2);
+  __testInternals.removeTargetValue(replaceTarget);
+  assert.deepEqual(row.nested, {});
+  assert.deepEqual(__testInternals.resolvePatchTarget(row, '/', false), {
+    container: row,
+    key: '',
+  });
+  assert.throws(() => __testInternals.resolvePatchTarget(row, '/missing/value', false), /parent/u);
+  assert.throws(
+    () => __testInternals.resolvePatchTarget({ scalar: 1 }, '/scalar/value', false),
+    /parent/u,
+  );
+
+  const applyRoot = { list: ['x'], name: 'old' };
+  __testInternals.applyOperation(applyRoot, {
+    op: 'add',
+    path: '/list/-',
+    value: 'y',
+    basis: 'evidence',
+  });
+  __testInternals.applyOperation(applyRoot, {
+    op: 'replace',
+    path: '/name',
+    value: 'new',
+    evidence: 'source quote',
+  });
+  __testInternals.applyOperation(applyRoot, { op: 'test', path: '/name', value: 'new' });
+  __testInternals.applyOperation(applyRoot, { op: 'remove', path: '/list/0', evidence: ['row'] });
+  assert.deepEqual(applyRoot, { list: ['y'], name: 'new' });
+  assert.throws(
+    () => __testInternals.applyOperation(applyRoot, { op: 'test', path: '/name', value: 'bad' }),
+    /Patch test failed/u,
+  );
+
+  assert.equal(__testInternals.evidenceIsPresent(' evidence '), true);
+  assert.equal(__testInternals.evidenceIsPresent(' '), false);
+  assert.equal(__testInternals.evidenceIsPresent(['x']), true);
+  assert.equal(__testInternals.evidenceIsPresent({ source: 'doc' }), true);
+  assert.equal(__testInternals.evidenceIsPresent(null), false);
+  assert.equal(
+    __testInternals.operationBasis({ op: 'replace', path: '/', basis: ' basis ' }),
+    'basis',
+  );
+  assert.deepEqual(
+    __testInternals.operationClosures({
+      op: 'replace',
+      path: '/name',
+      closes: ['a', { code: 'b', json_path: '/x' }, { actionItemCode: 'b', jsonPath: '/x' }],
+    }),
+    [
+      { code: 'a', path: null },
+      { code: 'b', path: '/x' },
+    ],
+  );
+  assert.deepEqual(__testInternals.normalizeClosureList(undefined), []);
+  assert.deepEqual(__testInternals.normalizeClosureList({ ruleId: 'rule-1' }), [
+    { code: 'rule-1', path: null },
+  ]);
+  assert.equal(__testInternals.normalizeClosure(null), null);
+  assert.equal(__testInternals.normalizeClosure({}), null);
+  assert.equal(__testInternals.looksLikeOperation({ op: 'add', path: '/x' }), true);
+  assert.equal(__testInternals.normalizeOperationArray('bad'), null);
+  assert.equal(__testInternals.normalizeOperationArray([{ op: 'add' }]), null);
+  assert.equal(__testInternals.normalizePatchSet(null), null);
+  assert.equal(__testInternals.normalizePatchSet({ row_index: 0 }), null);
+  assert.deepEqual(
+    __testInternals.normalizePatchSet({
+      rowIndex: '3',
+      entity_id: 'entity-1',
+      dataset_version: '01.00.000',
+      authoringPackage: 'pkg.json',
+      patches: [{ op: 'test', path: '/x', value: 1 }],
+    }),
+    {
+      rowIndex: 3,
+      datasetId: 'entity-1',
+      datasetVersion: '01.00.000',
+      authoringPackage: 'pkg.json',
+      operations: [{ op: 'test', path: '/x', value: 1 }],
+    },
+  );
+  assert.equal(__testInternals.patchPayloadCompletionStatus(1), null);
+  assert.equal(
+    __testInternals.patchPayloadCompletionStatus({ patchStatus: 'completed' }),
+    'completed',
+  );
+  const completedArray = [
+    { row_index: 0, operations: [{ op: 'test', path: '/x', value: 1 }] },
+  ] as Array<unknown> & { status?: string };
+  completedArray.status = 'completed';
+  assert.equal(__testInternals.normalizePatchPayload(completedArray).patches.length, 1);
+  const operationArray = [{ op: 'test', path: '/x', value: 1 }] as Array<unknown> & {
+    status?: string;
+  };
+  operationArray.status = 'completed';
+  assert.equal(
+    __testInternals.normalizePatchPayload(operationArray).blockers[0]?.code,
+    'patch_row_required',
+  );
+  assert.equal(
+    __testInternals.normalizePatchPayload(1).blockers[0]?.code,
+    'ai_patch_status_not_completed',
+  );
+  assert.equal(
+    __testInternals.normalizePatchPayload({
+      patch_status: 'completed',
+      suggestions: [{ bad: true }],
+    }).blockers[0]?.code,
+    'patch_set_invalid',
+  );
+  assert.equal(
+    __testInternals.normalizePatchPayload({
+      patch_status: 'completed',
+      patch_sets: [{ op: 'test', path: '/x', value: 1 }],
+    }).blockers[0]?.code,
+    'patch_row_required',
+  );
+  assert.equal(
+    __testInternals.normalizePatchPayload({ patch_status: 'completed' }).blockers[0]?.code,
+    'patch_payload_invalid',
+  );
+  assert.equal(
+    __testInternals.validateOperationShape({ op: 'move', path: '/x' }, 0, 0, 0, 'id', 'v')?.code,
+    'patch_operation_unsupported',
+  );
+  assert.equal(
+    __testInternals.validateOperationShape(
+      { op: 'replace', path: 'x', value: 1, basis: 'b' },
+      0,
+      0,
+      0,
+      'id',
+      'v',
+    )?.code,
+    'patch_path_invalid',
+  );
+  assert.equal(
+    __testInternals.validateOperationShape(
+      { op: 'replace', path: '/x', basis: 'b' },
+      0,
+      0,
+      0,
+      'id',
+      'v',
+    )?.code,
+    'patch_value_required',
+  );
+
+  const rows = [
+    { index: 0, id: 'id-1', version: '01.00.000', row: {}, payload: {}, kind: null },
+    { index: 1, id: 'id-1', version: '02.00.000', row: {}, payload: {}, kind: null },
+  ];
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: 9,
+        datasetId: null,
+        datasetVersion: null,
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_row_index_invalid',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: 0,
+        datasetId: 'other',
+        datasetVersion: null,
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_dataset_id_mismatch',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: 0,
+        datasetId: 'id-1',
+        datasetVersion: 'bad',
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_dataset_version_mismatch',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: null,
+        datasetId: null,
+        datasetVersion: null,
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_row_required',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: null,
+        datasetId: 'missing',
+        datasetVersion: null,
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_dataset_not_found',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: null,
+        datasetId: 'id-1',
+        datasetVersion: null,
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).blocker?.code,
+    'patch_dataset_ambiguous',
+  );
+  assert.equal(
+    __testInternals.findTargetRow(
+      {
+        rowIndex: null,
+        datasetId: 'id-1',
+        datasetVersion: '02.00.000',
+        authoringPackage: null,
+        operations: [],
+      },
+      rows,
+      0,
+    ).rowIndex,
+    1,
+  );
+});
+
+test('dataset patch internals cover authoring package guard branches', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-patch-internals-'));
+  const packageDir = path.join(dir, 'packages');
+  mkdirSync(packageDir, { recursive: true });
+  const validPackage = path.join(packageDir, 'pkg.json');
+  const invalidJson = path.join(packageDir, 'invalid.json');
+  const primitiveJson = path.join(packageDir, 'primitive.json');
+  writeJson(validPackage, {
+    entity_id: 'row-1',
+    version: '01.00.000',
+    action_items: [
+      { code: 'required', path: '/x', ai_required: true },
+      { code: 'skip', ai_required: false },
+      { code: 'decision', action_kind: 'location_decision_authoring', ai_required: true },
+      { rule_id: 'fallback-rule', path: '/y' },
+    ],
+  });
+  writeJson(path.join(packageDir, 'mismatch.json'), {
+    entity_id: 'other-row',
+    version: '02.00.000',
+    action_items: [],
+  });
+  writeFileSync(invalidJson, '{bad-json}', 'utf8');
+  writeFileSync(primitiveJson, '1', 'utf8');
+
+  try {
+    assert.equal(__testInternals.resolveAuthoringPackagePath(null, packageDir), null);
+    assert.equal(__testInternals.resolveAuthoringPackagePath('pkg.json', packageDir), validPackage);
+    assert.equal(
+      __testInternals.resolveAuthoringPackagePath(path.join('nested', 'pkg.json'), packageDir),
+      validPackage,
+    );
+    assert.equal(
+      __testInternals.readAuthoringPackageContext({
+        patch: {
+          rowIndex: 0,
+          datasetId: 'row-1',
+          datasetVersion: '01.00.000',
+          authoringPackage: null,
+          operations: [],
+        },
+        rowIndex: 0,
+        rowId: 'row-1',
+        rowVersion: '01.00.000',
+        patchIndex: 0,
+        requireAuthoringPackage: true,
+      }).blockers[0]?.code,
+      'authoring_package_required',
+    );
+    assert.equal(
+      __testInternals.readAuthoringPackageContext({
+        patch: {
+          rowIndex: 0,
+          datasetId: 'row-1',
+          datasetVersion: '01.00.000',
+          authoringPackage: 'missing.json',
+          operations: [],
+        },
+        rowIndex: 0,
+        rowId: 'row-1',
+        rowVersion: '01.00.000',
+        patchIndex: 0,
+        authoringPackageDir: packageDir,
+      }).blockers[0]?.code,
+      'authoring_package_not_found',
+    );
+    assert.equal(
+      __testInternals.readAuthoringPackageContext({
+        patch: {
+          rowIndex: 0,
+          datasetId: 'row-1',
+          datasetVersion: '01.00.000',
+          authoringPackage: 'invalid.json',
+          operations: [],
+        },
+        rowIndex: 0,
+        rowId: 'row-1',
+        rowVersion: '01.00.000',
+        patchIndex: 0,
+        authoringPackageDir: packageDir,
+      }).blockers[0]?.code,
+      'authoring_package_invalid',
+    );
+    assert.equal(
+      __testInternals.readAuthoringPackageContext({
+        patch: {
+          rowIndex: 0,
+          datasetId: 'row-1',
+          datasetVersion: '01.00.000',
+          authoringPackage: 'primitive.json',
+          operations: [],
+        },
+        rowIndex: 0,
+        rowId: 'row-1',
+        rowVersion: '01.00.000',
+        patchIndex: 0,
+        authoringPackageDir: packageDir,
+      }).blockers[0]?.code,
+      'authoring_package_invalid',
+    );
+
+    const context = __testInternals.readAuthoringPackageContext({
+      patch: {
+        rowIndex: 0,
+        datasetId: 'row-1',
+        datasetVersion: '01.00.000',
+        authoringPackage: 'pkg.json',
+        operations: [],
+      },
+      rowIndex: 0,
+      rowId: 'row-1',
+      rowVersion: '01.00.000',
+      patchIndex: 0,
+      authoringPackageDir: packageDir,
+    });
+    assert.equal(context.blockers.length, 0);
+    assert.deepEqual(context.context?.actionItems, [
+      { code: 'required', path: '/x' },
+      { code: 'fallback-rule', path: '/y' },
+    ]);
+    assert.equal(__testInternals.actionItemFromPackage({ code: 'x', ai_required: false }), null);
+    assert.equal(
+      __testInternals.actionItemFromPackage({
+        action_kind: 'identity_decision_authoring',
+        code: 'x',
+      }),
+      null,
+    );
+    assert.equal(__testInternals.actionItemFromPackage({}), null);
+    assert.equal(
+      __testInternals.closureMatchesActionItem(
+        { code: 'required', path: null },
+        { code: 'required', path: '/x' },
+      ),
+      true,
+    );
+    assert.equal(
+      __testInternals.closureMatchesActionItem(
+        { code: 'required', path: '/z' },
+        { code: 'required', path: '/x' },
+      ),
+      false,
+    );
+    assert.deepEqual(
+      __testInternals
+        .readAuthoringPackageContext({
+          patch: {
+            rowIndex: 0,
+            datasetId: 'row-1',
+            datasetVersion: '01.00.000',
+            authoringPackage: 'mismatch.json',
+            operations: [],
+          },
+          rowIndex: 0,
+          rowId: 'row-1',
+          rowVersion: '01.00.000',
+          patchIndex: 0,
+          authoringPackageDir: packageDir,
+        })
+        .blockers.map((blocker) => blocker.code),
+      ['authoring_package_entity_mismatch', 'authoring_package_version_mismatch'],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetPatchApply covers required flags and blocker apply paths', async () => {
+  await assert.rejects(
+    () => runDatasetPatchApply({ inputPath: '', patchPath: 'patch.json', outPath: 'out.jsonl' }),
+    /Missing required --input/u,
+  );
+  await assert.rejects(
+    () => runDatasetPatchApply({ inputPath: 'rows.jsonl', patchPath: '', outPath: 'out.jsonl' }),
+    /Missing required --patch/u,
+  );
+  await assert.rejects(
+    () => runDatasetPatchApply({ inputPath: 'rows.jsonl', patchPath: 'patch.json', outPath: '' }),
+    /Missing required --out/u,
+  );
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-patch-blocker-paths-'));
+  const inputPath = path.join(dir, 'rows.jsonl');
+  const patchPath = path.join(dir, 'patches.json');
+  const outPath = path.join(dir, 'patched.jsonl');
+  const packageDir = path.join(dir, 'packages');
+  mkdirSync(packageDir, { recursive: true });
+  writeJsonl(inputPath, [sampleProcessRow()]);
+  writeJson(path.join(packageDir, 'pkg.json'), {
+    entity_id: 'proc-1',
+    version: '00.00.001',
+    action_items: [{ code: 'known', path: '/known' }],
+  });
+  try {
+    const emptyOps = await runDatasetPatchApply({
+      inputPath,
+      patchPath,
+      outPath,
+      rawPatch: {
+        patch_status: 'completed',
+        patches: [{ row_index: 0, operations: [] }],
+      },
+    });
+    assert.equal(emptyOps.blockers[0]?.code, 'patch_operations_missing');
+
+    const failedOps = await runDatasetPatchApply({
+      inputPath,
+      patchPath,
+      outPath,
+      authoringPackageDir: packageDir,
+      requireActionItemClosure: true,
+      rawPatch: {
+        patch_status: 'completed',
+        patches: [
+          {
+            row_index: 0,
+            authoring_package: 'pkg.json',
+            operations: [
+              {
+                op: 'remove',
+                path: '/missing',
+                evidence: 'source',
+                closes: { code: 'unknown' },
+              },
+              {
+                op: 'test',
+                path: '/processDataSet/processInformation/dataSetInformation/name/baseName/#text',
+                value: 'wrong',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    assert.equal(failedOps.status, 'blocked');
+    assert.equal(
+      failedOps.blockers.some((blocker) => blocker.code === 'authoring_action_item_unknown'),
+      true,
+    );
+    assert.equal(
+      failedOps.blockers.some((blocker) => blocker.code === 'patch_apply_failed'),
+      true,
+    );
+    assert.equal(
+      failedOps.blockers.some((blocker) => blocker.code === 'patch_test_failed'),
+      true,
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

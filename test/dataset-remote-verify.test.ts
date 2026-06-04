@@ -845,6 +845,137 @@ test('dataset remote verify internals normalize table, versions, and REST lookup
   assert.equal(missingLatest.latest, null);
 });
 
+test('dataset remote verify internals handle root payload lookup and readback checks', async () => {
+  assert.match(
+    __testInternals.buildRemotePayloadUrl(
+      'https://example.supabase.co/rest/v1/',
+      'flows',
+      'flow-1',
+      '01.00.000',
+    ),
+    /select=id%2Cversion%2Cuser_id%2Cstate_code%2Cmodified_at%2Cjson%2Cjson_ordered/u,
+  );
+  assert.equal(__testInternals.normalizePayloadRow(null), null);
+  assert.deepEqual(
+    __testInternals.normalizePayloadRow({
+      id: ' flow-1 ',
+      version: ' 01.00.000 ',
+      user_id: ' user-1 ',
+      state_code: '0',
+      modified_at: ' now ',
+      json: { fallback: true },
+    }),
+    {
+      id: 'flow-1',
+      version: '01.00.000',
+      user_id: 'user-1',
+      state_code: null,
+      modified_at: 'now',
+      payload: { fallback: true },
+      source_url: null,
+    },
+  );
+  assert.equal(
+    await __testInternals.lookupRemoteDatasetPayload({
+      runtime: {} as never,
+      fetchImpl: async () => jsonResponse([]),
+      timeoutMs: 1000,
+      request: { table: 'flows', id: 'flow-1', version: null },
+    }),
+    null,
+  );
+
+  const lookupPayload = await __testInternals.lookupRemoteDatasetPayload({
+    runtime: {
+      apiBaseUrl: 'https://example.supabase.co/functions/v1',
+      publishableKey: 'anon-key',
+      getAccessToken: async () => 'access-token',
+    },
+    fetchImpl: async (input) => {
+      assert.match(String(input), /\/rest\/v1\/flows/u);
+      return jsonResponse([
+        {
+          id: 'flow-1',
+          version: '01.00.000',
+          user_id: 'user-1',
+          state_code: 0,
+          modified_at: '2026-06-04T00:00:00.000Z',
+          json_ordered: { b: 2, a: 1 },
+        },
+      ]);
+    },
+    timeoutMs: 1000,
+    request: { table: 'flows', id: 'flow-1', version: '01.00.000' },
+  });
+  assert.equal(lookupPayload?.id, 'flow-1');
+  assert.equal(lookupPayload?.source_url?.includes('/rest/v1/flows'), true);
+  assert.equal(
+    __testInternals.sha256Json({ b: 2, a: 1 }),
+    __testInternals.sha256Json({ a: 1, b: 2 }),
+  );
+
+  const reference = {
+    row_index: 0,
+    role: 'root',
+    table: 'flows',
+    type: 'flow data set',
+    id: 'flow-1',
+    version: '01.00.000',
+    path: '/',
+    short_description: null,
+  } satisfies Parameters<typeof __testInternals.rootReadbackChecks>[0]['reference'];
+  const missingChecks = __testInternals.rootReadbackChecks({
+    reference,
+    localPayload: { a: 1 },
+    remote: null,
+    compareRootPayload: true,
+    targetUserId: null,
+    stateCode: null,
+  });
+  assert.equal(missingChecks[0]?.status, 'missing_dataset');
+  const mismatchChecks = __testInternals.rootReadbackChecks({
+    reference,
+    localPayload: { a: 1 },
+    remote: {
+      id: 'flow-1',
+      version: '01.00.000',
+      user_id: 'other-user',
+      state_code: 1,
+      modified_at: '2026-06-04T00:00:00.000Z',
+      payload: { a: 2 },
+      source_url: 'https://example.test/flows',
+    },
+    compareRootPayload: true,
+    targetUserId: 'user-1',
+    stateCode: 0,
+  });
+  assert.deepEqual(
+    mismatchChecks.map((check) => check.status),
+    ['owner_mismatch', 'state_code_mismatch', 'payload_mismatch'],
+  );
+  const missingPayloadChecks = __testInternals.rootReadbackChecks({
+    reference,
+    localPayload: { a: 1 },
+    remote: {
+      id: 'flow-1',
+      version: '01.00.000',
+      user_id: 'user-1',
+      state_code: 0,
+      modified_at: null,
+      payload: null,
+      source_url: null,
+    },
+    compareRootPayload: true,
+    targetUserId: null,
+    stateCode: null,
+  });
+  assert.equal(missingPayloadChecks[0]?.status, 'remote_payload_missing');
+  assert.equal(
+    __testInternals.makeRootReadbackCheck(reference, 'lookup_failed', 'failed', null).path,
+    '/#readback',
+  );
+});
+
 test('dataset remote verify internals collect fallback roots and escaped pointers', () => {
   const refs = __testInternals.collectRemoteReferences([
     { json_ordered: { unsupportedRoot: { value: true } } },

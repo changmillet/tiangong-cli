@@ -487,6 +487,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export const __testInternals = {
+  artifactManifest,
+  buildAiContext,
   filterRuntimeRuleset,
   loadFallbackContractPack,
   renderAiContextMarkdown,

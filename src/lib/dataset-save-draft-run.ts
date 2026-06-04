@@ -79,6 +79,18 @@ type DatasetSaveDraftValidationResult =
       issues: DatasetSaveDraftValidationIssue[];
     };
 
+function normalizeValidationIssue(issue: {
+  path?: Array<string | number>;
+  message?: string;
+  code?: string;
+}): DatasetSaveDraftValidationIssue {
+  return {
+    path: normalizeIssuePath(issue.path ?? []),
+    message: issue.message ?? 'Validation failed',
+    code: issue.code ?? 'custom',
+  };
+}
+
 export type DatasetSaveDraftRowReport = {
   index: number;
   id: string | null;
@@ -357,11 +369,7 @@ function validatePayload(
       : [];
   const importIssues = type === 'process' ? [] : collectImportContentIssues(payload);
   const issues: DatasetSaveDraftValidationIssue[] = [
-    ...outcome.issues.map((issue) => ({
-      path: normalizeIssuePath(issue.path),
-      message: issue.message ?? 'Validation failed',
-      code: issue.code ?? 'custom',
-    })),
+    ...outcome.issues.map(normalizeValidationIssue),
     ...processIssues,
     ...importIssues,
   ];
@@ -489,10 +497,16 @@ function uniqueFlowRemoteReferences(payload: JsonObject): RemoteDatasetReference
         reference,
       );
     } else {
-      references.set(`${reference.path}:${reference.type ?? 'unknown'}`, reference);
+      references.set(remoteReferenceFallbackKey(reference), reference);
     }
   }
   return [...references.values()];
+}
+
+function remoteReferenceFallbackKey(
+  reference: Pick<RemoteDatasetReference, 'path' | 'type'>,
+): string {
+  return `${reference.path}:${reference.type ?? 'unknown'}`;
 }
 
 async function lookupCachedReferenceOnlySupport(options: {
@@ -983,13 +997,28 @@ export async function runDatasetSaveDraft(
 
 export const __testInternals = {
   DATASET_CONFIGS,
+  buildFiles,
+  buildPreparedFailure,
   buildVisibleRowsUrl,
+  byTable,
+  compareVersions,
+  defaultOutDir,
   detectType,
   extractIdentity,
   flowType,
   isElementaryFlowPayload,
+  isLookupableRemoteReference,
+  missingFlowRemoteReferences,
+  normalizeValidationIssue,
   normalizeType,
+  operationCount,
   parseVisibleRows,
   prepareRows,
+  remoteReferenceFallbackKey,
+  selectedRow,
+  serializeError,
+  supportLookupKey,
+  unwrapPayload,
   uniqueFlowRemoteReferences,
+  validatePayload,
 };

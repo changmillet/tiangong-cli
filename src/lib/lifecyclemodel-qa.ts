@@ -1408,6 +1408,7 @@ export const __testInternals = {
   discoverModelEntries,
   readValidationAggregate,
   materializeRowsFile,
+  sanitizeFileName,
   readModelFileReviewInfo,
   buildModelReview,
   buildInvocationIndex,
