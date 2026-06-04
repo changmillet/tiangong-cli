@@ -171,7 +171,7 @@ tiangong-lca flow build-plan validate --input ./flow-build-plan.json --out-dir .
 tiangong-lca flow build-plan materialize --input ./flow-build-plan.json --out-dir ./flow-build-plan --json
 ```
 
-The minimum plan contract requires an automatic identity decision, EvidenceManifest sources and field bindings, name plan, and the relevant process reference-flow or flow-property fields. Process materialization carries name, quantitative reference, exchange, source evidence, modelling, administrative, and annual supply/production fields from the plan into `processDataSet`; when annual volume is not explicit, it falls back to reference-flow `meanAmount` and then `resultingAmount`. Flow materialization carries name, flow type, reference property, source evidence, administrative, and classification fields into `flowDataSet`. `--report-only` keeps exit code `0` while still reporting blockers.
+The minimum plan contract requires an automatic identity decision, EvidenceManifest sources and field bindings, name plan, and the relevant process reference-flow or flow-property fields. Process materialization carries name, quantitative reference, exchange, source evidence, modelling, administrative, and annual supply/production fields from the plan into `processDataSet`; when annual volume source evidence is not explicit, Foundry-facing required-field completion uses the deterministic `9999 missing-data-sentinel/year` value so the schema-required field stays searchable for later database-side curation. Flow materialization carries name, flow type, reference property, source evidence, administrative, and classification fields into `flowDataSet`. `--report-only` keeps exit code `0` while still reporting blockers.
 
 Key outputs under `--out-dir`:
 

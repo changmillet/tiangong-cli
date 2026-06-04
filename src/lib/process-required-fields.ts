@@ -17,6 +17,7 @@ const ANNUAL_SUPPLY_ROOT_FIELD =
   'modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';
 const DATA_SOURCES_TREATMENT_FIELD =
   'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness';
+const ANNUAL_SUPPLY_MISSING_DATA_SENTINEL_TEXT = '9999 missing-data-sentinel/year';
 const NUMERIC_TEXT_WITH_SUFFIX_PATTERN = /^[+-]?(\d+(\.\d*)?|\.\d+)([Ee][+-]?\d+)?\s+\S.*$/u;
 const ANNUAL_PERIOD_PATTERN =
   /(?:\/\s*(?:year|yr|a)\b|\bper\s+(?:year|annum)\b|\/\s*年|每年|年度|年供应|年产)/iu;
@@ -62,7 +63,12 @@ export type ProcessRequiredFieldIssue = {
 
 export type ProcessRequiredFieldCompletion = {
   field_path: string;
-  source: 'existing' | 'evidence' | 'placeholder_repair' | 'required_structure_repair';
+  source:
+    | 'existing'
+    | 'evidence'
+    | 'missing_data_sentinel'
+    | 'placeholder_repair'
+    | 'required_structure_repair';
   value: Array<{ '#text': string; '@xml:lang': string }>;
   amount: string | null;
   unit: string | null;
@@ -935,6 +941,23 @@ function ensureDataSources(root: JsonObject): JsonObject {
   return modelling.dataSourcesTreatmentAndRepresentativeness as JsonObject;
 }
 
+function annualSupplyMissingDataSentinelValue(): Array<{ '#text': string; '@xml:lang': string }> {
+  return [{ '@xml:lang': 'en', '#text': ANNUAL_SUPPLY_MISSING_DATA_SENTINEL_TEXT }];
+}
+
+function annualSupplyMissingDataSentinelCompletion(): ProcessRequiredFieldCompletion {
+  return {
+    field_path: ANNUAL_SUPPLY_FIELD,
+    source: 'missing_data_sentinel',
+    value: annualSupplyMissingDataSentinelValue(),
+    amount: '9999',
+    unit: 'missing-data-sentinel/year',
+    reference_exchange_internal_id: null,
+    basis:
+      'No source annual supply or production volume evidence was available; Foundry policy uses an intentionally non-physical 9999 sentinel so database-side follow-up can bulk-locate and replace it later.',
+  };
+}
+
 function cloneRowWithPayload(row: DatasetRowInput): { row: JsonObject; payload: JsonObject } {
   const clonedRow = cloneJson(row.row);
   if (isRecord(clonedRow.json_ordered)) {
@@ -1039,6 +1062,9 @@ function completeProcessRow(
     };
   }
 
+  const dataSources = ensureDataSources(root);
+  const completion = annualSupplyMissingDataSentinelCompletion();
+  dataSources.annualSupplyOrProductionVolume = completion.value;
   return {
     row: clonedRow,
     report: {
@@ -1046,17 +1072,9 @@ function completeProcessRow(
       id: row.id,
       version: row.version,
       type: row.kind,
-      status: 'blocked',
-      issues: [
-        ...existingIssues,
-        {
-          code: 'annual_supply_evidence_missing',
-          message:
-            'Could not complete annualSupplyOrProductionVolume because no source evidence value was provided.',
-          path: ANNUAL_SUPPLY_FIELD,
-        },
-      ],
-      completions: repairCompletions,
+      status: 'completed',
+      issues: [],
+      completions: [...repairCompletions, completion],
     },
   };
 }
@@ -1148,7 +1166,9 @@ export async function runProcessRequiredFieldsComplete(
 }
 
 export const __testInternals = {
+  ANNUAL_SUPPLY_MISSING_DATA_SENTINEL_TEXT,
   ANNUAL_SUPPLY_ROOT_FIELD,
+  annualSupplyMissingDataSentinelValue,
   annualSupplyTextParts,
   annualSupplyValueFromText,
   cloneRowWithPayload,

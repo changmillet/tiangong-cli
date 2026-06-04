@@ -2056,7 +2056,7 @@ Options:
 Annual supply / production volume policy:
   1. keep an existing valid annualized annualSupplyOrProductionVolume, for example "3.6 MJ/year";
   2. use an explicit value from row-level authoring evidence or evidenceManifest field bindings;
-  3. otherwise complete from the quantitative reference flow meanAmount/resultingAmount and unit.
+  3. otherwise write "9999 missing-data-sentinel/year", an intentionally non-physical searchable sentinel for later database-side curation.
 
 Outputs:
   - completed rows at --out
