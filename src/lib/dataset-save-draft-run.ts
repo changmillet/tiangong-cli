@@ -95,7 +95,7 @@ export type DatasetSaveDraftRowReport = {
     | 'type_unknown'
     | 'identity_missing'
     | 'elementary_flow_insert_blocked'
-    | 'reference_only_support_missing'
+    | 'remote_reference_unresolved'
     | null;
   validation: DatasetSaveDraftValidationResult | null;
   visible_row?: VisibleDatasetRow | null;
@@ -160,15 +160,19 @@ type VisibleDatasetRow = {
 
 type SupabaseDataClient = ReturnType<typeof createSupabaseDataClient>['client'];
 
-type ReferenceOnlySupportTable = Extract<RemoteDatasetTable, 'flowproperties' | 'unitgroups'>;
-
-type MissingReferenceOnlySupport = {
-  table: ReferenceOnlySupportTable;
-  id: string;
+type MissingFlowRemoteReference = {
+  table: RemoteDatasetTable | null;
+  id: string | null;
   version: string | null;
   path: string;
   short_description: string | null;
-  status: 'missing_dataset' | 'missing_version';
+  status:
+    | 'missing_dataset'
+    | 'missing_version'
+    | 'unsupported_type'
+    | 'version_missing'
+    | 'version_outdated';
+  latest_version: string | null;
 };
 
 const DATASET_CONFIGS: Record<ConcreteDatasetSaveDraftType, DatasetTypeConfig> = {
@@ -423,34 +427,69 @@ function isElementaryFlowPayload(payload: JsonObject): boolean {
   return flowType(payload)?.trim().toLowerCase() === 'elementary flow';
 }
 
-function isReferenceOnlySupportReference(
-  reference: RemoteDatasetReference,
-): reference is RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string } {
-  return (
-    reference.role === 'reference' &&
-    (reference.table === 'flowproperties' || reference.table === 'unitgroups') &&
-    Boolean(reference.id)
-  );
+function compareVersions(left: string | null, right: string | null): number {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left) {
+    return -1;
+  }
+  if (!right) {
+    return 1;
+  }
+  const leftParts = left.split(/[._-]/u);
+  const rightParts = right.split(/[._-]/u);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftPart = leftParts[index] ?? '0';
+    const rightPart = rightParts[index] ?? '0';
+    const leftNumber = Number(leftPart);
+    const rightNumber = Number(rightPart);
+    if (Number.isFinite(leftNumber) && Number.isFinite(rightNumber)) {
+      if (leftNumber !== rightNumber) {
+        return leftNumber > rightNumber ? 1 : -1;
+      }
+    } else {
+      const compared = leftPart.localeCompare(rightPart);
+      if (compared !== 0) {
+        return compared > 0 ? 1 : -1;
+      }
+    }
+  }
+  return 0;
 }
 
 function supportLookupKey(reference: {
-  table: ReferenceOnlySupportTable;
+  table: RemoteDatasetTable;
   id: string;
   version: string | null;
 }): string {
   return `${reference.table}:${reference.id}:${reference.version ?? ''}`;
 }
 
-function uniqueReferenceOnlySupportReferences(
-  payload: JsonObject,
-): Array<RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string }> {
-  const references = new Map<
-    string,
-    RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string }
-  >();
+function isLookupableRemoteReference(
+  reference: RemoteDatasetReference,
+): reference is RemoteDatasetReference & { table: RemoteDatasetTable; id: string } {
+  return Boolean(reference.table && reference.id);
+}
+
+function uniqueFlowRemoteReferences(payload: JsonObject): RemoteDatasetReference[] {
+  const references = new Map<string, RemoteDatasetReference>();
   for (const reference of collectRemoteReferences([payload])) {
-    if (isReferenceOnlySupportReference(reference)) {
-      references.set(supportLookupKey(reference), reference);
+    if (reference.role !== 'reference') {
+      continue;
+    }
+    if (reference.table && reference.id) {
+      references.set(
+        supportLookupKey({
+          table: reference.table,
+          id: reference.id,
+          version: reference.version,
+        }),
+        reference,
+      );
+    } else {
+      references.set(`${reference.path}:${reference.type ?? 'unknown'}`, reference);
     }
   }
   return [...references.values()];
@@ -461,7 +500,7 @@ async function lookupCachedReferenceOnlySupport(options: {
   fetchImpl: FetchLike;
   timeoutMs: number;
   cache: Map<string, Promise<RemoteDatasetLookup>>;
-  reference: RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string };
+  reference: RemoteDatasetReference & { table: RemoteDatasetTable; id: string };
 }): Promise<RemoteDatasetLookup> {
   const key = supportLookupKey(options.reference);
   if (!options.cache.has(key)) {
@@ -482,25 +521,69 @@ async function lookupCachedReferenceOnlySupport(options: {
   return options.cache.get(key) as Promise<RemoteDatasetLookup>;
 }
 
-async function missingReferenceOnlySupport(options: {
+async function missingFlowRemoteReferences(options: {
   runtime: SupabaseDataRuntime;
   fetchImpl: FetchLike;
   timeoutMs: number;
   cache: Map<string, Promise<RemoteDatasetLookup>>;
   payload: JsonObject;
-}): Promise<MissingReferenceOnlySupport[]> {
-  const missing: MissingReferenceOnlySupport[] = [];
-  for (const reference of uniqueReferenceOnlySupportReferences(options.payload)) {
-    const lookup = await lookupCachedReferenceOnlySupport({ ...options, reference });
-    const resolved = reference.version ? lookup.exact : lookup.latest;
-    if (!resolved) {
+}): Promise<MissingFlowRemoteReference[]> {
+  const missing: MissingFlowRemoteReference[] = [];
+  for (const reference of uniqueFlowRemoteReferences(options.payload)) {
+    if (!isLookupableRemoteReference(reference)) {
       missing.push({
         table: reference.table,
         id: reference.id,
         version: reference.version,
         path: reference.path,
         short_description: reference.short_description,
-        status: lookup.latest ? 'missing_version' : 'missing_dataset',
+        status: 'unsupported_type',
+        latest_version: null,
+      });
+      continue;
+    }
+    if (!reference.version) {
+      missing.push({
+        table: reference.table,
+        id: reference.id,
+        version: null,
+        path: reference.path,
+        short_description: reference.short_description,
+        status: 'version_missing',
+        latest_version: null,
+      });
+      continue;
+    }
+    const lookup = await lookupCachedReferenceOnlySupport({ ...options, reference });
+    if (!lookup.latest) {
+      missing.push({
+        table: reference.table,
+        id: reference.id,
+        version: reference.version,
+        path: reference.path,
+        short_description: reference.short_description,
+        status: 'missing_dataset',
+        latest_version: null,
+      });
+    } else if (!lookup.exact) {
+      missing.push({
+        table: reference.table,
+        id: reference.id,
+        version: reference.version,
+        path: reference.path,
+        short_description: reference.short_description,
+        status: 'missing_version',
+        latest_version: lookup.latest.version,
+      });
+    } else if (compareVersions(lookup.latest.version, reference.version) > 0) {
+      missing.push({
+        table: reference.table,
+        id: reference.id,
+        version: reference.version,
+        path: reference.path,
+        short_description: reference.short_description,
+        status: 'version_outdated',
+        latest_version: lookup.latest.version,
       });
     }
   }
@@ -788,31 +871,6 @@ export async function runDatasetSaveDraft(
       });
       const visibleRow = visibleRows[0] ?? null;
       if (row.type === 'flow') {
-        const missingSupport = await missingReferenceOnlySupport({
-          runtime: runtime!,
-          fetchImpl: options.fetchImpl!,
-          timeoutMs,
-          cache: referenceOnlySupportCache,
-          payload: row.payload,
-        });
-        if (missingSupport.length > 0) {
-          reports.push({
-            ...baseReport,
-            status: 'failed',
-            operation: 'reference_only_support_missing',
-            visible_row: visibleRow,
-            error: {
-              message:
-                'Flow save-draft commit requires referenced Flow Properties and Unit Groups to already exist in the remote database.',
-              details: {
-                code: 'DATASET_SAVE_DRAFT_REFERENCE_ONLY_SUPPORT_MISSING',
-                references: missingSupport,
-              },
-            },
-          });
-          continue;
-        }
-
         if (!visibleRow && isElementaryFlowPayload(row.payload)) {
           reports.push({
             ...baseReport,
@@ -824,6 +882,31 @@ export async function runDatasetSaveDraft(
                 'Elementary flows are reference-only for dataset save-draft. Resolve the flow with remote hybrid search and reference the existing database row instead of creating a My Data flow.',
               details: {
                 code: 'DATASET_SAVE_DRAFT_ELEMENTARY_FLOW_INSERT_BLOCKED',
+              },
+            },
+          });
+          continue;
+        }
+
+        const unresolvedReferences = await missingFlowRemoteReferences({
+          runtime: runtime!,
+          fetchImpl: options.fetchImpl!,
+          timeoutMs,
+          cache: referenceOnlySupportCache,
+          payload: row.payload,
+        });
+        if (unresolvedReferences.length > 0) {
+          reports.push({
+            ...baseReport,
+            status: 'failed',
+            operation: 'remote_reference_unresolved',
+            visible_row: visibleRow,
+            error: {
+              message:
+                'Flow save-draft commit requires all referenced datasets to already resolve in the remote database.',
+              details: {
+                code: 'DATASET_SAVE_DRAFT_REMOTE_REFERENCE_UNRESOLVED',
+                references: unresolvedReferences,
               },
             },
           });
@@ -908,5 +991,5 @@ export const __testInternals = {
   normalizeType,
   parseVisibleRows,
   prepareRows,
-  uniqueReferenceOnlySupportReferences,
+  uniqueFlowRemoteReferences,
 };

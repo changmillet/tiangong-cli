@@ -184,6 +184,8 @@ function makeSaveDraftFetch(options: {
   rootRows?: unknown[];
   latestSupportRows?: unknown[];
   exactSupportRows?: unknown[];
+  resolveContacts?: boolean;
+  resolveSources?: boolean;
   createBody?: { ok: true; data?: unknown };
   observedUrls: string[];
   observedBodies?: unknown[];
@@ -206,6 +208,16 @@ function makeSaveDraftFetch(options: {
           ? (options.exactSupportRows ?? [])
           : (options.latestSupportRows ?? []),
       );
+    }
+    if (table === 'contacts' && options.resolveContacts !== false) {
+      const id = parsed.searchParams.get('id')?.replace(/^eq\./u, '') ?? 'contact-1';
+      const version = parsed.searchParams.get('version')?.replace(/^eq\./u, '') ?? '00.00.001';
+      return jsonResponse([{ id, version }]);
+    }
+    if (table === 'sources' && options.resolveSources !== false) {
+      const id = parsed.searchParams.get('id')?.replace(/^eq\./u, '') ?? 'source-1';
+      const version = parsed.searchParams.get('version')?.replace(/^eq\./u, '') ?? '00.00.001';
+      return jsonResponse([{ id, version }]);
     }
     if (parsed.pathname.endsWith('/functions/v1/app_dataset_create')) {
       if (typeof init?.body === 'string') {
@@ -328,8 +340,8 @@ test('dataset save-draft rejects explicit reference-only support types', () => {
   );
 });
 
-test('dataset save-draft support reference helpers find reference-only support rows', () => {
-  const references = __testInternals.uniqueReferenceOnlySupportReferences({
+test('dataset save-draft reference helpers find unique remote references', () => {
+  const references = __testInternals.uniqueFlowRemoteReferences({
     processDataSet: {
       exchanges: {
         exchange: [
@@ -368,7 +380,7 @@ test('dataset save-draft support reference helpers find reference-only support r
 
   assert.deepEqual(
     references.map((reference) => `${reference.table}:${reference.id}`),
-    ['flowproperties:fp-1', 'unitgroups:ug-1'],
+    ['flows:flow-1', 'flowproperties:fp-1', 'unitgroups:ug-1'],
   );
   assert.equal(__testInternals.flowType({}), null);
   assert.equal(__testInternals.isElementaryFlowPayload(makeFlow('Elementary flow')), true);
@@ -414,7 +426,7 @@ test('runDatasetSaveDraft blocks elementary flow inserts after support resolutio
   }
 });
 
-test('runDatasetSaveDraft blocks flow writes with missing reference-only support versions', async () => {
+test('runDatasetSaveDraft blocks flow writes with unresolved remote references', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-save-draft-support-'));
   const flow = makeFlow('Product flow');
   const urls: string[] = [];
@@ -442,8 +454,8 @@ test('runDatasetSaveDraft blocks flow writes with missing reference-only support
       references?: Array<{ status: string; id: string; version: string | null }>;
     };
     assert.equal(report.status, 'completed_with_failures');
-    assert.equal(report.rows[0]?.operation, 'reference_only_support_missing');
-    assert.equal(details.code, 'DATASET_SAVE_DRAFT_REFERENCE_ONLY_SUPPORT_MISSING');
+    assert.equal(report.rows[0]?.operation, 'remote_reference_unresolved');
+    assert.equal(details.code, 'DATASET_SAVE_DRAFT_REMOTE_REFERENCE_UNRESOLVED');
     assert.deepEqual(details.references, [
       {
         table: 'flowproperties',
@@ -452,6 +464,57 @@ test('runDatasetSaveDraft blocks flow writes with missing reference-only support
         path: '/flowDataSet/flowProperties/flowProperty/referenceToFlowPropertyDataSet',
         short_description: 'Mass',
         status: 'missing_version',
+        latest_version: '00.00.001',
+      },
+    ]);
+    assert.equal(
+      urls.some((url) => url.endsWith('/functions/v1/app_dataset_create')),
+      false,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetSaveDraft blocks product flow inserts with missing non-support references', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-save-draft-contact-'));
+  const flow = makeFlow('Product flow');
+  const urls: string[] = [];
+  const supportId = flowPropertyId(flow);
+
+  try {
+    const report = await runDatasetSaveDraft({
+      inputPath: path.join(dir, 'flows.json'),
+      rawInput: { rows: [flow] },
+      type: 'flow',
+      outDir: dir,
+      commit: true,
+      now: new Date('2026-06-04T00:00:00.000Z'),
+      env: buildSupabaseTestEnv(),
+      fetchImpl: makeSaveDraftFetch({
+        observedUrls: urls,
+        resolveContacts: false,
+        exactSupportRows: [{ id: supportId, version: '00.00.001' }],
+        latestSupportRows: [{ id: supportId, version: '00.00.001' }],
+      }),
+    });
+
+    const details = report.rows[0]?.error?.details as {
+      code?: string;
+      references?: Array<{ table: string; status: string; id: string }>;
+    };
+    assert.equal(report.status, 'completed_with_failures');
+    assert.equal(report.rows[0]?.operation, 'remote_reference_unresolved');
+    assert.equal(details.code, 'DATASET_SAVE_DRAFT_REMOTE_REFERENCE_UNRESOLVED');
+    assert.deepEqual(details.references, [
+      {
+        table: 'contacts',
+        id: '44444444-4444-4444-4444-444444444444',
+        version: '00.00.001',
+        path: '/flowDataSet/administrativeInformation/publicationAndOwnership/common:referenceToOwnershipOfDataSet',
+        short_description: 'Owner',
+        status: 'missing_dataset',
+        latest_version: null,
       },
     ]);
     assert.equal(
