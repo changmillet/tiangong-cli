@@ -25,8 +25,16 @@ import {
   createSupabaseDataClient,
   requireSupabaseRestRuntime,
   runSupabaseArrayQuery,
+  type SupabaseDataRuntime,
 } from './supabase-client.js';
 import { createSupabaseDataRuntime } from './supabase-session.js';
+import {
+  collectRemoteReferences,
+  lookupRemoteDataset,
+  type RemoteDatasetLookup,
+  type RemoteDatasetReference,
+  type RemoteDatasetTable,
+} from './dataset-remote-verify.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -86,6 +94,8 @@ export type DatasetSaveDraftRowReport = {
     | 'reference_only_type'
     | 'type_unknown'
     | 'identity_missing'
+    | 'elementary_flow_insert_blocked'
+    | 'reference_only_support_missing'
     | null;
   validation: DatasetSaveDraftValidationResult | null;
   visible_row?: VisibleDatasetRow | null;
@@ -149,6 +159,17 @@ type VisibleDatasetRow = {
 };
 
 type SupabaseDataClient = ReturnType<typeof createSupabaseDataClient>['client'];
+
+type ReferenceOnlySupportTable = Extract<RemoteDatasetTable, 'flowproperties' | 'unitgroups'>;
+
+type MissingReferenceOnlySupport = {
+  table: ReferenceOnlySupportTable;
+  id: string;
+  version: string | null;
+  path: string;
+  short_description: string | null;
+  status: 'missing_dataset' | 'missing_version';
+};
 
 const DATASET_CONFIGS: Record<ConcreteDatasetSaveDraftType, DatasetTypeConfig> = {
   contact: {
@@ -386,6 +407,104 @@ function extractIdentity(
     version:
       trimToken(row.version) ?? trimToken(publicationAndOwnership['common:dataSetVersion']) ?? null,
   };
+}
+
+function flowType(payload: JsonObject): string | null {
+  const rootCandidate = payload.flowDataSet;
+  const root = isRecord(rootCandidate) ? rootCandidate : payload;
+  const modellingCandidate = root.modellingAndValidation;
+  const modelling = isRecord(modellingCandidate) ? modellingCandidate : {};
+  const lciMethodCandidate = modelling.LCIMethod;
+  const lciMethod = isRecord(lciMethodCandidate) ? lciMethodCandidate : {};
+  return trimToken(lciMethod.typeOfDataSet);
+}
+
+function isElementaryFlowPayload(payload: JsonObject): boolean {
+  return flowType(payload)?.trim().toLowerCase() === 'elementary flow';
+}
+
+function isReferenceOnlySupportReference(
+  reference: RemoteDatasetReference,
+): reference is RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string } {
+  return (
+    reference.role === 'reference' &&
+    (reference.table === 'flowproperties' || reference.table === 'unitgroups') &&
+    Boolean(reference.id)
+  );
+}
+
+function supportLookupKey(reference: {
+  table: ReferenceOnlySupportTable;
+  id: string;
+  version: string | null;
+}): string {
+  return `${reference.table}:${reference.id}:${reference.version ?? ''}`;
+}
+
+function uniqueReferenceOnlySupportReferences(
+  payload: JsonObject,
+): Array<RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string }> {
+  const references = new Map<
+    string,
+    RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string }
+  >();
+  for (const reference of collectRemoteReferences([payload])) {
+    if (isReferenceOnlySupportReference(reference)) {
+      references.set(supportLookupKey(reference), reference);
+    }
+  }
+  return [...references.values()];
+}
+
+async function lookupCachedReferenceOnlySupport(options: {
+  runtime: SupabaseDataRuntime;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  cache: Map<string, Promise<RemoteDatasetLookup>>;
+  reference: RemoteDatasetReference & { table: ReferenceOnlySupportTable; id: string };
+}): Promise<RemoteDatasetLookup> {
+  const key = supportLookupKey(options.reference);
+  if (!options.cache.has(key)) {
+    options.cache.set(
+      key,
+      lookupRemoteDataset({
+        runtime: options.runtime,
+        fetchImpl: options.fetchImpl,
+        timeoutMs: options.timeoutMs,
+        request: {
+          table: options.reference.table,
+          id: options.reference.id,
+          version: options.reference.version,
+        },
+      }),
+    );
+  }
+  return options.cache.get(key) as Promise<RemoteDatasetLookup>;
+}
+
+async function missingReferenceOnlySupport(options: {
+  runtime: SupabaseDataRuntime;
+  fetchImpl: FetchLike;
+  timeoutMs: number;
+  cache: Map<string, Promise<RemoteDatasetLookup>>;
+  payload: JsonObject;
+}): Promise<MissingReferenceOnlySupport[]> {
+  const missing: MissingReferenceOnlySupport[] = [];
+  for (const reference of uniqueReferenceOnlySupportReferences(options.payload)) {
+    const lookup = await lookupCachedReferenceOnlySupport({ ...options, reference });
+    const resolved = reference.version ? lookup.exact : lookup.latest;
+    if (!resolved) {
+      missing.push({
+        table: reference.table,
+        id: reference.id,
+        version: reference.version,
+        path: reference.path,
+        short_description: reference.short_description,
+        status: lookup.latest ? 'missing_version' : 'missing_dataset',
+      });
+    }
+  }
+  return missing;
 }
 
 function prepareRows(
@@ -633,6 +752,7 @@ export async function runDatasetSaveDraft(
     runtime && options.fetchImpl
       ? createSupabaseDataClient(runtime, options.fetchImpl, timeoutMs)
       : null;
+  const referenceOnlySupportCache = new Map<string, Promise<RemoteDatasetLookup>>();
 
   const reports: DatasetSaveDraftRowReport[] = [];
   for (const row of preparedRows) {
@@ -667,6 +787,49 @@ export async function runDatasetSaveDraft(
         version: row.version!,
       });
       const visibleRow = visibleRows[0] ?? null;
+      if (row.type === 'flow') {
+        const missingSupport = await missingReferenceOnlySupport({
+          runtime: runtime!,
+          fetchImpl: options.fetchImpl!,
+          timeoutMs,
+          cache: referenceOnlySupportCache,
+          payload: row.payload,
+        });
+        if (missingSupport.length > 0) {
+          reports.push({
+            ...baseReport,
+            status: 'failed',
+            operation: 'reference_only_support_missing',
+            visible_row: visibleRow,
+            error: {
+              message:
+                'Flow save-draft commit requires referenced Flow Properties and Unit Groups to already exist in the remote database.',
+              details: {
+                code: 'DATASET_SAVE_DRAFT_REFERENCE_ONLY_SUPPORT_MISSING',
+                references: missingSupport,
+              },
+            },
+          });
+          continue;
+        }
+
+        if (!visibleRow && isElementaryFlowPayload(row.payload)) {
+          reports.push({
+            ...baseReport,
+            status: 'failed',
+            operation: 'elementary_flow_insert_blocked',
+            visible_row: null,
+            error: {
+              message:
+                'Elementary flows are reference-only for dataset save-draft. Resolve the flow with remote hybrid search and reference the existing database row instead of creating a My Data flow.',
+              details: {
+                code: 'DATASET_SAVE_DRAFT_ELEMENTARY_FLOW_INSERT_BLOCKED',
+              },
+            },
+          });
+          continue;
+        }
+      }
       if (visibleRow) {
         await saveDraftDatasetRecord({
           transport: commandTransport!,
@@ -740,7 +903,10 @@ export const __testInternals = {
   buildVisibleRowsUrl,
   detectType,
   extractIdentity,
+  flowType,
+  isElementaryFlowPayload,
   normalizeType,
   parseVisibleRows,
   prepareRows,
+  uniqueReferenceOnlySupportReferences,
 };

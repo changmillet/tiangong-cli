@@ -493,7 +493,7 @@ function collectReferencesFromValue(
   }
 }
 
-function collectRemoteReferences(rows: JsonObject[]): RemoteDatasetReference[] {
+export function collectRemoteReferences(rows: JsonObject[]): RemoteDatasetReference[] {
   const references: RemoteDatasetReference[] = [];
   rows.forEach((row, index) => {
     const payload = unwrapDatasetPayload(row);
@@ -621,7 +621,7 @@ function normalizePayloadRow(value: unknown): RemoteDatasetPayloadLookup | null 
   };
 }
 
-async function lookupRemoteDataset(options: {
+export async function lookupRemoteDataset(options: {
   runtime: SupabaseDataRuntime;
   fetchImpl: FetchLike;
   timeoutMs: number;
