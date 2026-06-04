@@ -31,6 +31,8 @@ export type DatasetImportLcaReport = {
     tidas_dir: string | null;
     ilcd_dir: string | null;
     mapping_csv: string | null;
+    process_bundles_dir: string | null;
+    process_bundles_index: string | null;
   };
 };
 
@@ -44,6 +46,8 @@ export type RunDatasetImportLcaConvertOptions = {
   mappingDir?: string | undefined;
   failOnWarning?: boolean | undefined;
   validationJobs?: number | undefined;
+  processBundles?: boolean | undefined;
+  processBundlesDir?: string | undefined;
   detectOnly?: boolean | undefined;
   pythonBin?: string | undefined;
   tidasToolsDir?: string | undefined;
@@ -61,6 +65,16 @@ export function runDatasetImportLcaConvert(
   const fromFormat = options.fromFormat?.trim() || 'auto';
   const pythonBin = options.pythonBin?.trim() || 'python3';
   const tidasToolsRoot = resolveTidasToolsRoot(options.tidasToolsDir, options.env ?? process.env);
+  const processBundlesDir = options.processBundlesDir
+    ? path.resolve(options.processBundlesDir)
+    : path.join(outputDir, 'process-bundles');
+  const processBundles = !options.detectOnly && options.processBundles !== false;
+  if (options.processBundles === false && options.processBundlesDir?.trim()) {
+    throw new CliError('--process-bundles-dir cannot be used with --no-process-bundles.', {
+      code: 'DATASET_IMPORT_LCA_PROCESS_BUNDLES_INVALID',
+      exitCode: 2,
+    });
+  }
   const reportPath = path.resolve(
     options.reportPath ?? path.join(outputDir, 'conversion-report.json'),
   );
@@ -88,6 +102,12 @@ export function runDatasetImportLcaConvert(
   if (options.failOnWarning) {
     commandArgs.push('--fail-on-warning');
   }
+  if (!options.detectOnly && (processBundles || options.processBundlesDir?.trim())) {
+    commandArgs.push('--process-bundles');
+  }
+  if (!options.detectOnly && options.processBundlesDir?.trim()) {
+    commandArgs.push('--process-bundles-dir', processBundlesDir);
+  }
   if (options.detectOnly) {
     commandArgs.push('--detect-only');
   }
@@ -110,6 +130,8 @@ export function runDatasetImportLcaConvert(
         ? path.join(outputDir, 'ilcd')
         : null,
     mapping_csv: options.detectOnly ? null : path.join(outputDir, 'mapping.csv'),
+    process_bundles_dir: processBundles ? processBundlesDir : null,
+    process_bundles_index: processBundles ? path.join(processBundlesDir, 'index.json') : null,
   };
   const report: DatasetImportLcaReport = {
     schema_version: 1,

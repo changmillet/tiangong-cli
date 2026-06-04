@@ -19,8 +19,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: 1a615b8f7b8e7c9c321f350edd15baa94d227646
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -45,6 +45,8 @@ Current workflow files:
 
 - `.github/workflows/tag-release-from-merge.yml`
 - `.github/workflows/publish.yml`
+
+Review note, 2026-06-04: `dataset curation-queue next/verify` does not change release workflow files, token names, Trusted Publishing settings, or tag semantics.
 
 Important constraint:
 

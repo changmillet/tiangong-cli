@@ -18,8 +18,8 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: 9bdc6e905d93b4bab9bb33972f7eedb5e9a447a6
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -32,6 +32,8 @@ related:
 # 项目配置
 
 本项目是 TianGong 的统一 CLI 仓库，运行时基线固定为 Node 24，源码使用 TypeScript，但运行时执行 `dist/` 下的构建产物。
+
+Review note, 2026-06-04: `dataset curation-queue next/verify` extends the existing CLI-native dataset command family and does not change maintainer runtime, env, or release guidance.
 
 设计原则：
 

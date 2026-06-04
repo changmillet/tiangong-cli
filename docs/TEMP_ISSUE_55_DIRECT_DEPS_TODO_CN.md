@@ -16,8 +16,8 @@ checkPaths:
   - src/lib/supabase-client.ts
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: 3a5af4677994de587b31bc80ebac2f16f9d65442
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -44,6 +44,8 @@ related:
 - 直到 repo 级验证、PR、workspace integration 全部完成，才算结束。
 
 当前状态：
+
+2026-06-04 复核：`dataset curation-queue next/verify` 不改变 Supabase JS 或 TIDAS SDK direct dependency 结论；本文件保持历史 TODO 记录用途。
 
 - [x] 建立 tracked records：`workspace#40`、`tiangong-cli#55`
 - [x] 将 parent / child Project item 移到 `In Progress`

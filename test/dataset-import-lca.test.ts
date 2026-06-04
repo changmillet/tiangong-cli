@@ -79,6 +79,12 @@ test('runDatasetImportLcaConvert wraps tidas-tools and writes a report', () => {
     assert.notEqual(report.files.ilcd_dir, null);
     assert.ok(report.command.args.includes('--mapping-dir'));
     assert.ok(report.command.args.includes('--fail-on-warning'));
+    assert.ok(report.command.args.includes('--process-bundles'));
+    assert.equal(report.files.process_bundles_dir, path.join(outDir, 'process-bundles'));
+    assert.equal(
+      report.files.process_bundles_index,
+      path.join(outDir, 'process-bundles', 'index.json'),
+    );
     assert.equal(report.conversion_report && typeof report.conversion_report, 'object');
     assert.equal(existsSync(report.files.report), true);
     assert.deepEqual(readJson(report.files.report), report);
@@ -128,6 +134,8 @@ test('executeCli exposes dataset import-lca convert command', async () => {
           tidas_dir: '/tmp/tidas',
           ilcd_dir: null,
           mapping_csv: '/tmp/mapping.csv',
+          process_bundles_dir: '/tmp/process-bundles',
+          process_bundles_index: '/tmp/process-bundles/index.json',
         },
       }),
     },
@@ -156,6 +164,8 @@ test('executeCli exposes dataset import-lca convert command', async () => {
       'zh',
       '--validation-jobs',
       '2',
+      '--process-bundles-dir',
+      'bundles',
       '--detect-only',
       '--fail-on-warning',
       '--python',
@@ -170,7 +180,7 @@ test('executeCli exposes dataset import-lca convert command', async () => {
         schema_version: 1,
         status: 'blocked',
         generated_at_utc: '2026-06-01T00:00:00.000Z',
-        input_path: `${options.inputPath}:${options.fromFormat}:${options.target}:${options.reportPath}:${options.mappingDir}:${options.language}:${options.validationJobs}:${options.detectOnly}:${options.failOnWarning}:${options.pythonBin}:${options.tidasToolsDir}`,
+        input_path: `${options.inputPath}:${options.fromFormat}:${options.target}:${options.reportPath}:${options.mappingDir}:${options.language}:${options.validationJobs}:${options.processBundles}:${options.processBundlesDir}:${options.detectOnly}:${options.failOnWarning}:${options.pythonBin}:${options.tidasToolsDir}`,
         output_dir: options.outputDir,
         from_format: options.fromFormat ?? 'auto',
         target: 'both',
@@ -190,6 +200,8 @@ test('executeCli exposes dataset import-lca convert command', async () => {
           tidas_dir: null,
           ilcd_dir: null,
           mapping_csv: null,
+          process_bundles_dir: null,
+          process_bundles_index: null,
         },
       }),
     },
@@ -197,7 +209,7 @@ test('executeCli exposes dataset import-lca convert command', async () => {
   assert.equal(blocked.exitCode, 1);
   assert.match(
     JSON.parse(blocked.stdout).input_path,
-    /ecospold2:both:conversion\.json:mapping:zh:2:true:true:python-custom/u,
+    /ecospold2:both:conversion\.json:mapping:zh:2:undefined:bundles:true:true:python-custom/u,
   );
 });
 
@@ -232,6 +244,8 @@ test('runDatasetImportLcaConvert records missing conversion report as null', () 
     assert.equal(report.files.tidas_dir, null);
     assert.equal(report.files.ilcd_dir, null);
     assert.equal(report.files.mapping_csv, null);
+    assert.equal(report.files.process_bundles_dir, null);
+    assert.equal(report.files.process_bundles_index, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -268,15 +282,24 @@ test('runDatasetImportLcaConvert records blocked commands and default spawn outp
     assert.equal(blocked.command.stderr, '');
     assert.equal(blocked.files.tidas_dir, path.join(outDir, 'tidas'));
     assert.equal(blocked.files.ilcd_dir, path.join(outDir, 'ilcd'));
+    assert.ok(blocked.command.args.includes('--process-bundles'));
+    assert.equal(blocked.files.process_bundles_dir, path.join(outDir, 'process-bundles'));
+    assert.equal(
+      blocked.files.process_bundles_index,
+      path.join(outDir, 'process-bundles', 'index.json'),
+    );
 
     const completed = runDatasetImportLcaConvert({
       inputPath,
       outputDir: path.join(dir, 'true-out'),
       pythonBin: '/usr/bin/true',
       tidasToolsDir: toolsDir,
+      processBundles: false,
     });
     assert.equal(completed.status, 'completed');
     assert.equal(completed.command.executable, '/usr/bin/true');
+    assert.equal(completed.command.args.includes('--process-bundles'), false);
+    assert.equal(completed.files.process_bundles_dir, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -345,6 +368,17 @@ test('dataset import-lca validates required inputs and target values', () => {
         }),
       /--target must be/u,
     );
+    assert.throws(
+      () =>
+        runDatasetImportLcaConvert({
+          inputPath,
+          outputDir: path.join(dir, 'out'),
+          processBundles: false,
+          processBundlesDir: path.join(dir, 'bundles'),
+          tidasToolsDir: toolsDir,
+        }),
+      /--process-bundles-dir cannot be used/u,
+    );
     assert.equal(
       __testInternals.resolveTidasToolsRoot(undefined, { TIDAS_TOOLS_DIR: toolsDir }),
       toolsDir,
@@ -379,4 +413,18 @@ test('dataset import-lca CLI validates parser-only errors', async () => {
   );
   assert.equal(invalidJobs.exitCode, 2);
   assert.match(invalidJobs.stderr, /validation-jobs/u);
+
+  const invalidProcessBundles = await executeCli(
+    [
+      'dataset',
+      'import-lca',
+      'convert',
+      '--no-process-bundles',
+      '--process-bundles-dir',
+      'bundles',
+    ],
+    deps,
+  );
+  assert.equal(invalidProcessBundles.exitCode, 2);
+  assert.match(invalidProcessBundles.stderr, /process-bundles-dir/u);
 });

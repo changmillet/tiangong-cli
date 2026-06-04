@@ -195,8 +195,14 @@ import {
 } from './lib/dataset-validate.js';
 import {
   runDatasetCurationQueueBuild,
+  runDatasetCurationQueueNext,
+  runDatasetCurationQueueVerify,
   type DatasetCurationQueueBuildReport,
+  type DatasetCurationQueueNextReport,
+  type DatasetCurationQueueVerifyReport,
   type RunDatasetCurationQueueBuildOptions,
+  type RunDatasetCurationQueueNextOptions,
+  type RunDatasetCurationQueueVerifyOptions,
 } from './lib/dataset-curation-queue.js';
 import {
   runDatasetReferencesRewrite,
@@ -389,6 +395,12 @@ export type CliDeps = {
   runDatasetCurationQueueBuildImpl?: (
     options: RunDatasetCurationQueueBuildOptions,
   ) => Promise<DatasetCurationQueueBuildReport>;
+  runDatasetCurationQueueNextImpl?: (
+    options: RunDatasetCurationQueueNextOptions,
+  ) => Promise<DatasetCurationQueueNextReport>;
+  runDatasetCurationQueueVerifyImpl?: (
+    options: RunDatasetCurationQueueVerifyOptions,
+  ) => Promise<DatasetCurationQueueVerifyReport>;
   runDatasetReferencesRewriteImpl?: (
     options: RunDatasetReferencesRewriteOptions,
   ) => Promise<DatasetReferencesRewriteReport>;
@@ -465,7 +477,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    contract get | context-pack | classification children/path/audit/apply | curation-queue build | import-lca convert | author | patch apply | save-draft | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
+  dataset    contract get | context-pack | classification children/path/audit/apply | curation-queue build/next/verify | import-lca convert | author | patch apply | save-draft | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   qa         process | flow | lifecyclemodel
@@ -505,6 +517,8 @@ Examples:
   tiangong-lca dataset classification audit --type location --input ./rows/processes.jsonl --out-dir ./classification --json
   tiangong-lca dataset classification apply --input ./rows/processes.jsonl --decisions ./classification-decisions.jsonl --out ./rows/processes.classified.jsonl --type process --out-dir ./classification --json
   tiangong-lca dataset curation-queue build --processes ./processes.jsonl --flows ./flows.jsonl --out-dir ./curation-queue
+  tiangong-lca dataset curation-queue next --queue-dir ./curation-queue --type support
+  tiangong-lca dataset curation-queue verify --queue-dir ./curation-queue --type process
   tiangong-lca dataset import-lca convert --input ./external-package --output-dir ./converted --from-format auto --target tidas
   tiangong-lca dataset author --input ./source.pdf --target-types process,flow --out-dir ./authoring
   tiangong-lca dataset save-draft --input ./contacts.jsonl --type contact --out-dir /abs/path/to/contact-save-draft --commit
@@ -655,6 +669,8 @@ Implemented Subcommands:
   context-pack        Write an AI-ready TIDAS contract context pack
   classification       Navigate bundled TIDAS classification schemas or apply selected classifications
   curation-queue build Build entity-level AI curation queue artifacts for Foundry imports
+  curation-queue next  Return the next runnable support/flow/process queue task
+  curation-queue verify Verify queue task checkpoints for a scope
   import-lca convert  Convert supported external LCA packages through tidas-tools
   author              Extract source evidence and prepare TIDAS context packs for AI authoring
   patch apply          Apply AI-authored structured dataset patches deterministically
@@ -676,6 +692,8 @@ Examples:
   tiangong-lca dataset classification audit --type location --input ./rows/processes.jsonl --out-dir ./classification --help
   tiangong-lca dataset classification apply --input ./rows/processes.jsonl --decisions ./classification-decisions.jsonl --out ./rows/processes.classified.jsonl --type process --out-dir ./classification --help
   tiangong-lca dataset curation-queue build --processes ./rows/processes.jsonl --flows ./rows/flows.jsonl --support ./rows/sources.jsonl --out-dir ./curation-queue --help
+  tiangong-lca dataset curation-queue next --queue-dir ./curation-queue --type flow --json
+  tiangong-lca dataset curation-queue verify --queue-dir ./curation-queue --task-id process:abc@00.00.001 --json
   tiangong-lca dataset import-lca convert --input ./external-package --output-dir ./converted --from-format auto --target tidas --help
   tiangong-lca dataset author --input ./source.pdf --target-types process,flow --out-dir ./authoring --help
   tiangong-lca dataset patch apply --input ./rows.jsonl --patch ./ai-patches.json --out ./rows.patched.jsonl --out-dir ./patch-apply --help
@@ -801,8 +819,10 @@ Outputs:
 function renderDatasetCurationQueueHelp(): string {
   return `Usage:
   tiangong-lca dataset curation-queue build --processes <file> --out-dir <dir> [options]
+  tiangong-lca dataset curation-queue next --queue-dir <dir> [--type <type>|--task-id <id>]
+  tiangong-lca dataset curation-queue verify --queue-dir <dir> [--type <type>|--task-id <id>]
 
-Options:
+Options for build:
   --processes <file>         Process rows JSON/JSONL
   --flows <file>             Local flow rows JSON/JSONL used by process references
   --support <file>           Repeatable support rows JSON/JSONL, for source/contact/unitgroup/flowproperty rows
@@ -810,6 +830,13 @@ Options:
   --exclude-process-id <id>  Repeatable process id to skip
   --process-limit <n>        Limit process tasks for focused validation or retries
   --out-dir <dir>            Queue artifact directory
+  --json                     Print compact JSON
+  -h, --help
+
+Options for next/verify:
+  --queue-dir <dir>          Queue artifact directory produced by build
+  --type <type>              support | flow | process
+  --task-id <id>             Exact task id such as process:<uuid>@00.00.001
   --json                     Print compact JSON
   -h, --help
 
@@ -823,7 +850,8 @@ Outputs written under --out-dir:
   - entities/<supports|flows|processes>/<id>__<version>/entity-run-plan.json
 
 Contract:
-  This command builds the queue only. AI authoring must write structured patches or build plans,
+  build creates queue artifacts. next/verify consume those artifacts and entity checkpoint.json files.
+  They do not run AI or write the database. AI authoring must write structured patches or build plans,
   and remote writes remain blocked until deterministic apply, schema/QA, prewrite verify, and readback gates pass.
 `.trim();
 }
@@ -841,6 +869,10 @@ Options:
   --mapping-dir <dir>     Optional custom mapping/reference data directory
   --language <lang>       Default language for generated text (default: en)
   --validation-jobs <n>   Parallel validation jobs passed to tidas-tools (default: 1)
+  --process-bundles       Write per-process dependency bundles (default: enabled)
+  --process-bundles-dir <dir>
+                           Custom per-process bundle directory (default: <output-dir>/process-bundles)
+  --no-process-bundles    Disable per-process dependency bundle generation
   --detect-only           Only detect the input format and write the report
   --fail-on-warning       Return non-zero when converter warnings are present
   --python <bin>          Python executable (default: python3)
@@ -853,6 +885,7 @@ Outputs written under --output-dir:
   - tidas/ when target includes TIDAS and not detect-only
   - ilcd/ when target includes ILCD and not detect-only
   - mapping.csv when not detect-only
+  - process-bundles/ when not detect-only and process bundles are enabled
   - outputs/import-lca-report.json
 `.trim();
 }
@@ -2792,6 +2825,56 @@ function parseDatasetCurationQueueBuildFlags(args: string[]): {
   };
 }
 
+function parseDatasetCurationQueueRuntimeFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  queueDir: string;
+  entityType: 'support' | 'flow' | 'process' | undefined;
+  taskId: string | undefined;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'queue-dir': { type: 'string' },
+        type: { type: 'string' },
+        'task-id': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  const entityType = typeof values.type === 'string' ? values.type : undefined;
+  if (
+    entityType !== undefined &&
+    entityType !== 'support' &&
+    entityType !== 'flow' &&
+    entityType !== 'process'
+  ) {
+    throw new CliError('--type must be support, flow, or process.', {
+      code: 'DATASET_CURATION_QUEUE_TYPE_INVALID',
+      exitCode: 2,
+    });
+  }
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    queueDir: typeof values['queue-dir'] === 'string' ? values['queue-dir'] : '',
+    entityType,
+    taskId: typeof values['task-id'] === 'string' ? values['task-id'] : undefined,
+  };
+}
+
 function parseDatasetImportLcaConvertFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -2803,6 +2886,8 @@ function parseDatasetImportLcaConvertFlags(args: string[]): {
   mappingDir: string | undefined;
   language: string | undefined;
   validationJobs: number | undefined;
+  processBundles: boolean | undefined;
+  processBundlesDir: string | undefined;
   detectOnly: boolean;
   failOnWarning: boolean;
   pythonBin: string | undefined;
@@ -2825,6 +2910,9 @@ function parseDatasetImportLcaConvertFlags(args: string[]): {
         'mapping-dir': { type: 'string' },
         language: { type: 'string' },
         'validation-jobs': { type: 'string' },
+        'process-bundles': { type: 'boolean' },
+        'process-bundles-dir': { type: 'string' },
+        'no-process-bundles': { type: 'boolean' },
         'detect-only': { type: 'boolean' },
         'fail-on-warning': { type: 'boolean' },
         python: { type: 'string' },
@@ -2846,6 +2934,18 @@ function parseDatasetImportLcaConvertFlags(args: string[]): {
       exitCode: 2,
     });
   }
+  if (values['process-bundles'] && values['no-process-bundles']) {
+    throw new CliError('--process-bundles and --no-process-bundles cannot both be set.', {
+      code: 'DATASET_IMPORT_LCA_PROCESS_BUNDLES_INVALID',
+      exitCode: 2,
+    });
+  }
+  if (values['no-process-bundles'] && typeof values['process-bundles-dir'] === 'string') {
+    throw new CliError('--process-bundles-dir cannot be used with --no-process-bundles.', {
+      code: 'DATASET_IMPORT_LCA_PROCESS_BUNDLES_INVALID',
+      exitCode: 2,
+    });
+  }
 
   return {
     help: Boolean(values.help),
@@ -2858,6 +2958,13 @@ function parseDatasetImportLcaConvertFlags(args: string[]): {
     mappingDir: typeof values['mapping-dir'] === 'string' ? values['mapping-dir'] : undefined,
     language: typeof values.language === 'string' ? values.language : undefined,
     validationJobs,
+    processBundles: values['no-process-bundles']
+      ? false
+      : values['process-bundles']
+        ? true
+        : undefined,
+    processBundlesDir:
+      typeof values['process-bundles-dir'] === 'string' ? values['process-bundles-dir'] : undefined,
     detectOnly: Boolean(values['detect-only']),
     failOnWarning: Boolean(values['fail-on-warning']),
     pythonBin: typeof values.python === 'string' ? values.python : undefined,
@@ -5602,6 +5709,10 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetValidateImpl = deps.runDatasetValidateImpl ?? runDatasetValidate;
     const datasetCurationQueueBuildImpl =
       deps.runDatasetCurationQueueBuildImpl ?? runDatasetCurationQueueBuild;
+    const datasetCurationQueueNextImpl =
+      deps.runDatasetCurationQueueNextImpl ?? runDatasetCurationQueueNext;
+    const datasetCurationQueueVerifyImpl =
+      deps.runDatasetCurationQueueVerifyImpl ?? runDatasetCurationQueueVerify;
     const datasetReferencesRewriteImpl =
       deps.runDatasetReferencesRewriteImpl ?? runDatasetReferencesRewrite;
     const datasetRemoteRefreshImpl = deps.runDatasetRemoteRefreshImpl ?? runDatasetRemoteRefresh;
@@ -5819,11 +5930,43 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       if (!action || action === '--help' || action === '-h') {
         return { exitCode: 0, stdout: `${renderDatasetCurationQueueHelp()}\n`, stderr: '' };
       }
-      if (action !== 'build') {
-        throw new CliError("dataset curation-queue action must be 'build'.", {
+      if (action !== 'build' && action !== 'next' && action !== 'verify') {
+        throw new CliError("dataset curation-queue action must be 'build', 'next', or 'verify'.", {
           code: 'DATASET_CURATION_QUEUE_ACTION_INVALID',
           exitCode: 2,
         });
+      }
+      if (action === 'next') {
+        const datasetFlags = parseDatasetCurationQueueRuntimeFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetCurationQueueHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetCurationQueueNextImpl({
+          queueDir: datasetFlags.queueDir,
+          entityType: datasetFlags.entityType,
+          taskId: datasetFlags.taskId,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+      if (action === 'verify') {
+        const datasetFlags = parseDatasetCurationQueueRuntimeFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return { exitCode: 0, stdout: `${renderDatasetCurationQueueHelp()}\n`, stderr: '' };
+        }
+        const report = await datasetCurationQueueVerifyImpl({
+          queueDir: datasetFlags.queueDir,
+          entityType: datasetFlags.entityType,
+          taskId: datasetFlags.taskId,
+        });
+        return {
+          exitCode: report.status === 'blocked' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
       }
       const datasetFlags = parseDatasetCurationQueueBuildFlags(commandArgs.slice(1));
       if (datasetFlags.help) {
@@ -5869,6 +6012,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         mappingDir: datasetFlags.mappingDir,
         language: datasetFlags.language,
         validationJobs: datasetFlags.validationJobs,
+        processBundles: datasetFlags.processBundles,
+        processBundlesDir: datasetFlags.processBundlesDir,
         detectOnly: datasetFlags.detectOnly,
         failOnWarning: datasetFlags.failOnWarning,
         pythonBin: datasetFlags.pythonBin,

@@ -32,8 +32,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: 3a5af4677994de587b31bc80ebac2f16f9d65442
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -49,7 +49,7 @@ related:
 
 `tiangong-lca-cli` owns the checked-in public `tiangong-lca` CLI contract: command nouns and verbs, launcher behavior, local artifact workflow, remote session/auth handling, and the repo-level release gate. Start here when the task may change what the CLI does or how it is validated.
 
-Review note, 2026-06-02: release 0.0.11 is a package metadata release for the merged dataset curation queue command; repo ownership boundaries remain unchanged.
+Review note, 2026-06-04: `dataset curation-queue build/next/verify` is the CLI-owned state machine for Foundry entity queues; repo ownership boundaries remain unchanged.
 
 ## Bootstrap Order
 
@@ -105,7 +105,7 @@ Route those tasks to:
 - Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only
 - Newly added process-maintenance commands such as `process identity-preflight`, `process build-plan`, `process scope-statistics`, `process dedup-review`, `process refresh-references`, and `process verify-rows` still belong to the native CLI command surface in `src/cli.ts` and `src/lib/process-*.ts` / shared CLI-native helpers.
 - `process save-draft` now has a local `ProcessSchema` validation gate before any commit path writes remote state.
-- Dataset-level local governance commands such as `dataset validate` and `dataset references rewrite` belong to the same native CLI command surface in `src/cli.ts` and `src/lib/dataset-*.ts`.
+- Dataset-level local governance commands such as `dataset validate`, `dataset curation-queue build/next/verify`, and `dataset references rewrite` belong to the same native CLI command surface in `src/cli.ts` and `src/lib/dataset-*.ts`.
 - `lifecyclemodel save-draft` validates canonical lifecyclemodel payloads with `LifeCycleModelSchema` before any commit path writes remote state; `lifecyclemodel graph` remains a local artifact command.
 - `flow publish-version` validates canonical flow payloads with `FlowSchema` before remote visibility planning or writes, and emits `flow-publish-version-gate-report.json` as the blocking ruleset artifact.
 - `process publish-build` validates canonical process payloads with `ProcessSchema` before publish handoff artifacts are written, and emits `reports/process-publish-schema-gate.json`.

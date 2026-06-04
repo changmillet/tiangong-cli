@@ -16,8 +16,8 @@ checkPaths:
   - README.md
   - src/**
   - test/**
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: f9968a4f59ade568ddc97413501ceadade8bfb42
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -87,6 +87,9 @@ tiangong-lca
     batch-build
   dataset
     validate
+    curation-queue build
+    curation-queue next
+    curation-queue verify
     references rewrite
   lifecyclemodel
     auto-build
@@ -139,7 +142,8 @@ tiangong-lca
 | `tiangong-lca process batch-build` | 本地 `process_from_flow` batch manifest 编排、批量调用 auto-build、batch report 输出 |
 | `tiangong-lca dataset validate` | 本地 support / flow / process / lifecyclemodel rows 的统一 TIDAS SDK validation 与稳定报告输出 |
 | `tiangong-lca dataset classification` | 本地 TIDAS 分类/位置编码治理入口；从 bundled schema 步进列子类、解析 path、审计 `tidas_locations_category.json` 位置编码，并可 deterministic apply AI/human decision |
-| `tiangong-lca dataset curation-queue build` | 本地 Foundry external dataset import 的 entity-level curation queue 构建入口；输出 manifest、tasks、locks、blockers、per-entity input/closure/run-plan artifacts，不执行 AI、不写远端 |
+| `tiangong-lca dataset curation-queue build/next/verify` | 本地 Foundry external dataset import 的 entity-level curation queue 状态机；`build` 输出 manifest、tasks、locks、blockers、per-entity input/closure/run-plan artifacts，`next` 基于 checkpoint 返回下一条 runnable entity task，`verify` 校验 scoped checkpoint 完成度；不执行 AI、不写远端 |
+| `tiangong-lca dataset import-lca convert` | 外部 LCA 包转换入口；调用 `tidas-tools import_lca` 生成 TIDAS/ILCD/mapping/conversion report，并默认打开 `--process-bundles` 产出每个 process 的依赖子目录，便于后续 entity-level curation |
 | `tiangong-lca dataset references rewrite` | 本地 process / lifecyclemodel rows 的 flow reference rewrite、patch evidence 输出，并可选走 state-aware save-draft commit |
 | `tiangong-lca lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
 | `tiangong-lca lifecyclemodel validate-build` | 本地 lifecyclemodel build run 校验重跑、per-model 校验报告与 aggregate report 输出 |
@@ -201,6 +205,8 @@ tiangong-lca
 - `tiangong-lca dataset validate` 已可执行
 - `tiangong-lca dataset classification children/path/audit/apply` 已可执行
 - `tiangong-lca dataset curation-queue build` 已可执行
+- `tiangong-lca dataset curation-queue next` 已可执行
+- `tiangong-lca dataset curation-queue verify` 已可执行
 - `tiangong-lca dataset references rewrite` 已可执行
 
 注意：
@@ -218,7 +224,7 @@ tiangong-lca
 - `process batch-build` 当前只负责本地 batch orchestration，不直接串接 resume / publish 或远端执行器
 - 已实现的 `dataset validate` 把 contact / source / unitgroup / flowproperty / flow / process / lifecyclemodel 本地 rows 的 TIDAS SDK 校验收口到一个 dataset 级入口，并输出 type summary、validation report 与 failures jsonl；`--type auto` 可用于 mixed support scope
 - 已实现的 `dataset classification` 从 CLI bundled TIDAS schema 提供分类/位置编码治理：`children` 支持按 parent code 步进列子类，`path` 解析 code 的规范 path，`audit --type location` 按 bundled TIDAS schema 派生位置编码字段，并覆盖 TIDAS LCIA geography 和 lifecyclemodel connection location 字段，检查其值是否属于 `tidas_locations_category.json`，`apply` 把 AI/human structured decision 确定性写回 rows 并输出 evidence
-- 已实现的 `dataset curation-queue build` 把 Foundry external dataset import 的 support / flow / process rows 收口成 entity-level queue artifact contract：`curation-queue-manifest.json`、`curation-queue-tasks.jsonl`、`curation-queue-locks.json`、`curation-queue-blockers.jsonl`，以及每个 entity 的 `input.jsonl`、`closure.json`、`entity-run-plan.json`。CLI 只负责稳定状态机、依赖闭包、锁和 blocker；AI authoring 仍必须通过 skill/Codex 输出 structured patch 或 build plan，并在 deterministic apply、schema/QA、prewrite verify、readback 后才允许进入远端写入。
+- 已实现的 `dataset curation-queue build/next/verify` 把 Foundry external dataset import 的 support / flow / process rows 收口成 entity-level queue artifact contract：`build` 生成 `curation-queue-manifest.json`、`curation-queue-tasks.jsonl`、`curation-queue-locks.json`、`curation-queue-blockers.jsonl`，以及每个 entity 的 `input.jsonl`、`closure.json`、`entity-run-plan.json`；`next` 读取 task checkpoint 并返回下一条 runnable entity task；`verify` 确认目标 scope 的 checkpoint 完成且没有 build blocker。CLI 只负责稳定状态机、依赖闭包、锁和 blocker；AI authoring 仍必须通过 skill/Codex 输出 structured patch 或 build plan，并在 deterministic apply、schema/QA、prewrite verify、readback 后才允许进入远端写入。
 - 已实现的 `dataset references rewrite` 把 process / lifecyclemodel rows 中的 flow reference rewrite 收口到一个 deterministic 本地入口，默认只写 patch artifacts，只有显式 `--commit` 时才调用 state-aware save-draft 写入路径
 - 已实现的 `lifecyclemodel auto-build` 走本地只读、artifact-first 路径，输入固定为 local run manifest，不依赖 Python、MCP、KB、LLM 或远端 CRUD
 - `lifecyclemodel auto-build` 当前负责 graph 推断、reference process 选择、`@multiplicationFactor` 计算与 `json_ordered` lifecyclemodel 产物输出，并保留 `run-plan.json`、`resolved-manifest.json`、`selection/selection-brief.md`、`discovery/reference-model-summary.json`、`connections.json`、`process-catalog.json` 等 CLI 契约

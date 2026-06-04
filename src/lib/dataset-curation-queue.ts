@@ -22,6 +22,18 @@ export type RunDatasetCurationQueueBuildOptions = {
   processLimit?: number;
 };
 
+export type RunDatasetCurationQueueNextOptions = {
+  queueDir: string;
+  entityType?: DatasetCurationQueueEntityType;
+  taskId?: string;
+};
+
+export type RunDatasetCurationQueueVerifyOptions = {
+  queueDir: string;
+  entityType?: DatasetCurationQueueEntityType;
+  taskId?: string;
+};
+
 export type DatasetCurationQueueTask = {
   schema_version: 1;
   entity_type: DatasetCurationQueueEntityType;
@@ -78,6 +90,75 @@ export type DatasetCurationQueueBuildReport = {
     blockers: string;
   };
   tasks: DatasetCurationQueueTask[];
+  blockers: DatasetCurationQueueBlocker[];
+};
+
+export type DatasetCurationQueueTaskRuntimeStatus =
+  | 'complete'
+  | 'pending'
+  | 'waiting_dependencies'
+  | 'blocked';
+
+export type DatasetCurationQueueTaskState = {
+  task_id: string;
+  entity_type: DatasetCurationQueueEntityType;
+  entity_id: string;
+  version: string;
+  status: DatasetCurationQueueTaskRuntimeStatus;
+  checkpoint_status: string | null;
+  checkpoint_file: string;
+  depends_on: string[];
+  incomplete_dependencies: string[];
+  reason: string | null;
+};
+
+export type DatasetCurationQueueNextReport = {
+  schema_version: 1;
+  generated_at_utc: string;
+  status: 'ready' | 'complete' | 'blocked';
+  queue_dir: string;
+  scope: {
+    entity_type: DatasetCurationQueueEntityType | null;
+    task_id: string | null;
+  };
+  counts: {
+    total: number;
+    complete: number;
+    pending: number;
+    waiting_dependencies: number;
+    blocked: number;
+    runnable: number;
+  };
+  next_task:
+    | (DatasetCurationQueueTask & {
+        action: {
+          kind: 'entity_curation_task';
+          input_artifact: string;
+          output_artifacts: string[];
+        };
+      })
+    | null;
+  task_states: DatasetCurationQueueTaskState[];
+  blockers: DatasetCurationQueueBlocker[];
+};
+
+export type DatasetCurationQueueVerifyReport = {
+  schema_version: 1;
+  generated_at_utc: string;
+  status: 'passed' | 'blocked';
+  queue_dir: string;
+  scope: {
+    entity_type: DatasetCurationQueueEntityType | null;
+    task_id: string | null;
+  };
+  counts: {
+    total: number;
+    complete: number;
+    pending: number;
+    waiting_dependencies: number;
+    blocked: number;
+  };
+  task_states: DatasetCurationQueueTaskState[];
   blockers: DatasetCurationQueueBlocker[];
 };
 
@@ -252,6 +333,311 @@ export async function runDatasetCurationQueueBuild(
   writeJson(locksPath, locks);
   writeText(blockersPath, jsonLines(blockers));
   return report;
+}
+
+export async function runDatasetCurationQueueNext(
+  options: RunDatasetCurationQueueNextOptions,
+): Promise<DatasetCurationQueueNextReport> {
+  const queue = readQueueRuntime(options.queueDir);
+  const scope = normalizeQueueScope(options);
+  const taskStates = buildTaskStates(queue.tasks).filter((state) => taskMatchesScope(state, scope));
+  const scopedTasks = queue.tasks.filter((task) => taskMatchesScope(task, scope));
+  const stateByTaskId = new Map(taskStates.map((state) => [state.task_id, state]));
+  const runnable = scopedTasks.filter(
+    (task) => stateByTaskId.get(task.task_id)?.status === 'pending',
+  );
+  const counts = countTaskStates(taskStates);
+  const status =
+    queue.blockers.length > 0 ||
+    (taskStates.length > 0 && runnable.length === 0 && counts.complete < taskStates.length)
+      ? 'blocked'
+      : counts.complete === taskStates.length
+        ? 'complete'
+        : 'ready';
+  const nextTask = status === 'ready' && runnable[0] ? withQueueAction(runnable[0]) : null;
+  return {
+    schema_version: 1,
+    generated_at_utc: new Date().toISOString(),
+    status,
+    queue_dir: queue.queueDir,
+    scope,
+    counts: {
+      ...counts,
+      runnable: runnable.length,
+    },
+    next_task: nextTask,
+    task_states: taskStates,
+    blockers: queue.blockers,
+  };
+}
+
+export async function runDatasetCurationQueueVerify(
+  options: RunDatasetCurationQueueVerifyOptions,
+): Promise<DatasetCurationQueueVerifyReport> {
+  const queue = readQueueRuntime(options.queueDir);
+  const scope = normalizeQueueScope(options);
+  const taskStates = buildTaskStates(queue.tasks).filter((state) => taskMatchesScope(state, scope));
+  const counts = countTaskStates(taskStates);
+  return {
+    schema_version: 1,
+    generated_at_utc: new Date().toISOString(),
+    status:
+      queue.blockers.length === 0 && counts.complete === taskStates.length ? 'passed' : 'blocked',
+    queue_dir: queue.queueDir,
+    scope,
+    counts,
+    task_states: taskStates,
+    blockers: queue.blockers,
+  };
+}
+
+function readQueueRuntime(queueDirInput: string): {
+  queueDir: string;
+  tasks: DatasetCurationQueueTask[];
+  blockers: DatasetCurationQueueBlocker[];
+} {
+  const queueDir = requireExistingPath(queueDirInput, '--queue-dir');
+  const outputsDir = path.join(queueDir, 'outputs');
+  const tasksPath = path.join(outputsDir, 'curation-queue-tasks.jsonl');
+  const blockersPath = path.join(outputsDir, 'curation-queue-blockers.jsonl');
+  if (!existsSync(tasksPath)) {
+    throw new CliError(`curation queue tasks file does not exist: ${tasksPath}`, {
+      code: 'CURATION_QUEUE_TASKS_NOT_FOUND',
+      exitCode: 2,
+    });
+  }
+  if (!existsSync(blockersPath)) {
+    throw new CliError(`curation queue blockers file does not exist: ${blockersPath}`, {
+      code: 'CURATION_QUEUE_BLOCKERS_NOT_FOUND',
+      exitCode: 2,
+    });
+  }
+  return {
+    queueDir: path.resolve(queueDir),
+    tasks: readJsonlFile(tasksPath).map((value, index) => parseQueueTask(value, tasksPath, index)),
+    blockers: readJsonlFile(blockersPath).map((value, index) =>
+      parseQueueBlocker(value, blockersPath, index),
+    ),
+  };
+}
+
+function normalizeQueueScope(options: {
+  entityType?: DatasetCurationQueueEntityType;
+  taskId?: string;
+}): { entity_type: DatasetCurationQueueEntityType | null; task_id: string | null } {
+  return {
+    entity_type: options.entityType ?? null,
+    task_id: options.taskId?.trim() || null,
+  };
+}
+
+function buildTaskStates(tasks: DatasetCurationQueueTask[]): DatasetCurationQueueTaskState[] {
+  const completeTaskIds = new Set(
+    tasks
+      .filter((task) => isCompleteCheckpointStatus(readCheckpointStatus(task.checkpoint_file)))
+      .map((task) => task.task_id),
+  );
+  return tasks.map((task) => {
+    const checkpointStatus = readCheckpointStatus(task.checkpoint_file);
+    const incompleteDependencies = task.depends_on.filter((taskId) => !completeTaskIds.has(taskId));
+    const status = taskRuntimeStatus(checkpointStatus, incompleteDependencies);
+    return {
+      task_id: task.task_id,
+      entity_type: task.entity_type,
+      entity_id: task.entity_id,
+      version: task.version,
+      status,
+      checkpoint_status: checkpointStatus,
+      checkpoint_file: task.checkpoint_file,
+      depends_on: task.depends_on,
+      incomplete_dependencies: incompleteDependencies,
+      reason:
+        status === 'waiting_dependencies'
+          ? 'dependency checkpoints are not complete'
+          : status === 'blocked'
+            ? 'checkpoint status is blocked or failed'
+            : null,
+    };
+  });
+}
+
+function taskRuntimeStatus(
+  checkpointStatus: string | null,
+  incompleteDependencies: string[],
+): DatasetCurationQueueTaskRuntimeStatus {
+  if (isCompleteCheckpointStatus(checkpointStatus)) {
+    return 'complete';
+  }
+  if (checkpointStatus === 'blocked' || checkpointStatus === 'failed') {
+    return 'blocked';
+  }
+  if (incompleteDependencies.length > 0) {
+    return 'waiting_dependencies';
+  }
+  return 'pending';
+}
+
+function isCompleteCheckpointStatus(status: string | null): boolean {
+  return (
+    status === 'passed' || status === 'complete' || status === 'completed' || status === 'waived'
+  );
+}
+
+function readCheckpointStatus(checkpointFile: string): string | null {
+  const resolvedPath = path.resolve(checkpointFile);
+  if (!existsSync(resolvedPath)) {
+    return null;
+  }
+  try {
+    const value = JSON.parse(readFileSync(resolvedPath, 'utf8')) as unknown;
+    if (!isRecord(value)) {
+      return 'blocked';
+    }
+    const status = firstNonEmpty(value.status, value.state);
+    return status ? status.toLowerCase() : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
+function taskMatchesScope(
+  task: Pick<DatasetCurationQueueTask, 'entity_type' | 'task_id'>,
+  scope: { entity_type: DatasetCurationQueueEntityType | null; task_id: string | null },
+): boolean {
+  if (scope.entity_type && task.entity_type !== scope.entity_type) {
+    return false;
+  }
+  if (scope.task_id && task.task_id !== scope.task_id) {
+    return false;
+  }
+  return true;
+}
+
+function countTaskStates(taskStates: DatasetCurationQueueTaskState[]): {
+  total: number;
+  complete: number;
+  pending: number;
+  waiting_dependencies: number;
+  blocked: number;
+} {
+  return {
+    total: taskStates.length,
+    complete: taskStates.filter((state) => state.status === 'complete').length,
+    pending: taskStates.filter((state) => state.status === 'pending').length,
+    waiting_dependencies: taskStates.filter((state) => state.status === 'waiting_dependencies')
+      .length,
+    blocked: taskStates.filter((state) => state.status === 'blocked').length,
+  };
+}
+
+function withQueueAction(task: DatasetCurationQueueTask): DatasetCurationQueueTask & {
+  action: {
+    kind: 'entity_curation_task';
+    input_artifact: string;
+    output_artifacts: string[];
+  };
+} {
+  return {
+    ...task,
+    action: {
+      kind: 'entity_curation_task',
+      input_artifact: task.input_rows_file,
+      output_artifacts: [task.checkpoint_file],
+    },
+  };
+}
+
+function readJsonlFile(inputPath: string): unknown[] {
+  const text = readFileSync(inputPath, 'utf8').trim();
+  if (!text) {
+    return [];
+  }
+  return text.split(/\r?\n/u).map((line, index) => {
+    try {
+      return JSON.parse(line) as unknown;
+    } catch (error) {
+      throw new CliError(`Invalid JSONL in ${inputPath} at line ${index + 1}: ${String(error)}`, {
+        code: 'CURATION_QUEUE_JSONL_INVALID',
+        exitCode: 2,
+      });
+    }
+  });
+}
+
+function parseQueueTask(
+  value: unknown,
+  inputPath: string,
+  index: number,
+): DatasetCurationQueueTask {
+  if (!isRecord(value)) {
+    throw new CliError(`Invalid queue task in ${inputPath} at line ${index + 1}.`, {
+      code: 'CURATION_QUEUE_TASK_INVALID',
+      exitCode: 2,
+    });
+  }
+  const entityType = value.entity_type;
+  if (entityType !== 'support' && entityType !== 'flow' && entityType !== 'process') {
+    throw new CliError(`Invalid queue task entity_type in ${inputPath} at line ${index + 1}.`, {
+      code: 'CURATION_QUEUE_TASK_INVALID',
+      exitCode: 2,
+    });
+  }
+  return {
+    schema_version: 1,
+    entity_type: entityType,
+    task_id: requireString(value.task_id, inputPath, index, 'task_id'),
+    entity_id: requireString(value.entity_id, inputPath, index, 'entity_id'),
+    version: requireString(value.version, inputPath, index, 'version'),
+    lock_key: requireString(value.lock_key, inputPath, index, 'lock_key'),
+    depends_on: Array.isArray(value.depends_on)
+      ? value.depends_on.filter((item): item is string => typeof item === 'string')
+      : [],
+    input_rows_file: requireString(value.input_rows_file, inputPath, index, 'input_rows_file'),
+    work_dir: requireString(value.work_dir, inputPath, index, 'work_dir'),
+    checkpoint_file: requireString(value.checkpoint_file, inputPath, index, 'checkpoint_file'),
+    run_plan_file: requireString(value.run_plan_file, inputPath, index, 'run_plan_file'),
+    closure_file: requireString(value.closure_file, inputPath, index, 'closure_file'),
+  };
+}
+
+function parseQueueBlocker(
+  value: unknown,
+  inputPath: string,
+  index: number,
+): DatasetCurationQueueBlocker {
+  if (!isRecord(value)) {
+    throw new CliError(`Invalid queue blocker in ${inputPath} at line ${index + 1}.`, {
+      code: 'CURATION_QUEUE_BLOCKER_INVALID',
+      exitCode: 2,
+    });
+  }
+  const entityType = value.entity_type;
+  if (entityType !== 'support' && entityType !== 'flow' && entityType !== 'process') {
+    throw new CliError(`Invalid queue blocker entity_type in ${inputPath} at line ${index + 1}.`, {
+      code: 'CURATION_QUEUE_BLOCKER_INVALID',
+      exitCode: 2,
+    });
+  }
+  return {
+    schema_version: 1,
+    code: requireString(value.code, inputPath, index, 'code'),
+    severity: 'blocker',
+    entity_type: entityType,
+    entity_id: typeof value.entity_id === 'string' ? value.entity_id : null,
+    version: typeof value.version === 'string' ? value.version : null,
+    message: requireString(value.message, inputPath, index, 'message'),
+    details: value.details,
+  };
+}
+
+function requireString(value: unknown, inputPath: string, index: number, field: string): string {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  throw new CliError(`Invalid or missing ${field} in ${inputPath} at line ${index + 1}.`, {
+    code: 'CURATION_QUEUE_TASK_INVALID',
+    exitCode: 2,
+  });
 }
 
 function readQueueRows(inputPath: string, entityType: DatasetCurationQueueEntityType): QueueRow[] {

@@ -6,6 +6,8 @@ import test from 'node:test';
 import { executeCli } from '../src/cli.js';
 import {
   runDatasetCurationQueueBuild,
+  runDatasetCurationQueueNext,
+  runDatasetCurationQueueVerify,
   __testInternals,
   type DatasetCurationQueueBuildReport,
 } from '../src/lib/dataset-curation-queue.js';
@@ -148,6 +150,59 @@ test('runDatasetCurationQueueBuild writes entity-level queue artifacts', async (
     const manifest = readJson(report.files.manifest) as DatasetCurationQueueBuildReport;
     assert.equal(manifest.hashes.task_order, report.hashes.task_order);
     assert.deepEqual(manifest.counts, report.counts);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetCurationQueueNext and verify use entity checkpoints', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-curation-queue-next-'));
+  const processes = path.join(dir, 'processes.jsonl');
+  const flows = path.join(dir, 'flows.jsonl');
+  const support = path.join(dir, 'sources.jsonl');
+  const outDir = path.join(dir, 'queue');
+  writeJsonl(processes, [makeProcess()]);
+  writeJsonl(flows, [makeFlow()]);
+  writeJsonl(support, [makeSource()]);
+
+  try {
+    const report = await runDatasetCurationQueueBuild({
+      processesPath: processes,
+      flowsPath: flows,
+      supportPaths: [support],
+      outDir,
+    });
+
+    const first = await runDatasetCurationQueueNext({ queueDir: outDir });
+    assert.equal(first.status, 'ready');
+    assert.equal(first.next_task?.entity_type, 'support');
+
+    for (const task of report.tasks.filter((candidate) => candidate.entity_type !== 'process')) {
+      writeFileSync(task.checkpoint_file, JSON.stringify({ status: 'passed' }), 'utf8');
+    }
+
+    const processNext = await runDatasetCurationQueueNext({
+      queueDir: outDir,
+      entityType: 'process',
+    });
+    assert.equal(processNext.status, 'ready');
+    assert.equal(processNext.next_task?.entity_type, 'process');
+
+    const blockedVerify = await runDatasetCurationQueueVerify({ queueDir: outDir });
+    assert.equal(blockedVerify.status, 'blocked');
+    assert.equal(blockedVerify.counts.complete, 2);
+
+    const processTask = report.tasks.find((candidate) => candidate.entity_type === 'process');
+    assert.ok(processTask);
+    writeFileSync(processTask.checkpoint_file, JSON.stringify({ status: 'completed' }), 'utf8');
+
+    const passedVerify = await runDatasetCurationQueueVerify({ queueDir: outDir });
+    assert.equal(passedVerify.status, 'passed');
+    assert.equal(passedVerify.counts.complete, 3);
+
+    const completeNext = await runDatasetCurationQueueNext({ queueDir: outDir });
+    assert.equal(completeNext.status, 'complete');
+    assert.equal(completeNext.next_task, null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -486,14 +541,16 @@ test('executeCli exposes dataset curation-queue help and errors', async () => {
   const namespaceHelp = await executeCli(['dataset', 'curation-queue'], deps);
   assert.equal(namespaceHelp.exitCode, 0);
   assert.match(namespaceHelp.stdout, /dataset curation-queue build/u);
+  assert.match(namespaceHelp.stdout, /dataset curation-queue next/u);
+  assert.match(namespaceHelp.stdout, /dataset curation-queue verify/u);
 
   const actionHelp = await executeCli(['dataset', 'curation-queue', 'build', '--help'], deps);
   assert.equal(actionHelp.exitCode, 0);
   assert.match(actionHelp.stdout, /curation-queue-blockers\.jsonl/u);
 
-  const invalidAction = await executeCli(['dataset', 'curation-queue', 'next'], deps);
+  const invalidAction = await executeCli(['dataset', 'curation-queue', 'bad-action'], deps);
   assert.equal(invalidAction.exitCode, 2);
-  assert.match(invalidAction.stderr, /action must be 'build'/u);
+  assert.match(invalidAction.stderr, /action must be 'build', 'next', or 'verify'/u);
 
   const invalidFlag = await executeCli(
     ['dataset', 'curation-queue', 'build', '--processes', './rows.jsonl', '--bad-flag'],
@@ -501,6 +558,100 @@ test('executeCli exposes dataset curation-queue help and errors', async () => {
   );
   assert.equal(invalidFlag.exitCode, 2);
   assert.match(invalidFlag.stderr, /Unknown option/u);
+});
+
+test('executeCli executes dataset curation-queue next with injected implementation', async () => {
+  const result = await executeCli(
+    ['dataset', 'curation-queue', 'next', '--queue-dir', './queue', '--type', 'flow', '--json'],
+    {
+      ...deps,
+      runDatasetCurationQueueNextImpl: async (options) => {
+        assert.equal(options.queueDir, './queue');
+        assert.equal(options.entityType, 'flow');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-06-04T00:00:00.000Z',
+          status: 'ready',
+          queue_dir: '/tmp/queue',
+          scope: { entity_type: 'flow', task_id: null },
+          counts: {
+            total: 1,
+            complete: 0,
+            pending: 1,
+            waiting_dependencies: 0,
+            blocked: 0,
+            runnable: 1,
+          },
+          next_task: {
+            schema_version: 1,
+            entity_type: 'flow',
+            task_id: 'flow:flow-1@00.00.001',
+            entity_id: 'flow-1',
+            version: '00.00.001',
+            lock_key: 'flow:flow-1@00.00.001',
+            depends_on: [],
+            input_rows_file: '/tmp/queue/entities/flows/flow-1__00.00.001/input.jsonl',
+            work_dir: '/tmp/queue/entities/flows/flow-1__00.00.001',
+            checkpoint_file: '/tmp/queue/entities/flows/flow-1__00.00.001/checkpoint.json',
+            run_plan_file: '/tmp/queue/entities/flows/flow-1__00.00.001/entity-run-plan.json',
+            closure_file: '/tmp/queue/entities/flows/flow-1__00.00.001/closure.json',
+            action: {
+              kind: 'entity_curation_task',
+              input_artifact: '/tmp/queue/entities/flows/flow-1__00.00.001/input.jsonl',
+              output_artifacts: ['/tmp/queue/entities/flows/flow-1__00.00.001/checkpoint.json'],
+            },
+          },
+          task_states: [],
+          blockers: [],
+        };
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /"status":"ready"/u);
+  assert.match(result.stdout, /flow:flow-1@00\.00\.001/u);
+});
+
+test('executeCli executes dataset curation-queue verify with injected implementation', async () => {
+  const result = await executeCli(
+    [
+      'dataset',
+      'curation-queue',
+      'verify',
+      '--queue-dir',
+      './queue',
+      '--task-id',
+      'process:process-1@00.00.001',
+      '--json',
+    ],
+    {
+      ...deps,
+      runDatasetCurationQueueVerifyImpl: async (options) => {
+        assert.equal(options.queueDir, './queue');
+        assert.equal(options.taskId, 'process:process-1@00.00.001');
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-06-04T00:00:00.000Z',
+          status: 'passed',
+          queue_dir: '/tmp/queue',
+          scope: { entity_type: null, task_id: 'process:process-1@00.00.001' },
+          counts: {
+            total: 1,
+            complete: 1,
+            pending: 0,
+            waiting_dependencies: 0,
+            blocked: 0,
+          },
+          task_states: [],
+          blockers: [],
+        };
+      },
+    },
+  );
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.stdout, /"status":"passed"/u);
 });
 
 test('executeCli maps dataset curation-queue blockers to exit code 1', async () => {

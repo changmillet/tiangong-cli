@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: ca614e1cfaa0f071b7d008138c3f96a66e9c89ab
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -40,7 +40,7 @@ related:
 
 This repo is organized around one stable launcher plus a library-style `src/lib/**` tree that implements command families and shared helpers.
 
-Review note, 2026-06-02: release 0.0.11 does not change CLI architecture; it publishes the existing dataset curation queue command family through the normal package release path.
+Review note, 2026-06-04: Foundry entity queue state now stays in the native CLI command family as `dataset curation-queue build/next/verify`; no secondary orchestration runtime was introduced.
 
 ## Stable Path Map
 
@@ -132,7 +132,7 @@ Dataset-local governance now uses the same CLI-native command layer:
 - `src/lib/lifecyclemodel-save-draft-run.ts`
 - `src/lib/lifecyclemodel-graph.ts`
 
-These modules keep validation, entity-level curation queue state, reference rewrites, save-draft preparation, graph extraction, and local artifact reports inside the CLI instead of routing through skills or MCP transports.
+These modules keep validation, entity-level curation queue build/next/verify state, reference rewrites, save-draft preparation, graph extraction, and local artifact reports inside the CLI instead of routing through skills or MCP transports.
 
 ### Artifact and filesystem behavior
 

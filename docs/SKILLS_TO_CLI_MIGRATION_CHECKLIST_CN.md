@@ -17,8 +17,8 @@ checkPaths:
   - package.json
   - src/**
   - test/**
-lastReviewedAt: 2026-06-02
-lastReviewedCommit: 3a5af4677994de587b31bc80ebac2f16f9d65442
+lastReviewedAt: 2026-06-04
+lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -44,6 +44,7 @@ related:
 - 如果两份文档冲突，以后者代表当前待办和当前结论
 - 2026-05-13 复核：新增 `dataset validate`、`dataset references rewrite`、`lifecyclemodel save-draft` 和 `lifecyclemodel graph` 仍属于既有 CLI-native 迁移方向，不重新引入 Python、POSIX shell 或 MCP runtime 前提
 - 2026-05-23 复核：review / dedup / publish ruleset metadata 继续落在 TypeScript CLI 内部，不新增 Python、POSIX shell 或 MCP runtime 前提
+- 2026-06-04 复核：`dataset curation-queue next/verify` 继续沿用 TypeScript CLI-native 路径，不重新引入 Python、POSIX shell 或 MCP runtime 前提
 
 这份文档记录的是：
 
