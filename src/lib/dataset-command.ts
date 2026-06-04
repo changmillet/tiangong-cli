@@ -100,7 +100,7 @@ function requireCommandSuccessPayload(payload: unknown, url: string): JsonObject
 
 async function invokeDatasetCommand(options: {
   transport: DatasetCommandTransport;
-  commandName: 'app_dataset_create' | 'app_dataset_save_draft';
+  commandName: 'app_dataset_create' | 'app_dataset_save_draft' | 'app_dataset_delete';
   body: JsonObject;
 }): Promise<JsonObject> {
   const url = `${options.transport.functionsBaseUrl}/${options.commandName}`;
@@ -211,6 +211,23 @@ export async function saveDraftDatasetRecord(options: {
     transport: options.transport,
     commandName: 'app_dataset_save_draft',
     body,
+  });
+}
+
+export async function deleteDatasetRecord(options: {
+  transport: DatasetCommandTransport;
+  table: DatasetCommandTable;
+  id: string;
+  version: string;
+}): Promise<JsonObject> {
+  return invokeDatasetCommand({
+    transport: options.transport,
+    commandName: 'app_dataset_delete',
+    body: {
+      table: options.table,
+      id: options.id,
+      version: options.version,
+    },
   });
 }
 

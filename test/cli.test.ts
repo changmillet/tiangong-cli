@@ -68,6 +68,7 @@ test('executeCli prints main help when no command is given', async () => {
   assert.match(result.stdout, /lifecyclemodel auto-build \| validate-build \| publish-build/u);
   assert.match(result.stdout, /publish-resulting-process/u);
   assert.match(result.stdout, /qa\s+process \| flow \| lifecyclemodel/u);
+  assert.match(result.stdout, /maintenance clear-account/u);
   assert.match(result.stdout, /dataset maintenance plan \| apply \| verify/u);
   assert.match(result.stdout, /exit with code 2/u);
   assert.equal(result.stderr, '');
@@ -438,6 +439,7 @@ test('executeCli exposes dataset and lifecyclemodel friction-fix commands', asyn
   assert.match(datasetHelp.stdout, /tiangong-lca dataset <subcommand>/u);
   assert.match(datasetHelp.stdout, /validate/u);
   assert.match(datasetHelp.stdout, /references rewrite/u);
+  assert.match(datasetHelp.stdout, /maintenance clear-account/u);
   assert.match(datasetHelp.stdout, /maintenance plan\/apply\/verify/u);
 
   const datasetValidateHelp = await executeCli(['dataset', 'validate', '--help'], makeDeps());
@@ -466,17 +468,141 @@ test('executeCli exposes dataset and lifecyclemodel friction-fix commands', asyn
   const datasetMaintenanceHelp = await executeCli(['dataset', 'maintenance', '--help'], makeDeps());
   assert.equal(datasetMaintenanceHelp.exitCode, 0);
   assert.match(datasetMaintenanceHelp.stdout, /RLS-scoped cleanup and redo workflows/u);
+  assert.match(datasetMaintenanceHelp.stdout, /clear-account is implemented/u);
   assert.match(datasetMaintenanceHelp.stdout, /maintenance-plan\.json/u);
 
-  const datasetMaintenancePlan = await executeCli(
-    ['dataset', 'maintenance', 'plan'],
+  const datasetMaintenanceClearHelp = await executeCli(
+    ['dataset', 'maintenance', 'clear-account', '--help'],
     makeDeps(),
   );
+  assert.equal(datasetMaintenanceClearHelp.exitCode, 0);
+  assert.match(
+    datasetMaintenanceClearHelp.stdout,
+    /tiangong-lca dataset maintenance clear-account/u,
+  );
+  assert.match(datasetMaintenanceClearHelp.stdout, /--confirm <email>/u);
+  assert.doesNotMatch(datasetMaintenanceClearHelp.stdout, /Planned command/u);
+
+  const datasetMaintenancePlan = await executeCli(['dataset', 'maintenance', 'plan'], makeDeps());
   assert.equal(datasetMaintenancePlan.exitCode, 2);
   assert.match(
     datasetMaintenancePlan.stderr,
     /Command 'dataset maintenance plan' is part of the planned unified surface/u,
   );
+
+  let observedClearAccountOptions: unknown = null;
+  const clearAccountDeps = makeDeps();
+  const datasetMaintenanceClear = await executeCli(
+    [
+      'dataset',
+      'maintenance',
+      'clear-account',
+      '--state-code',
+      '0',
+      '--out-dir',
+      './account-clear',
+      '--commit',
+      '--confirm',
+      'user@example.com',
+      '--json',
+    ],
+    {
+      ...clearAccountDeps,
+      runDatasetMaintenanceClearAccountImpl: async (options) => {
+        observedClearAccountOptions = options;
+        return {
+          schema_version: 1,
+          generated_at_utc: '2026-06-04T00:00:00.000Z',
+          status: 'cleared_account',
+          mode: 'commit',
+          account: {
+            email: 'user@example.com',
+            user_id: 'user-1',
+            session_source: 'memory',
+          },
+          filters: {
+            tables: ['lifecyclemodels', 'processes', 'flows', 'sources', 'contacts'],
+            state_codes: [0],
+            page_size: 1000,
+          },
+          summary: {
+            total_candidates: 0,
+            total_deleted: 0,
+            total_remaining: 0,
+            total_failures: 0,
+            by_table: {
+              lifecyclemodels: {
+                candidates: 0,
+                deleted: 0,
+                remaining: 0,
+                status: 'skipped_empty',
+              },
+              processes: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+              flows: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+              sources: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+              contacts: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+            },
+          },
+          tables: [],
+          artifacts: {
+            rls_visible_snapshot: './account-clear/rls-visible-snapshot.json',
+            dry_run_report: './account-clear/dry-run-report.json',
+            approval_record: './account-clear/approval-record.json',
+            commit_report: './account-clear/commit-report.json',
+            readback_verify_report: './account-clear/readback-verify-report.json',
+          },
+        };
+      },
+    },
+  );
+  assert.equal(datasetMaintenanceClear.exitCode, 0);
+  assert.deepEqual(JSON.parse(datasetMaintenanceClear.stdout), {
+    schema_version: 1,
+    generated_at_utc: '2026-06-04T00:00:00.000Z',
+    status: 'cleared_account',
+    mode: 'commit',
+    account: {
+      email: 'user@example.com',
+      user_id: 'user-1',
+      session_source: 'memory',
+    },
+    filters: {
+      tables: ['lifecyclemodels', 'processes', 'flows', 'sources', 'contacts'],
+      state_codes: [0],
+      page_size: 1000,
+    },
+    summary: {
+      total_candidates: 0,
+      total_deleted: 0,
+      total_remaining: 0,
+      total_failures: 0,
+      by_table: {
+        lifecyclemodels: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+        processes: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+        flows: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+        sources: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+        contacts: { candidates: 0, deleted: 0, remaining: 0, status: 'skipped_empty' },
+      },
+    },
+    tables: [],
+    artifacts: {
+      rls_visible_snapshot: './account-clear/rls-visible-snapshot.json',
+      dry_run_report: './account-clear/dry-run-report.json',
+      approval_record: './account-clear/approval-record.json',
+      commit_report: './account-clear/commit-report.json',
+      readback_verify_report: './account-clear/readback-verify-report.json',
+    },
+  });
+  assert.deepEqual(observedClearAccountOptions, {
+    outDir: './account-clear',
+    stateCodes: [0],
+    pageSize: undefined,
+    timeoutMs: undefined,
+    commit: true,
+    confirm: 'user@example.com',
+    env: clearAccountDeps.env,
+    fetchImpl: clearAccountDeps.fetchImpl,
+  });
 
   const lifecyclemodelSaveDraftHelp = await executeCli(
     ['lifecyclemodel', 'save-draft', '--help'],

@@ -274,6 +274,11 @@ import {
   type RunDatasetClassificationChildrenOptions,
   type RunDatasetClassificationPathOptions,
 } from './lib/dataset-classification.js';
+import {
+  runDatasetMaintenanceClearAccount,
+  type DatasetMaintenanceClearAccountReport,
+  type RunDatasetMaintenanceClearAccountOptions,
+} from './lib/dataset-maintenance-clear-account.js';
 
 export type CliDeps = {
   env: NodeJS.ProcessEnv;
@@ -445,6 +450,9 @@ export type CliDeps = {
   runDatasetClassificationApplyImpl?: (
     options: RunDatasetClassificationApplyOptions,
   ) => Promise<DatasetClassificationApplyReport>;
+  runDatasetMaintenanceClearAccountImpl?: (
+    options: RunDatasetMaintenanceClearAccountOptions,
+  ) => Promise<DatasetMaintenanceClearAccountReport>;
 };
 
 export type CliResult = {
@@ -477,7 +485,7 @@ Implemented Commands:
   doctor     show environment diagnostics
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    contract get | context-pack | classification children/path/audit/apply | curation-queue build/next/verify | import-lca convert | author | patch apply | save-draft | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote
+  dataset    contract get | context-pack | classification children/path/audit/apply | curation-queue build/next/verify | import-lca convert | author | patch apply | save-draft | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote | maintenance clear-account
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   qa         process | flow | lifecyclemodel
@@ -530,6 +538,7 @@ Examples:
   tiangong-lca dataset evidence-search plan --query "中国2026年电力结构数据" --out-dir ./evidence-search
   tiangong-lca dataset evidence-search run --input ./evidence-search.request.json --results ./search-results.json --out-dir ./evidence-search
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir /abs/path/to/dataset-rewrite
+  tiangong-lca dataset maintenance clear-account --out-dir /abs/path/to/account-clear --json
   tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir /abs/path/to/dataset-maintenance
   tiangong-lca lifecyclemodel auto-build --input ./lifecyclemodel-auto-build.request.json --out-dir /abs/path/to/lifecyclemodel-run
   tiangong-lca lifecyclemodel validate-build --run-dir /abs/path/to/lifecyclemodel-run
@@ -685,6 +694,7 @@ Implemented Subcommands:
   evidence-search      Plan or record field-level public evidence retrieval
   references rewrite   Rewrite flow references in local process and lifecyclemodel rows
   references refresh-remote Refresh local TIDAS reference versions to latest reachable remote rows
+  maintenance clear-account Dry-run or clear current authenticated account-owned dataset rows through RLS
 
 Planned Subcommands:
   maintenance plan/apply/verify Plan, execute, and verify RLS-scoped dataset delete/redo maintenance
@@ -712,16 +722,21 @@ Examples:
   tiangong-lca dataset evidence-search run --input ./request.json --results ./search-results.json --out-dir ./evidence-search --help
   tiangong-lca dataset references rewrite --input ./rows.jsonl --from flow:<old-id>@<old-version> --to flow:<new-id>@<new-version> --out-dir ./dataset-rewrite --help
   tiangong-lca dataset references refresh-remote --input ./rows.jsonl --out ./rows.refreshed.jsonl --out-dir ./dataset-reference-refresh --help
+  tiangong-lca dataset maintenance clear-account --out-dir ./account-clear --json --help
   tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir ./dataset-maintenance --help
 `.trim();
 }
 
 function renderDatasetMaintenanceHelp(): string {
   return `Usage:
-  tiangong-lca dataset maintenance <plan|apply|verify> [options]
+  tiangong-lca dataset maintenance <clear-account|plan|apply|verify> [options]
 
 Status:
-  Planned surface. This command family is reserved for RLS-scoped cleanup and redo workflows and currently exits with code 2 for executable actions.
+  clear-account is implemented for current authenticated account cleanup.
+  plan/apply/verify remain reserved for row-level RLS-scoped cleanup and redo workflows and currently exit with code 2 for executable actions.
+
+Implemented Actions:
+  clear-account Dry-run or delete current authenticated account-owned lifecyclemodels, processes, flows, sources, and contacts.
 
 Planned Actions:
   plan    Build an immutable maintenance plan from a scope manifest, visible remote snapshot, dependency impact report, and intended operation.
@@ -738,9 +753,40 @@ Required Artifact Contract:
   - readback-verify-report.json
 
 Examples:
+  tiangong-lca dataset maintenance clear-account --out-dir ./account-clear --json
+  tiangong-lca dataset maintenance clear-account --commit --confirm user@example.com --out-dir ./account-clear
   tiangong-lca dataset maintenance plan --scope ./maintenance-scope.json --operation redo-import --out-dir ./dataset-maintenance
   tiangong-lca dataset maintenance apply --plan ./dataset-maintenance/maintenance-plan.json --commit
   tiangong-lca dataset maintenance verify --plan ./dataset-maintenance/maintenance-plan.json --out-dir ./dataset-maintenance/verify
+`.trim();
+}
+
+function renderDatasetMaintenanceClearAccountHelp(): string {
+  return `Usage:
+  tiangong-lca dataset maintenance clear-account [options]
+
+Behavior:
+  Dry-run by default. With --commit, deletes only rows visible to the current authenticated user and filtered by user_id through RLS.
+  Tables are deleted in reference-safe order: lifecyclemodels, processes, flows, sources, contacts.
+  Unit groups and flow properties are not deleted by this command because they are treated as protected support data.
+
+Options:
+  --state-code <n>    Optional repeatable state_code filter. Omit to clear all state codes for the current account.
+  --out-dir <dir>     Artifact directory (default: ./dataset-maintenance/clear-account)
+  --page-size <n>     Snapshot page size, 1-5000 (default: 1000)
+  --timeout-ms <n>    Request timeout in milliseconds (default: 10000)
+  --commit            Execute deletion. Without this flag the command only writes a dry-run report.
+  --dry-run           Explicit dry-run mode
+  --confirm <email>   Required with --commit; must match the current authenticated account email
+  --json              Print compact JSON
+  -h, --help
+
+Outputs written under --out-dir:
+  - rls-visible-snapshot.json
+  - dry-run-report.json
+  - approval-record.json       (commit only)
+  - commit-report.json         (commit only)
+  - readback-verify-report.json (commit only)
 `.trim();
 }
 
@@ -3487,6 +3533,91 @@ function parseDatasetReferencesRefreshRemoteFlags(args: string[]): {
   };
 }
 
+function parseDatasetMaintenanceClearAccountFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  outDir: string | null;
+  stateCodes: number[] | null;
+  pageSize: number | undefined;
+  timeoutMs: number | undefined;
+  commit: boolean;
+  confirm: string | null;
+} {
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'out-dir': { type: 'string' },
+        'state-code': { type: 'string', multiple: true },
+        'page-size': { type: 'string' },
+        'timeout-ms': { type: 'string' },
+        commit: { type: 'boolean' },
+        'dry-run': { type: 'boolean' },
+        confirm: { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  if (values.commit && values['dry-run']) {
+    throw new CliError('Cannot pass both --commit and --dry-run.', {
+      code: 'DATASET_MAINTENANCE_CLEAR_ACCOUNT_MODE_CONFLICT',
+      exitCode: 2,
+    });
+  }
+
+  const rawStateCodes = Array.isArray(values['state-code'])
+    ? values['state-code'].filter((value): value is string => typeof value === 'string')
+    : [];
+  const stateCodes = rawStateCodes.map((value) => {
+    if (!/^-?\d+$/u.test(value.trim())) {
+      throw new CliError('--state-code must be an integer.', {
+        code: 'DATASET_MAINTENANCE_STATE_CODE_INVALID',
+        exitCode: 2,
+        details: value,
+      });
+    }
+    return Number.parseInt(value.trim(), 10);
+  });
+
+  const parseOptionalInteger = (value: unknown, flagName: string): number | undefined => {
+    if (typeof value !== 'string') {
+      return undefined;
+    }
+    if (!/^\d+$/u.test(value.trim())) {
+      throw new CliError(`${flagName} must be a positive integer.`, {
+        code: 'DATASET_MAINTENANCE_INTEGER_INVALID',
+        exitCode: 2,
+        details: {
+          flag: flagName,
+          value,
+        },
+      });
+    }
+    return Number.parseInt(value.trim(), 10);
+  };
+
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
+    stateCodes: stateCodes.length > 0 ? stateCodes : null,
+    pageSize: parseOptionalInteger(values['page-size'], '--page-size'),
+    timeoutMs: parseOptionalInteger(values['timeout-ms'], '--timeout-ms'),
+    commit: Boolean(values.commit),
+    confirm: typeof values.confirm === 'string' ? values.confirm : null,
+  };
+}
+
 function parseIdentityPreflightFlags(args: string[]): {
   help: boolean;
   json: boolean;
@@ -5771,6 +5902,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       deps.runDatasetClassificationAuditImpl ?? runDatasetClassificationAudit;
     const datasetClassificationApplyImpl =
       deps.runDatasetClassificationApplyImpl ?? runDatasetClassificationApply;
+    const datasetMaintenanceClearAccountImpl =
+      deps.runDatasetMaintenanceClearAccountImpl ?? runDatasetMaintenanceClearAccount;
 
     if (flags.version) {
       return { exitCode: 0, stdout: `${loadCliPackageVersion(import.meta.url)}\n`, stderr: '' };
@@ -6345,11 +6478,39 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       if (!action || action === '--help' || action === '-h') {
         return { exitCode: 0, stdout: `${renderDatasetMaintenanceHelp()}\n`, stderr: '' };
       }
-      if (!['plan', 'apply', 'verify'].includes(action)) {
-        throw new CliError("dataset maintenance action must be 'plan', 'apply', or 'verify'.", {
-          code: 'DATASET_MAINTENANCE_ACTION_INVALID',
-          exitCode: 2,
+      if (action === 'clear-account') {
+        const datasetFlags = parseDatasetMaintenanceClearAccountFlags(commandArgs.slice(1));
+        if (datasetFlags.help) {
+          return {
+            exitCode: 0,
+            stdout: `${renderDatasetMaintenanceClearAccountHelp()}\n`,
+            stderr: '',
+          };
+        }
+        const report = await datasetMaintenanceClearAccountImpl({
+          outDir: datasetFlags.outDir,
+          stateCodes: datasetFlags.stateCodes,
+          pageSize: datasetFlags.pageSize,
+          timeoutMs: datasetFlags.timeoutMs,
+          commit: datasetFlags.commit,
+          confirm: datasetFlags.confirm,
+          env: deps.env,
+          fetchImpl: deps.fetchImpl,
         });
+        return {
+          exitCode: report.status === 'completed_with_failures' ? 1 : 0,
+          stdout: stringifyJson(report, datasetFlags.json),
+          stderr: '',
+        };
+      }
+      if (!['plan', 'apply', 'verify'].includes(action)) {
+        throw new CliError(
+          "dataset maintenance action must be 'clear-account', 'plan', 'apply', or 'verify'.",
+          {
+            code: 'DATASET_MAINTENANCE_ACTION_INVALID',
+            exitCode: 2,
+          },
+        );
       }
       return plannedCommand('dataset', `maintenance ${action}`);
     }
