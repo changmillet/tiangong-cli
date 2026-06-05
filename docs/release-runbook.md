@@ -22,8 +22,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-05
+lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -58,6 +58,8 @@ Review note, 2026-06-02: dataset curation queue command additions follow the exi
 Review note, 2026-06-04: `dataset curation-queue next/verify` follows the same feature-then-release flow; no release command or tag semantics changed.
 
 Release 0.0.11 note, 2026-06-02: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.11`, `npm run prepush:gate`, and `npm pack --dry-run`.
+
+Release 0.0.12 note, 2026-06-05: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.12`, `npm run prepush:gate`, and `npm pack --dry-run`; no tag or publish workflow semantics changed.
 
 Useful commands:
 

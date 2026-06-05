@@ -27,8 +27,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-05
+lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -63,6 +63,8 @@ scripts/docpact lint --root . --base <base> --head <head> --mode enforce
 ```
 
 Review note, 2026-06-04: dataset curation queue state changes are covered by focused `dataset-curation-queue` tests plus the unchanged TypeScript/build gate.
+
+Review note, 2026-06-05: release 0.0.12 uses the existing release proof contract: unpublished-version check, `npm run prepush:gate`, and `npm pack --dry-run`.
 
 ## Validation Matrix
 
