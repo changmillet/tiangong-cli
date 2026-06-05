@@ -19,8 +19,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-05
+lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -69,6 +69,8 @@ GitHub Actions must be enabled for the repository.
 Review note, 2026-06-02: adding the dataset curation queue command does not change Trusted Publishing, release token, tag, or workflow setup.
 
 Release 0.0.11 note, 2026-06-02: package version bump only; no repository secret, Trusted Publisher, tag, or workflow setup change is required.
+
+Release 0.0.12 note, 2026-06-05: package version bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required.
 
 The publish workflow file is fixed at:
 

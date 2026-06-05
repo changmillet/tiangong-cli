@@ -32,8 +32,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-05
+lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -50,6 +50,8 @@ related:
 `tiangong-lca-cli` owns the checked-in public `tiangong-lca` CLI contract: command nouns and verbs, launcher behavior, local artifact workflow, remote session/auth handling, and the repo-level release gate. Start here when the task may change what the CLI does or how it is validated.
 
 Review note, 2026-06-04: `dataset curation-queue build/next/verify` is the CLI-owned state machine for Foundry entity queues; repo ownership boundaries remain unchanged.
+
+Review note, 2026-06-05: release 0.0.12 only updates CLI package version metadata; command ownership, validation gates, and release workflow boundaries remain unchanged.
 
 ## Bootstrap Order
 

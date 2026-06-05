@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-05
+lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -41,6 +41,8 @@ related:
 This repo is organized around one stable launcher plus a library-style `src/lib/**` tree that implements command families and shared helpers.
 
 Review note, 2026-06-04: Foundry entity queue state now stays in the native CLI command family as `dataset curation-queue build/next/verify`; no secondary orchestration runtime was introduced.
+
+Review note, 2026-06-05: release 0.0.12 is a package metadata bump only; no command-family ownership, launcher, session, artifact, or release architecture paths changed.
 
 ## Stable Path Map
 
