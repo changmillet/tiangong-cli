@@ -2132,6 +2132,8 @@ Options:
   --out-dir <dir>    Run root written relative to cwd when a relative path is passed
   --commit           Execute remote save-draft writes
   --dry-run          Keep the command local-only (default)
+  --target-user-id <id>
+                    Require --commit to run as this user and update an owned draft
   --json             Print compact JSON
   -h, --help
 
@@ -5538,6 +5540,7 @@ function parseProcessSaveDraftFlags(args: string[]): {
   inputPath: string;
   outDir: string | null;
   commit: boolean;
+  targetUserId: string | null;
 } {
   let values: ReturnType<typeof parseArgs>['values'];
   try {
@@ -5552,6 +5555,7 @@ function parseProcessSaveDraftFlags(args: string[]): {
         'out-dir': { type: 'string' },
         commit: { type: 'boolean' },
         'dry-run': { type: 'boolean' },
+        'target-user-id': { type: 'string' },
       },
     }));
   } catch (error) {
@@ -5574,6 +5578,7 @@ function parseProcessSaveDraftFlags(args: string[]): {
     inputPath: typeof values.input === 'string' ? values.input : '',
     outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : null,
     commit: Boolean(values.commit),
+    targetUserId: typeof values['target-user-id'] === 'string' ? values['target-user-id'] : null,
   };
 }
 
@@ -7016,6 +7021,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         inputPath: processFlags.inputPath,
         outDir: processFlags.outDir,
         commit: processFlags.commit,
+        targetUserId: processFlags.targetUserId,
         env: deps.env,
         fetchImpl: deps.fetchImpl,
       });

@@ -52,6 +52,7 @@ Before starting a release:
 - keep the release-prep change scoped to CLI package version metadata
 - confirm npm has not already published the target version
 - confirm any command-surface feature PRs that will be included in the release have passed the local pre-push gate, including `npm run prepush:gate` and docpact, before preparing the version bump
+- do not run local `npm publish` for routine releases; the canonical release path is a version-bump PR merged to upstream `main`, followed by tag creation and npm Trusted Publishing in GitHub Actions
 
 Review note, 2026-06-02: dataset curation queue command additions follow the existing feature-then-release flow; release prep still remains a separate package metadata bump.
 
@@ -60,6 +61,8 @@ Review note, 2026-06-04: `dataset curation-queue next/verify` follows the same f
 Release 0.0.11 note, 2026-06-02: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.11`, `npm run prepush:gate`, and `npm pack --dry-run`.
 
 Release 0.0.12 note, 2026-06-05: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.12`, `npm run prepush:gate`, and `npm pack --dry-run`; no tag or publish workflow semantics changed.
+
+Release 0.0.13 note, 2026-06-06: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.13`, `npm run prepush:gate`, and `npm pack --dry-run`; this release adds `process save-draft --target-user-id` account/write guard support for batch import handoff.
 
 Useful commands:
 
@@ -87,7 +90,7 @@ npm pack --dry-run >/dev/null
 4. Open a normal PR with local pre-push gate evidence. Use the manual `quality-gate` workflow only when remote reproduction is needed.
 5. Merge the PR into `main`.
 
-Release automation starts only after the version bump PR is merged into `main`.
+Release automation starts only after the version bump PR is merged into upstream `main`. A local workstation may run `npm pack --dry-run` for package validation, but it must not publish the package; local npm authentication and personal registry permissions are intentionally outside the release contract.
 
 ## Post-Merge Checks
 

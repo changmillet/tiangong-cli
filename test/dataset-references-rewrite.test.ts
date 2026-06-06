@@ -213,6 +213,13 @@ test('runDatasetReferencesRewrite validates flags and supports commit delegates'
           out_dir: options.outDir ?? '',
           commit: true,
           mode: 'commit',
+          target_user_id: null,
+          account_guard: {
+            target_user_id_required: false,
+            target_user_id: null,
+            commit_account_binding: 'current_cli_auth_session',
+            post_write_verify_required: false,
+          },
           status: 'completed',
           counts: { selected: 1, prepared: 0, executed: 1, failed: 0 },
           files: {

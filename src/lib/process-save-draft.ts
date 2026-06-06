@@ -1,9 +1,10 @@
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
-import { postJson, requireRemoteOkPayload } from './http.js';
+import { getJson, postJson, requireRemoteOkPayload } from './http.js';
 import {
   buildSupabaseAuthHeaders,
   createSupabaseDataClient,
+  deriveSupabaseProjectBaseUrl,
   requireSupabaseRestRuntime,
   runSupabaseArrayQuery,
 } from './supabase-client.js';
@@ -61,6 +62,7 @@ export type SyncStateAwareProcessRecordOptions = {
   timeoutMs?: number;
   audit?: JsonObject;
   modelId?: string | null;
+  targetUserId?: string | null;
 };
 
 function buildVisibleRowsUrl(restBaseUrl: string, id: string, version: string): string {
@@ -142,6 +144,67 @@ function visibleDraftRow(rows: VisibleProcessRow[]): VisibleProcessRow | null {
   return rows.find((row) => row.state_code === 0) ?? null;
 }
 
+function visibleDraftRowForTarget(
+  rows: VisibleProcessRow[],
+  targetUserId: string | null,
+): VisibleProcessRow | null {
+  if (!targetUserId) {
+    return visibleDraftRow(rows);
+  }
+  return rows.find((row) => row.state_code === 0 && row.user_id === targetUserId) ?? null;
+}
+
+function buildCurrentUserUrl(restBaseUrl: string): string {
+  return `${deriveSupabaseProjectBaseUrl(restBaseUrl)}/auth/v1/user`;
+}
+
+async function currentUserId(options: {
+  restBaseUrl: string;
+  publishableKey: string;
+  accessToken: string;
+  timeoutMs: number;
+  fetchImpl: FetchLike;
+}): Promise<string> {
+  const url = buildCurrentUserUrl(options.restBaseUrl);
+  const payload = await getJson({
+    url,
+    headers: buildSupabaseAuthHeaders(options.publishableKey, options.accessToken),
+    timeoutMs: options.timeoutMs,
+    fetchImpl: options.fetchImpl,
+  });
+  const userId = isRecord(payload) ? trimToken(payload.id) : null;
+  if (!userId) {
+    throw new CliError('Supabase current-user lookup succeeded without a user id.', {
+      code: 'PROCESS_SAVE_DRAFT_CURRENT_USER_ID_MISSING',
+      exitCode: 1,
+      details: payload,
+    });
+  }
+  return userId;
+}
+
+function assertTargetUserMatchesCurrent(options: {
+  targetUserId: string | null;
+  currentUserId: string;
+}): void {
+  if (!options.targetUserId) {
+    return;
+  }
+  if (options.currentUserId !== options.targetUserId) {
+    throw new CliError(
+      `Process save-draft target user ${options.targetUserId} does not match current CLI auth user ${options.currentUserId}.`,
+      {
+        code: 'PROCESS_SAVE_DRAFT_TARGET_USER_MISMATCH',
+        exitCode: 1,
+        details: {
+          target_user_id: options.targetUserId,
+          current_user_id: options.currentUserId,
+        },
+      },
+    );
+  }
+}
+
 function buildUnsupportedVisibleRowError(
   id: string,
   version: string,
@@ -217,6 +280,7 @@ export async function syncStateAwareProcessRecord(
   options: SyncStateAwareProcessRecordOptions,
 ): Promise<ProcessStateAwareWriteResult> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const targetUserId = trimToken(options.targetUserId);
   const visible = await exactVisibleRows({
     id: options.id,
     version: options.version,
@@ -224,7 +288,18 @@ export async function syncStateAwareProcessRecord(
     fetchImpl: options.fetchImpl,
     timeoutMs,
   });
-  const draftRow = visibleDraftRow(visible.rows);
+  if (targetUserId) {
+    const userId = await currentUserId({
+      restBaseUrl: visible.restBaseUrl,
+      publishableKey: visible.publishableKey,
+      accessToken: visible.accessToken,
+      timeoutMs,
+      fetchImpl: options.fetchImpl,
+    });
+    assertTargetUserMatchesCurrent({ targetUserId, currentUserId: userId });
+  }
+
+  const draftRow = visibleDraftRowForTarget(visible.rows, targetUserId);
 
   if (!draftRow) {
     if (visible.rows.length > 0) {
@@ -265,7 +340,10 @@ export async function syncStateAwareProcessRecord(
 
 export const __testInternals = {
   buildVisibleRowsUrl,
+  buildCurrentUserUrl,
   parseVisibleRows,
   visibleDraftRow,
+  visibleDraftRowForTarget,
+  assertTargetUserMatchesCurrent,
   buildUnsupportedVisibleRowError,
 };

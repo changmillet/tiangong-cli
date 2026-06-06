@@ -106,7 +106,7 @@ Route those tasks to:
 - Node baseline: `>=24 <25`
 - Runtime style: TypeScript source, Node-native CLI, direct REST and Edge Function access only
 - Newly added process-maintenance commands such as `process identity-preflight`, `process build-plan`, `process scope-statistics`, `process dedup-review`, `process refresh-references`, and `process verify-rows` still belong to the native CLI command surface in `src/cli.ts` and `src/lib/process-*.ts` / shared CLI-native helpers.
-- `process save-draft` now has a local `ProcessSchema` validation gate before any commit path writes remote state.
+- `process save-draft` now has a local `ProcessSchema` validation gate before any commit path writes remote state, and `--target-user-id` is a hard current-session/visible-draft owner guard for account-scoped batch imports.
 - Dataset-level local governance commands such as `dataset validate`, `dataset curation-queue build/next/verify`, and `dataset references rewrite` belong to the same native CLI command surface in `src/cli.ts` and `src/lib/dataset-*.ts`.
 - `lifecyclemodel save-draft` validates canonical lifecyclemodel payloads with `LifeCycleModelSchema` before any commit path writes remote state; `lifecyclemodel graph` remains a local artifact command.
 - `flow publish-version` validates canonical flow payloads with `FlowSchema` before remote visibility planning or writes, and emits `flow-publish-version-gate-report.json` as the blocking ruleset artifact.
@@ -116,11 +116,13 @@ Route those tasks to:
 - The canonical minimum validation command is `npm run lint`
 - The authoritative full gate is `npm run prepush:gate`; the local pre-push hook runs it after docpact.
 - Release tagging is guarded in `.github/workflows/tag-release-from-merge.yml` so only the upstream repository can execute the merge-tag flow, and it runs the release gate only when a package version change will create a `cli-v<version>` tag. `.github/workflows/publish.yml` publishes from that tag and also supports `workflow_dispatch` for existing-tag recovery/backfill.
+- CLI npm releases must go through a version-bump PR merged to upstream `main`; do not use local `npm publish` as the release path. The release-prep PR updates `package.json` and `package-lock.json`, merge creates `cli-v<version>`, and GitHub Actions publishes through npm Trusted Publishing.
 - Coverage for `src/**/*.ts` is expected to stay at `100%` statements, branches, functions, and lines
 
 ## Hard Boundaries
 
 - Do not add orchestration frameworks or new npm dependencies without explicit approval
+- Do not publish `@tiangong-lca/cli` from a local workstation for routine releases; local npm auth state is not part of the release contract.
 - Do not move business logic into skill wrappers when the native `tiangong-lca` CLI should own it
 - Do not weaken the coverage gate with ignore pragmas; cover the branch or remove dead code
 - Do not treat governed docs as optional when command-surface, validation, or release-gate behavior changes; `docpact` should either require a matching source-doc update or record explicit review evidence.

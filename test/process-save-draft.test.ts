@@ -94,6 +94,172 @@ test('state-aware process write routes visible drafts through cmd_dataset_save_d
   });
 });
 
+test('state-aware process write enforces target user guard before remote writes', async () => {
+  const observed: Array<{ method: string; url: string; body?: string }> = [];
+  const result = await syncStateAwareProcessRecord({
+    id: 'proc-target',
+    version: '01.00.001',
+    payload: { processDataSet: {} },
+    targetUserId: 'user-1',
+    env: buildSupabaseTestEnv({
+      TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+      TIANGONG_LCA_API_KEY: 'key',
+    }),
+    fetchImpl: withSupabaseAuthBootstrap(async (url, init) => {
+      observed.push({
+        method: String(init?.method ?? 'GET'),
+        url: String(url),
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+
+      if (String(url).includes('/rest/v1/processes')) {
+        return makeResponse({
+          ok: true,
+          status: 200,
+          body: '[{"id":"proc-target","version":"01.00.001","user_id":"user-1","state_code":0}]',
+        });
+      }
+
+      if (String(url).includes('/auth/v1/user')) {
+        return makeResponse({
+          ok: true,
+          status: 200,
+          body: '{"id":"user-1"}',
+        });
+      }
+
+      return makeResponse({
+        ok: true,
+        status: 200,
+        body: '{"ok":true,"data":{"id":"proc-target"}}',
+      });
+    }),
+  });
+
+  assert.deepEqual(
+    observed.map((entry) => entry.method),
+    ['GET', 'GET', 'POST'],
+  );
+  assert.match(observed[1]?.url ?? '', /\/auth\/v1\/user$/u);
+  assert.deepEqual(result, {
+    status: 'success',
+    operation: 'save_draft',
+    write_path: 'cmd_dataset_save_draft',
+    rpc_result: { ok: true, data: { id: 'proc-target' } },
+    visible_row: {
+      id: 'proc-target',
+      version: '01.00.001',
+      user_id: 'user-1',
+      state_code: 0,
+    },
+  });
+});
+
+test('state-aware process write rejects target user mismatches', async () => {
+  await assert.rejects(
+    () =>
+      syncStateAwareProcessRecord({
+        id: 'proc-target-mismatch',
+        version: '01.00.001',
+        payload: { processDataSet: {} },
+        targetUserId: 'target-user',
+        env: buildSupabaseTestEnv({
+          TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+          TIANGONG_LCA_API_KEY: 'key',
+        }),
+        fetchImpl: withSupabaseAuthBootstrap(async (url) => {
+          if (String(url).includes('/rest/v1/processes')) {
+            return makeResponse({
+              ok: true,
+              status: 200,
+              body: '[]',
+            });
+          }
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '{"id":"current-user"}',
+          });
+        }),
+      }),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'PROCESS_SAVE_DRAFT_TARGET_USER_MISMATCH');
+      assert.match(error.message, /target-user/u);
+      return true;
+    },
+  );
+});
+
+test('state-aware process write rejects target user guards without current auth ids', async () => {
+  await assert.rejects(
+    () =>
+      syncStateAwareProcessRecord({
+        id: 'proc-target-missing-user',
+        version: '01.00.001',
+        payload: { processDataSet: {} },
+        targetUserId: 'target-user',
+        env: buildSupabaseTestEnv({
+          TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+          TIANGONG_LCA_API_KEY: 'key',
+        }),
+        fetchImpl: withSupabaseAuthBootstrap(async (url) => {
+          if (String(url).includes('/rest/v1/processes')) {
+            return makeResponse({
+              ok: true,
+              status: 200,
+              body: '[]',
+            });
+          }
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '{}',
+          });
+        }),
+      }),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'PROCESS_SAVE_DRAFT_CURRENT_USER_ID_MISSING');
+      assert.match(error.message, /without a user id/u);
+      return true;
+    },
+  );
+
+  await assert.rejects(
+    () =>
+      syncStateAwareProcessRecord({
+        id: 'proc-target-malformed-user',
+        version: '01.00.001',
+        payload: { processDataSet: {} },
+        targetUserId: 'target-user',
+        env: buildSupabaseTestEnv({
+          TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+          TIANGONG_LCA_API_KEY: 'key',
+        }),
+        fetchImpl: withSupabaseAuthBootstrap(async (url) => {
+          if (String(url).includes('/rest/v1/processes')) {
+            return makeResponse({
+              ok: true,
+              status: 200,
+              body: '[]',
+            });
+          }
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '[]',
+          });
+        }),
+      }),
+    (error) => {
+      assert.ok(error instanceof CliError);
+      assert.equal(error.code, 'PROCESS_SAVE_DRAFT_CURRENT_USER_ID_MISSING');
+      return true;
+    },
+  );
+});
+
 test('state-aware process write rejects visible non-draft rows before raw table updates', async () => {
   await assert.rejects(
     () =>
@@ -217,6 +383,10 @@ test('state-aware process write helpers normalize edge-case visible rows', () =>
     ),
     'https://example.supabase.co/rest/v1/processes?select=id%2Cversion%2Cuser_id%2Cstate_code&id=eq.proc-1&version=eq.01.00.001',
   );
+  assert.equal(
+    __testInternals.buildCurrentUserUrl('https://example.supabase.co/rest/v1'),
+    'https://example.supabase.co/auth/v1/user',
+  );
   assert.deepEqual(
     __testInternals.parseVisibleRows(
       [{ id: 'proc-1', version: '01.00.001', user_id: 'user-1', state_code: 0 }],
@@ -244,6 +414,29 @@ test('state-aware process write helpers normalize edge-case visible rows', () =>
       { id: 'proc-1', version: '01.00.001', user_id: 'user-2', state_code: 0 },
     ]),
     { id: 'proc-1', version: '01.00.001', user_id: 'user-2', state_code: 0 },
+  );
+  assert.deepEqual(
+    __testInternals.visibleDraftRowForTarget(
+      [
+        { id: 'proc-1', version: '01.00.001', user_id: 'user-2', state_code: 0 },
+        { id: 'proc-1', version: '01.00.001', user_id: 'user-1', state_code: 0 },
+      ],
+      'user-1',
+    ),
+    { id: 'proc-1', version: '01.00.001', user_id: 'user-1', state_code: 0 },
+  );
+  assert.equal(
+    __testInternals.visibleDraftRowForTarget(
+      [{ id: 'proc-1', version: '01.00.001', user_id: 'user-2', state_code: 0 }],
+      'user-1',
+    ),
+    null,
+  );
+  assert.doesNotThrow(() =>
+    __testInternals.assertTargetUserMatchesCurrent({
+      targetUserId: null,
+      currentUserId: 'user-1',
+    }),
   );
   assert.throws(
     () => __testInternals.parseVisibleRows([0], 'https://example.com'),
