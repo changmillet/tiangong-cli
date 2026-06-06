@@ -15,8 +15,8 @@ checkPaths:
   - src/lib/user-api-key.ts
   - src/lib/supabase-session.ts
   - src/lib/supabase-client.ts
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -35,6 +35,7 @@ related:
 - 在方案正式落地前，不把这里的内容视为对外稳定 contract。
 - 2026-05-13 复核：`dataset references rewrite --commit` 与 `lifecyclemodel save-draft --commit` 继续复用现有用户 session 链，不新增认证 env 或 alternate bearer 模式。
 - 2026-06-04 复核：`dataset curation-queue next/verify` 只读取本地队列 artifact 和 checkpoint，不改变认证/session 设计。
+- 2026-06-06 复核：release 0.0.13 的发布路径改为明确依赖 PR merge 后的 GitHub Actions / npm Trusted Publishing，不改变 CLI 用户 API key、session 或 `--target-user-id` 账号守卫语义；本地 npm 登录状态不是 CLI 运行时认证模型的一部分。
 
 ## 1. 已确认事实
 

@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-05
-lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -43,6 +43,8 @@ This repo is organized around one stable launcher plus a library-style `src/lib/
 Review note, 2026-06-04: Foundry entity queue state now stays in the native CLI command family as `dataset curation-queue build/next/verify`; no secondary orchestration runtime was introduced.
 
 Review note, 2026-06-05: release 0.0.12 is a package metadata bump only; no command-family ownership, launcher, session, artifact, or release architecture paths changed.
+
+Review note, 2026-06-06: release 0.0.13 keeps the release architecture unchanged: maintainers open a version-bump PR, update `package.json` and `package-lock.json`, merge to upstream `main`, and let GitHub Actions create the tag and publish through npm Trusted Publishing. Local `npm publish` is not part of the release architecture.
 
 ## Stable Path Map
 
@@ -117,7 +119,7 @@ These modules share one contract:
 - `src/cli.ts` owns subcommand registration, help, and exit semantics
 - `process/flow identity-preflight` owns embedded/local candidate scan inputs, explicit hybrid-search remote candidate inputs, identity/fingerprint comparison, duplicate/manual-review decisions, and `identity-candidate-sources.json` provenance artifacts before any build-plan or generation step
 - `process/flow build-plan` validates minimum authoring contracts and writes standard gate artifacts before downstream materialization or publish handoff; materialize now creates canonical `processDataSet` / `flowDataSet` wrappers from plan fields when no canonical payload is supplied
-- `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes
+- `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes and accepts `--target-user-id` as an account/write guard that must match the current CLI auth user and any visible draft owner
 - `flow publish-version` and `process publish-build` validate canonical payloads with `FlowSchema` / `ProcessSchema` before publish planning or handoff artifacts proceed
 - `publish run` writes a deterministic `verification-report.json` next to the final publish report so downstream automation can read blockers without parsing execution details
 - `runtime-rulesets` maps CLI-local QA, dedup, and publish findings to stable methodology rule ids so Foundry and UI handoffs can consume one ruleset profile contract
@@ -163,6 +165,7 @@ Important constraints:
 - `docpact` enforces that command-surface and release-gate changes also refresh or review the governed source docs
 - the merge-tag workflow is guarded so only the upstream repository can execute release tagging
 - the publish workflow releases from `cli-v<package.json version>` and supports manual dispatch for existing-tag recovery/backfill
+- routine npm releases must flow through an upstream `main` PR merge and GitHub Actions Trusted Publishing; local workstations may validate with `npm pack --dry-run` but must not publish
 
 ## Cross-Repo Boundaries
 

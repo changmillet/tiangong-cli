@@ -285,6 +285,75 @@ test('runProcessSaveDraft executes state-aware save-draft writes on commit', asy
   }
 });
 
+test('runProcessSaveDraft records target user guard on commit', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-save-draft-target-user-'));
+  const inputPath = path.join(dir, 'patched-processes.jsonl');
+  const observed: Array<{ method: string; url: string; body?: string }> = [];
+
+  writeJsonl(inputPath, [makeCanonicalProcess('proc-target-guard')]);
+
+  try {
+    const report = await runProcessSaveDraft({
+      inputPath,
+      commit: true,
+      targetUserId: 'user-1',
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+        TIANGONG_LCA_API_KEY: 'key',
+      }),
+      fetchImpl: withSupabaseAuthBootstrap(async (url, init) => {
+        observed.push({
+          method: String(init?.method ?? 'GET'),
+          url: String(url),
+          body: typeof init?.body === 'string' ? init.body : undefined,
+        });
+
+        if (String(url).includes('/rest/v1/processes')) {
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '[{"id":"proc-target-guard","version":"01.01.000","user_id":"user-1","state_code":0}]',
+          });
+        }
+
+        if (String(url).includes('/auth/v1/user')) {
+          return makeResponse({
+            ok: true,
+            status: 200,
+            body: '{"id":"user-1"}',
+          });
+        }
+
+        return makeResponse({
+          ok: true,
+          status: 200,
+          body: '{"ok":true,"data":{"id":"proc-target-guard"}}',
+        });
+      }),
+      now: new Date('2026-04-14T00:25:00.000Z'),
+      validateProcessPayloadImpl: VALIDATION_OK,
+    });
+
+    assert.deepEqual(
+      observed.map((entry) => entry.method),
+      ['GET', 'GET', 'POST'],
+    );
+    assert.match(observed[2]?.body ?? '', /"target_user_id":"user-1"/u);
+    assert.equal(report.status, 'completed');
+    assert.equal(report.target_user_id, 'user-1');
+    assert.deepEqual(report.account_guard, {
+      target_user_id_required: true,
+      target_user_id: 'user-1',
+      commit_account_binding: 'current_cli_auth_session',
+      post_write_verify_required: true,
+    });
+    const summary = readJson(report.files.summary_json) as { target_user_id?: unknown };
+    assert.equal(summary.target_user_id, 'user-1');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runProcessSaveDraft records non-canonical payloads as failed entries', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-process-save-draft-invalid-'));
   const inputPath = path.join(dir, 'patched-processes.jsonl');

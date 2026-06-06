@@ -16,8 +16,8 @@ checkPaths:
   - README.md
   - src/**
   - test/**
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -977,9 +977,10 @@ npm run prepush:gate
 
 CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
-- release-prep PR 修改 `package.json` 版本号
+- release-prep PR 修改 `package.json` 和 `package-lock.json` 版本元数据
 - 合并到 `main` 后，`tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
 - `publish.yml` 从该 tag 触发 npm Trusted Publishing
+- 例行发布不在本机执行 `npm publish`；本机只做版本修改、质量门、未发布校验和 `npm pack --dry-run`
 
 每次发版的 operator runbook 见 [release-runbook.md](./release-runbook.md)。
 

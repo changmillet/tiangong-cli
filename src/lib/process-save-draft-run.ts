@@ -217,6 +217,13 @@ export type ProcessSaveDraftReport = {
   out_dir: string;
   commit: boolean;
   mode: 'dry_run' | 'commit';
+  target_user_id: string | null;
+  account_guard: {
+    target_user_id_required: boolean;
+    target_user_id: string | null;
+    commit_account_binding: 'current_cli_auth_session';
+    post_write_verify_required: boolean;
+  };
   status: 'completed' | 'completed_with_failures';
   counts: {
     selected: number;
@@ -243,6 +250,7 @@ export type RunProcessSaveDraftOptions = {
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   now?: Date;
+  targetUserId?: string | null;
   validateProcessPayloadImpl?: (payload: JsonObject) => ProcessPayloadValidationResult;
 };
 
@@ -439,6 +447,7 @@ export async function runProcessSaveDraft(
   const now = options.now ?? new Date();
   const inputPath = path.resolve(options.inputPath);
   const commit = options.commit === true;
+  const targetUserId = first_non_empty(options.targetUserId);
   const rawInput = options.rawInput ?? readStructuredInput(inputPath);
   const validateProcessPayloadImpl = options.validateProcessPayloadImpl ?? validateProcessPayload;
   const prepared = prepareProcessSaveDraftInput(
@@ -492,10 +501,12 @@ export async function runProcessSaveDraft(
         env: options.env!,
         fetchImpl: options.fetchImpl!,
         timeoutMs: options.timeoutMs,
+        targetUserId,
         audit: {
           command: 'tiangong-lca process save-draft',
           source: candidate.source,
           bundle_path: candidate.bundle_path,
+          target_user_id: targetUserId,
         },
       });
       report.status = 'executed';
@@ -518,6 +529,13 @@ export async function runProcessSaveDraft(
     out_dir: outDir,
     commit,
     mode: commit ? 'commit' : 'dry_run',
+    target_user_id: targetUserId,
+    account_guard: {
+      target_user_id_required: Boolean(targetUserId),
+      target_user_id: targetUserId,
+      commit_account_binding: 'current_cli_auth_session',
+      post_write_verify_required: Boolean(targetUserId),
+    },
     status: failedReports.length > 0 ? 'completed_with_failures' : 'completed',
     counts: {
       selected: prepared.processes.length,

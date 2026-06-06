@@ -118,9 +118,11 @@ npm run build
 日常 release 采用 tag 驱动的 GitHub Actions 流程：
 
 - 从 `main` 开一个 release-prep PR
-- 只修改 CLI 包自己的 `package.json` 版本号
+- release-prep PR 修改 CLI 包自己的 `package.json` 和 `package-lock.json` 版本号
 - PR 合并后，`.github/workflows/tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
 - `.github/workflows/publish.yml` 再从这个不可变 tag 通过 npm Trusted Publishing 发布
+
+正式发布不要在本机执行 `npm publish`。本机只负责版本 bump、验证和 PR；合并到 upstream `main` 之后，由 GitHub Actions 创建 tag 并完成 npm 发布。本机 npm 登录状态或个人 npm 权限不属于 release 契约。
 
 值班发布步骤见 [docs/release-runbook.md](./docs/release-runbook.md)。
 
@@ -313,10 +315,11 @@ npm exec tiangong-lca -- admin embedding-run --input ./jobs.json --dry-run
 - 读取 process rows JSON/JSONL 或 publish request 中的 canonical process payload
 - 在本地先执行 `ProcessSchema` 校验，阻断 schema-invalid payload
 - 对精确版本做可见性预检，区分 current-user `state_code=0` draft 与其它可见行
+- 当传入 `--target-user-id` 时，写入前校验当前 CLI auth user 与目标用户一致，并要求已有 visible draft 也属于该目标用户
 - 对 current-user draft 走 `cmd_dataset_save_draft`
 - 把 schema-invalid 或执行失败的行写入 `outputs/save-draft-rpc/failures.jsonl`
 
-这个命令当前只负责 current-user draft 的 save-draft/update 语义；它不会替代 public `state_code=100` 的版本修订 publish 路径。
+这个命令当前只负责 current-user draft 的 save-draft/update 语义；`--target-user-id` 是批量导入时的账号/写入 guard，不能替代写后 readback verify，也不会替代 public `state_code=100` 的版本修订 publish 路径。
 
 `tiangong-lca process auto-build` 现在已经承担 `process_from_flow` 主链的第一个 CLI 切片，负责：
 

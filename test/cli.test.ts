@@ -1828,6 +1828,7 @@ test('executeCli returns help for the process namespace and implemented subcomma
   assert.equal(saveDraftHelp.exitCode, 0);
   assert.match(saveDraftHelp.stdout, /tiangong-lca process save-draft --input <file>/u);
   assert.match(saveDraftHelp.stdout, /--commit/u);
+  assert.match(saveDraftHelp.stdout, /--target-user-id <id>/u);
   assert.match(saveDraftHelp.stdout, /outputs\/save-draft-rpc\/summary\.json/u);
   assert.doesNotMatch(saveDraftHelp.stdout, /Planned command/u);
 
@@ -3348,6 +3349,8 @@ test('executeCli executes process save-draft with injected implementation', asyn
         '--out-dir',
         './save-root',
         '--commit',
+        '--target-user-id',
+        'user-1',
       ],
       {
         ...makeDeps(),
@@ -3355,6 +3358,7 @@ test('executeCli executes process save-draft with injected implementation', asyn
           assert.equal(options.inputPath, inputPath);
           assert.equal(options.outDir, './save-root');
           assert.equal(options.commit, true);
+          assert.equal(options.targetUserId, 'user-1');
           return {
             generated_at_utc: '2026-04-14T12:00:00.000Z',
             input_path: inputPath,
@@ -3362,6 +3366,13 @@ test('executeCli executes process save-draft with injected implementation', asyn
             out_dir: path.join(dir, 'save-root'),
             commit: true,
             mode: 'commit',
+            target_user_id: 'user-1',
+            account_guard: {
+              target_user_id_required: true,
+              target_user_id: 'user-1',
+              commit_account_binding: 'current_cli_auth_session',
+              post_write_verify_required: true,
+            },
             status: 'completed',
             counts: {
               selected: 1,
@@ -3554,6 +3565,13 @@ test('executeCli maps process save-draft failures to exit code 1', async () => {
         out_dir: path.join(dir, 'save-root'),
         commit: false,
         mode: 'dry_run',
+        target_user_id: null,
+        account_guard: {
+          target_user_id_required: false,
+          target_user_id: null,
+          commit_account_binding: 'current_cli_auth_session',
+          post_write_verify_required: false,
+        },
         status: 'completed_with_failures',
         counts: {
           selected: 1,

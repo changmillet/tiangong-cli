@@ -19,8 +19,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-05
-lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -37,9 +37,10 @@ For the repeatable per-release operator steps, see [release-runbook.md](./releas
 Recommended model:
 
 - maintainers open a normal release-prep PR from `main`
-- the PR updates `package.json` version for the next CLI release
+- the PR updates `package.json` and `package-lock.json` version metadata for the next CLI release
 - after that PR merges, `tag-release-from-merge.yml` creates the immutable package tag
 - `publish.yml` publishes the package from that tag through npm Trusted Publishing
+- maintainers do not run local `npm publish` for routine releases
 
 Current workflow files:
 
@@ -72,6 +73,8 @@ Release 0.0.11 note, 2026-06-02: package version bump only; no repository secret
 
 Release 0.0.12 note, 2026-06-05: package version bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required.
 
+Release 0.0.13 note, 2026-06-06: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The operator path is PR merge to upstream `main`, then GitHub Actions tag and publish.
+
 The publish workflow file is fixed at:
 
 - `.github/workflows/publish.yml`
@@ -102,7 +105,8 @@ Leave the environment name unset unless the workflow is explicitly updated to us
 
 - `publish.yml` validates that the Git tag matches the package version before upload and supports `workflow_dispatch` for existing-tag recovery/backfill.
 - `tag-release-from-merge.yml` only creates a tag when `package.json` version changes on `main`, and it runs `npm run prepush:gate` before creating that tag. If the expected tag already points at the current merge commit, the tag step is idempotent; if it points elsewhere, the workflow fails.
-- The release-prep PR should update only the intended versioned release metadata for the CLI package.
+- The release-prep PR should update only the intended versioned release metadata for the CLI package, normally `package.json` and `package-lock.json`.
+- Local workstations may run `npm pack --dry-run` for package validation, but routine npm publication belongs to GitHub Actions Trusted Publishing after the upstream `main` merge.
 - Adding CLI command families such as dataset or lifecyclemodel maintenance commands does not require release setup changes by itself; those feature PRs are covered by the normal quality and docpact gates before a later version bump.
 
 ## Local Docpact Push Gate

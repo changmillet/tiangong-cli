@@ -27,8 +27,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-05
-lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -66,6 +66,8 @@ Review note, 2026-06-04: dataset curation queue state changes are covered by foc
 
 Review note, 2026-06-05: release 0.0.12 uses the existing release proof contract: unpublished-version check, `npm run prepush:gate`, and `npm pack --dry-run`.
 
+Review note, 2026-06-06: release 0.0.13 keeps local validation separate from publication. Local proof is unpublished-version check, `npm run prepush:gate`, `npm pack --dry-run`, and docpact; npm publication must happen only after the version-bump PR merges to upstream `main` and GitHub Actions runs the tag and publish workflows.
+
 ## Validation Matrix
 
 | Change type | Minimum local proof | Additional proof when risk is higher | Notes |
@@ -90,6 +92,7 @@ Facts that matter:
 - `process save-draft`, `lifecyclemodel save-draft`, dataset governance commands such as curation queue build/next/verify, BuildPlan gates, publish schema/verification gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, or fallback branches
 - release-tag and docpact lint workflow changes should be described in the PR note when they alter the local or protected-branch proof
 - `tag-release-from-merge.yml` is idempotent when the expected `cli-v*` tag already points at the merge commit, and `publish.yml` can be re-run with `workflow_dispatch` only for an existing `cli-v*` tag on `origin/main`
+- local npm authentication is not release validation evidence; routine publication is verified by the upstream tag workflow and npm Trusted Publishing workflow after merge
 
 If the task changes control flow, add or update tests instead of using coverage-ignore pragmas.
 

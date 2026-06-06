@@ -17,8 +17,8 @@ checkPaths:
   - package.json
   - src/**
   - test/**
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-06
+lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -45,6 +45,7 @@ related:
 - 2026-05-13 复核：新增 `dataset validate`、`dataset references rewrite`、`lifecyclemodel save-draft` 和 `lifecyclemodel graph` 仍属于既有 CLI-native 迁移方向，不重新引入 Python、POSIX shell 或 MCP runtime 前提
 - 2026-05-23 复核：review / dedup / publish ruleset metadata 继续落在 TypeScript CLI 内部，不新增 Python、POSIX shell 或 MCP runtime 前提
 - 2026-06-04 复核：`dataset curation-queue next/verify` 继续沿用 TypeScript CLI-native 路径，不重新引入 Python、POSIX shell 或 MCP runtime 前提
+- 2026-06-06 复核：release 0.0.13 发布路径澄清为 PR merge 到 upstream `main` 后由 GitHub Actions / npm Trusted Publishing 执行，不重新引入 Python、POSIX shell、MCP runtime 或本地发布脚本前提
 
 这份文档记录的是：
 
