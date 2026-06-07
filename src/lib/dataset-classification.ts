@@ -881,9 +881,50 @@ function resolveLocationTarget(
 ): LocationTarget[] {
   const targets = collectLocationTargets(row.payload);
   if (!decision.targetPath) return targets;
-  return targets.filter(
+  const matchingTargets = targets.filter(
     (target) => target.path === decision.targetPath || target.parentPath === decision.targetPath,
   );
+  if (matchingTargets.length > 0) return matchingTargets;
+  const createdTarget = createMissingLocationTarget(row, decision.targetPath);
+  return createdTarget ? [createdTarget] : [];
+}
+
+function targetPathSegments(targetPath: string): string[] {
+  return targetPath
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+}
+
+function createMissingLocationTarget(
+  row: PreparedClassificationRow,
+  targetPath: string,
+): LocationTarget | null {
+  const segments = targetPathSegments(targetPath);
+  const key = segments.at(-1);
+  if (!key || !isLocationTargetKey(key)) return null;
+  let cursor: unknown = row.payload;
+  for (const segment of segments.slice(0, -1)) {
+    if (!isRecord(cursor)) return null;
+    const existing = cursor[segment];
+    if (existing === undefined || existing === null) {
+      cursor[segment] = {};
+      cursor = cursor[segment];
+      continue;
+    }
+    if (!isRecord(existing)) return null;
+    cursor = existing;
+  }
+  if (!isRecord(cursor)) return null;
+  const existing = cursor[key];
+  if (existing !== undefined && existing !== null && existing !== '') return null;
+  return {
+    path: targetPath,
+    parentPath: pathExpression(segments.slice(0, -1)),
+    parent: cursor,
+    key,
+    value: typeof existing === 'string' ? existing : '',
+  };
 }
 
 function decisionMatchesRow(decision: NormalizedDecision, row: PreparedClassificationRow): boolean {
@@ -1285,6 +1326,7 @@ export const __testInternals = {
   collectLocationRefKeysFromSchema,
   collectLocationTargets,
   constText,
+  createMissingLocationTarget,
   currentClassification,
   decisionMatchesRow,
   decisionTargetPath,
@@ -1309,5 +1351,6 @@ export const __testInternals = {
   resolveLocationTarget,
   schemasDir,
   setClassification,
+  targetPathSegments,
   toPathEntry,
 };

@@ -110,6 +110,29 @@ function sampleProcessRowWithLocations() {
   };
 }
 
+function sampleFlowRowWithoutLocation() {
+  return {
+    flowDataSet: {
+      flowInformation: {
+        dataSetInformation: {
+          'common:UUID': 'flow-1',
+          name: {
+            baseName: {
+              '@xml:lang': 'en',
+              '#text': 'Fixture product flow',
+            },
+          },
+        },
+      },
+      administrativeInformation: {
+        publicationAndOwnership: {
+          'common:dataSetVersion': '00.00.001',
+        },
+      },
+    },
+  };
+}
+
 function sampleLifecyclemodelRowWithLocation() {
   return {
     lifeCycleModelDataSet: {
@@ -286,6 +309,43 @@ test('dataset classification audit and apply enforce TIDAS location codes', asyn
       'GR',
     );
     assert.equal(rows[0]?.processDataSet.exchanges.exchange[0]?.location, 'Not a TIDAS code');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dataset classification location apply creates missing location target when target_path is explicit', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-dataset-location-create-'));
+  const inputPath = path.join(dir, 'flows.jsonl');
+  const decisionsPath = path.join(dir, 'location-decisions.jsonl');
+  const outPath = path.join(dir, 'flows.location.jsonl');
+  writeJsonl(inputPath, [sampleFlowRowWithoutLocation()]);
+  writeJsonl(decisionsPath, [
+    {
+      dataset_id: 'flow-1',
+      dataset_version: '00.00.001',
+      category_type: 'location',
+      code: 'CH',
+      target_path: 'flowDataSet.flowInformation.geography.locationOfSupply',
+      basis: 'The source name mix/location field identifies Switzerland.',
+    },
+  ]);
+
+  try {
+    const report = await runDatasetClassificationApply({
+      inputPath,
+      decisionsPath,
+      outPath,
+      type: 'location',
+      now: new Date('2026-06-02T00:00:00.000Z'),
+    });
+    assert.equal(report.status, 'completed');
+    assert.equal(report.counts.applied, 1);
+    const rows = readJsonl(outPath);
+    const flow = rows[0] as {
+      flowDataSet?: { flowInformation?: { geography?: { locationOfSupply?: string } } };
+    };
+    assert.equal(flow.flowDataSet?.flowInformation?.geography?.locationOfSupply, 'CH');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -495,6 +555,76 @@ test('dataset classification internals cover rows, containers, and location targ
         'processDataSet.processInformation.geography.locationOfOperationSupplyOrProduction.@location',
     } as never).length,
     1,
+  );
+  assert.deepEqual(__testInternals.targetPathSegments(' flowDataSet..location '), [
+    'flowDataSet',
+    'location',
+  ]);
+  const missingFlowRow = __testInternals.prepareRows('memory', {
+    rows: [sampleFlowRowWithoutLocation()],
+  })[0]!;
+  const createdTarget = __testInternals.createMissingLocationTarget(
+    missingFlowRow,
+    'flowDataSet.flowInformation.geography.locationOfSupply',
+  );
+  assert.equal(createdTarget?.parentPath, 'flowDataSet.flowInformation.geography');
+  assert.equal(createdTarget?.key, 'locationOfSupply');
+  createdTarget!.parent[createdTarget!.key] = 'CH';
+  assert.equal(
+    (
+      missingFlowRow.payload.flowDataSet as {
+        flowInformation: { geography: { locationOfSupply: string } };
+      }
+    ).flowInformation.geography.locationOfSupply,
+    'CH',
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: {} },
+      'notALocationField',
+    ),
+    null,
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: null } as never,
+      'parent.location',
+    ),
+    null,
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: { parent: 'bad' } },
+      'parent.location',
+    ),
+    null,
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: null } as never,
+      'location',
+    ),
+    null,
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: { location: 'CH' } },
+      'location',
+    ),
+    null,
+  );
+  assert.equal(
+    __testInternals.createMissingLocationTarget(
+      { ...missingFlowRow, payload: { location: '' } },
+      'location',
+    )?.value,
+    '',
+  );
+  assert.equal(
+    __testInternals.resolveLocationTarget(missingFlowRow, {
+      targetPath: 'flowDataSet.flowInformation.notALocationField',
+    } as never).length,
+    0,
   );
   assert.equal(
     __testInternals.decisionMatchesRow(
