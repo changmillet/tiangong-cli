@@ -18,8 +18,8 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -34,6 +34,8 @@ related:
 本项目是 TianGong 的统一 CLI 仓库，运行时基线固定为 Node 24，源码使用 TypeScript，但运行时执行 `dist/` 下的构建产物。
 
 Review note, 2026-06-04: `dataset curation-queue next/verify` extends the existing CLI-native dataset command family and does not change maintainer runtime, env, or release guidance.
+
+Review note, 2026-06-07: release 0.0.14 keeps maintainer runtime and release guidance unchanged. `dataset classification apply --type location` now supports explicit missing location targets for Foundry saturation workflows, and still rejects ambiguous target paths.
 
 设计原则：
 

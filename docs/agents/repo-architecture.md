@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-06
-lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -45,6 +45,8 @@ Review note, 2026-06-04: Foundry entity queue state now stays in the native CLI 
 Review note, 2026-06-05: release 0.0.12 is a package metadata bump only; no command-family ownership, launcher, session, artifact, or release architecture paths changed.
 
 Review note, 2026-06-06: release 0.0.13 keeps the release architecture unchanged: maintainers open a version-bump PR, update `package.json` and `package-lock.json`, merge to upstream `main`, and let GitHub Actions create the tag and publish through npm Trusted Publishing. Local `npm publish` is not part of the release architecture.
+
+Review note, 2026-06-07: release 0.0.14 keeps the architecture in the existing TypeScript dataset classification command family. The location apply helper now creates only explicit schema-derived missing location targets and does not introduce a new orchestration layer or release path.
 
 ## Stable Path Map
 
