@@ -17,8 +17,8 @@ checkPaths:
   - package.json
   - src/**
   - test/**
-lastReviewedAt: 2026-06-06
-lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -46,6 +46,7 @@ related:
 - 2026-05-23 复核：review / dedup / publish ruleset metadata 继续落在 TypeScript CLI 内部，不新增 Python、POSIX shell 或 MCP runtime 前提
 - 2026-06-04 复核：`dataset curation-queue next/verify` 继续沿用 TypeScript CLI-native 路径，不重新引入 Python、POSIX shell 或 MCP runtime 前提
 - 2026-06-06 复核：release 0.0.13 发布路径澄清为 PR merge 到 upstream `main` 后由 GitHub Actions / npm Trusted Publishing 执行，不重新引入 Python、POSIX shell、MCP runtime 或本地发布脚本前提
+- 2026-06-07 复核：release 0.0.14 的 `dataset classification apply --type location` 修复仍在 TypeScript CLI-native 路径内完成，不重新引入 Python、POSIX shell、MCP runtime 或本地发布脚本前提
 
 这份文档记录的是：
 

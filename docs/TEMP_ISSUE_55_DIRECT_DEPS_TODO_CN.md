@@ -16,8 +16,8 @@ checkPaths:
   - src/lib/supabase-client.ts
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
-lastReviewedAt: 2026-06-06
-lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -44,6 +44,8 @@ related:
 - 直到 repo 级验证、PR、workspace integration 全部完成，才算结束。
 
 当前状态：
+
+2026-06-07 复核：release 0.0.14 的 location apply 修复不改变 Supabase JS 或 TIDAS SDK direct dependency 结论；本文件保持历史 TODO 记录用途。
 
 2026-06-06 复核：release 0.0.13 发布路径澄清只影响包版本元数据和 GitHub Actions / npm Trusted Publishing 操作说明，不改变 Supabase JS 或 TIDAS SDK direct dependency 结论；本文件保持历史 TODO 记录用途。
 

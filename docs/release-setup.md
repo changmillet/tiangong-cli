@@ -19,8 +19,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-06
-lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -74,6 +74,8 @@ Release 0.0.11 note, 2026-06-02: package version bump only; no repository secret
 Release 0.0.12 note, 2026-06-05: package version bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required.
 
 Release 0.0.13 note, 2026-06-06: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The operator path is PR merge to upstream `main`, then GitHub Actions tag and publish.
+
+Release 0.0.14 note, 2026-06-07: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The release includes a deterministic location apply fix and uses the same PR merge to upstream `main`, tag, and npm Trusted Publishing path.
 
 The publish workflow file is fixed at:
 

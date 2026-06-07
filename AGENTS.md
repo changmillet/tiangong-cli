@@ -32,8 +32,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-05
-lastReviewedCommit: a090d611199c2c5a34a9f8c266957845bb6404c3
+lastReviewedAt: 2026-06-07
+lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -52,6 +52,8 @@ related:
 Review note, 2026-06-04: `dataset curation-queue build/next/verify` is the CLI-owned state machine for Foundry entity queues; repo ownership boundaries remain unchanged.
 
 Review note, 2026-06-05: release 0.0.12 only updates CLI package version metadata; command ownership, validation gates, and release workflow boundaries remain unchanged.
+
+Review note, 2026-06-07: release 0.0.14 keeps the CLI-owned dataset classification command family and release workflow boundaries unchanged. `dataset classification apply --type location` may create an explicit missing location field such as `locationOfSupply`, but path ambiguity still blocks.
 
 ## Bootstrap Order
 

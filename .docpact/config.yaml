@@ -1,8 +1,8 @@
 version: 1
 layout: repo
-# Review note, 2026-06-06: release 0.0.13 keeps the existing release ownership and routes; publication is documented as PR merge to upstream main followed by GitHub Actions Trusted Publishing, not local npm publish.
-lastReviewedAt: '2026-06-06'
-lastReviewedCommit: '2ea2094cd0f120eab40f76182fcd7ae4af902baf'
+# Review note, 2026-06-07: release 0.0.14 keeps existing command-family, validation, and release routing. The dataset classification family now allows explicit missing location targets to be created during location apply while ambiguous paths remain blocked.
+lastReviewedAt: '2026-06-07'
+lastReviewedCommit: '651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9'
 
 catalog:
   repos:
