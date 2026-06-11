@@ -868,6 +868,7 @@ export const __testInternals = {
   collectTranslationUnits,
   normalizeType,
   pointerFromSegments,
+  rawLangOf,
   segmentsFromPointer,
   scanRows,
 };

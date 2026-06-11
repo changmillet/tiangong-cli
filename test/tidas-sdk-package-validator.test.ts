@@ -516,6 +516,30 @@ test('collection helpers derive schema gaps, localized text issues, hierarchy is
       },
     ],
   );
+  assert.deepEqual(
+    __testInternals.collectLocalizedTextIssues(
+      {
+        title: {
+          '@xml:lang': 'en',
+          '#text': '中文',
+        },
+      },
+      'flows',
+      '/tmp/flow.json',
+    ),
+    [
+      {
+        issue_code: 'localized_text_language_error',
+        severity: 'error',
+        category: 'flows',
+        file_path: '/tmp/flow.json',
+        location: 'title',
+        message:
+          "Localized text error at title: @xml:lang 'en' must not contain Chinese characters",
+        context: {},
+      },
+    ],
+  );
   assert.equal(
     __testInternals.extractLocalizedTextLocation('Localized text error at title/0: broken'),
     'title/0',

@@ -567,6 +567,18 @@ test('dataset bilingual apply validates required output flags', async () => {
   );
 });
 
+test('dataset bilingual extract rejects language codes outside the TIDAS enum', async () => {
+  await assert.rejects(
+    () =>
+      runDatasetBilingualExtract({
+        inputPath: 'memory',
+        rawInput: { rows: [sampleFlowRow()] },
+        sourceLang: 'zh-Hans',
+      }),
+    /TIDAS Languages enumeration value/u,
+  );
+});
+
 test('dataset bilingual scan catches long previews and English CJK text', () => {
   const longText = `${'x'.repeat(190)} 中文`;
   const findings = __testInternals.scanRows([
@@ -575,13 +587,13 @@ test('dataset bilingual scan catches long previews and English CJK text', () => 
       row: {
         payload: {
           processDataSet: {
-            text: [{ '@xml:lang': 'en', '#text': longText }],
+            text: [{ '@xml:lang': 'en', '#text': longText }, { '#text': 'Implicit English' }],
           },
         },
       },
       payload: {
         processDataSet: {
-          text: [{ '@xml:lang': 'en', '#text': longText }],
+          text: [{ '@xml:lang': 'en', '#text': longText }, { '#text': 'Implicit English' }],
         },
       },
       kind: 'process',
@@ -725,6 +737,7 @@ test('dataset bilingual internals cover nested arrays and array pointer resoluti
 test('dataset bilingual internals normalize pointers and type errors', () => {
   assert.deepEqual(__testInternals.segmentsFromPointer('/a~1b/c~0d'), ['a/b', 'c~d']);
   assert.equal(__testInternals.pointerFromSegments(['a/b', 'c~d']), '/a~1b/c~0d');
+  assert.equal(__testInternals.rawLangOf('plain text'), null);
   assert.equal(__testInternals.normalizeType('models'), 'lifecyclemodel');
   assert.throws(() => __testInternals.segmentsFromPointer('not-a-pointer'), /field_path/u);
   assert.throws(() => __testInternals.normalizeType('bad'), /Expected --type/u);

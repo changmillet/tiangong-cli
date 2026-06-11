@@ -464,6 +464,9 @@ test('lifecyclemodel auto-build utility helpers cover fallback parsing branches'
     en: 'implicit-en',
   });
   assert.deepEqual(__testInternals.langTextMap([textItem('中文', 'zh')]), { zh: '中文' });
+  assert.deepEqual(__testInternals.langTextMap([textItem('Fallback English', 'zh-Hans')]), {
+    en: 'Fallback English',
+  });
   assert.equal(__testInternals.localizedText([textItem('Francais', 'fr')], 'fr'), 'Francais');
   assert.equal(__testInternals.localizedText([textItem('中文', 'zh')], 'zh'), '中文');
   assert.equal(__testInternals.localizedText([textItem('Deutsch', 'de')], 'zh'), 'Deutsch');
