@@ -594,6 +594,32 @@ test('dataset bilingual scan catches long previews and English CJK text', () => 
   assert.match(findings[0].text_preview, /\.\.\.$/u);
 });
 
+test('dataset bilingual scan blocks language codes outside the ILCD enum', () => {
+  const findings = __testInternals.scanRows([
+    {
+      index: 0,
+      row: {
+        payload: {
+          processDataSet: {
+            text: [{ '@xml:lang': 'en-US', '#text': 'Regional English' }],
+          },
+        },
+      },
+      payload: {
+        processDataSet: {
+          text: [{ '@xml:lang': 'en-US', '#text': 'Regional English' }],
+        },
+      },
+      kind: 'process',
+      id: 'proc',
+      version: '01.01.000',
+    },
+  ]);
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].code, 'localized_text_language_not_in_ilcd_enum');
+  assert.equal(findings[0].severity, 'blocker');
+});
+
 test('dataset bilingual internals cover nested arrays and array pointer resolution', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-bilingual-array-pointer-'));
   const outPath = path.join(dir, 'translated.jsonl');

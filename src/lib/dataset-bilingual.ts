@@ -17,6 +17,7 @@ import {
   type RunDatasetValidateOptions,
 } from './dataset-validate.js';
 import { runFlowQa, type FlowQaReport, type RunFlowQaOptions } from './flow-qa.js';
+import { ILCD_LANGUAGE_CODE_SET } from './ilcd-languages.js';
 import { runProcessQa, type ProcessQaReport, type RunProcessQaOptions } from './process-qa.js';
 
 type BilingualDatasetType = 'auto' | DatasetKind;
@@ -237,7 +238,17 @@ function normalizeType(value: string | null | undefined): BilingualDatasetType {
 
 function normalizeLang(value: string | null | undefined, fallback: string): string {
   const normalized = value?.trim().toLowerCase();
-  return normalized || fallback;
+  const lang = normalized || fallback;
+  if (!ILCD_LANGUAGE_CODE_SET.has(lang)) {
+    throw new CliError(
+      `Expected language to use an ILCD Languages enumeration value, got: ${lang}`,
+      {
+        code: 'DATASET_BILINGUAL_LANGUAGE_NOT_IN_ILCD_ENUM',
+        exitCode: 2,
+      },
+    );
+  }
+  return lang;
 }
 
 function pointerEscape(segment: string): string {
@@ -268,6 +279,10 @@ function textPreview(value: string): string {
 
 function langOf(value: unknown): string | null {
   return trimToken(isRecord(value) ? value['@xml:lang'] : null)?.toLowerCase() ?? null;
+}
+
+function rawLangOf(value: unknown): string | null {
+  return trimToken(isRecord(value) ? value['@xml:lang'] : null) ?? null;
 }
 
 function textOf(value: unknown): string | null {
@@ -548,6 +563,7 @@ function scanText(node: unknown, pathSegments: string[], visit: PathVisit): Bili
   const findings: BilingualScanFinding[] = [];
 
   if (isLangRecord(node)) {
+    const rawLang = rawLangOf(node);
     const lang = langOf(node);
     const text = textOf(node);
     if (!text) {
@@ -563,6 +579,14 @@ function scanText(node: unknown, pathSegments: string[], visit: PathVisit): Bili
       lang,
       text_preview: textPreview(text),
     };
+    if (rawLang && !ILCD_LANGUAGE_CODE_SET.has(rawLang)) {
+      findings.push({
+        ...base,
+        code: 'localized_text_language_not_in_ilcd_enum',
+        severity: 'blocker',
+        message: 'Localized text @xml:lang is not an ILCD Languages enumeration value.',
+      });
+    }
     if (PLACEHOLDER_RE.test(text)) {
       findings.push({
         ...base,

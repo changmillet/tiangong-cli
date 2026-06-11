@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeTextArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
+import { ILCD_LANGUAGE_CODE_SET } from './ilcd-languages.js';
 import { readJsonInput } from './io.js';
 import {
   buildRunId,
@@ -236,7 +237,8 @@ function langTextMap(value: unknown): Record<string, string> {
       continue;
     }
 
-    const lang = nonEmptyString(item['@xml:lang'])?.toLowerCase() ?? 'en';
+    const candidateLang = nonEmptyString(item['@xml:lang'])?.toLowerCase() ?? 'en';
+    const lang = ILCD_LANGUAGE_CODE_SET.has(candidateLang) ? candidateLang : 'en';
     const text = nonEmptyString(item['#text']);
     if (text && !mapping[lang]) {
       mapping[lang] = text;
@@ -257,14 +259,6 @@ function localizedText(value: unknown, preferred = 'zh'): string {
     return mapping[preferred];
   }
 
-  if (preferred.startsWith('zh')) {
-    for (const candidate of ['zh-cn', 'zh-hans', 'zh']) {
-      if (mapping[candidate]) {
-        return mapping[candidate];
-      }
-    }
-  }
-
   if (mapping.en) {
     return mapping.en;
   }
@@ -274,7 +268,7 @@ function localizedText(value: unknown, preferred = 'zh'): string {
 
 function multilangText(value: unknown): [string, string] {
   const mapping = langTextMap(value);
-  return [mapping.en ?? Object.values(mapping)[0] ?? '', mapping.zh ?? mapping['zh-cn'] ?? ''];
+  return [mapping.en ?? Object.values(mapping)[0] ?? '', mapping.zh ?? ''];
 }
 
 function multilangFromText(enText: string, zhText?: string): Array<Record<string, string>> {
@@ -317,12 +311,7 @@ function buildNameSummary(nameInfo: JsonRecord): Array<Record<string, string>> {
   }
 
   const fallback = (mapping: Record<string, string>, lang: string): string =>
-    mapping[lang] ??
-    mapping.zh ??
-    mapping['zh-cn'] ??
-    mapping.en ??
-    Object.values(mapping)[0] ??
-    '';
+    mapping[lang] ?? mapping.zh ?? mapping.en ?? Object.values(mapping)[0] ?? '';
 
   const summary: Array<Record<string, string>> = [];
 

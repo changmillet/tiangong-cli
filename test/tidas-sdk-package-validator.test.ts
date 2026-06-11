@@ -444,6 +444,7 @@ test('classification and localized text helpers surface hierarchy and language v
     [
       "Localized text error at title/0: @xml:lang 'zh' must include at least one Chinese character",
       "Localized text error at title/1: @xml:lang 'en' must not contain Chinese characters",
+      "Localized text error at nested/description: @xml:lang 'zh-CN' is not an ILCD Languages enumeration value",
     ],
   );
   assert.deepEqual(__testInternals.validateLocalizedTextLanguageConstraints([]), []);
@@ -495,8 +496,8 @@ test('collection helpers derive schema gaps, localized text issues, hierarchy is
     __testInternals.collectLocalizedTextIssues(
       {
         title: {
-          '@xml:lang': 'en',
-          '#text': '中文',
+          '@xml:lang': 'en-US',
+          '#text': 'English',
         },
       },
       'flows',
@@ -504,13 +505,13 @@ test('collection helpers derive schema gaps, localized text issues, hierarchy is
     ),
     [
       {
-        issue_code: 'localized_text_language_error',
+        issue_code: 'localized_text_language_not_in_ilcd_enum',
         severity: 'error',
         category: 'flows',
         file_path: '/tmp/flow.json',
         location: 'title',
         message:
-          "Localized text error at title: @xml:lang 'en' must not contain Chinese characters",
+          "Localized text error at title: @xml:lang 'en-US' is not an ILCD Languages enumeration value",
         context: {},
       },
     ],

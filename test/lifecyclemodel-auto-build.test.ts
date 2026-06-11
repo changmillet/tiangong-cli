@@ -465,11 +465,11 @@ test('lifecyclemodel auto-build utility helpers cover fallback parsing branches'
   });
   assert.deepEqual(__testInternals.langTextMap([textItem('中文', 'zh')]), { zh: '中文' });
   assert.equal(__testInternals.localizedText([textItem('Francais', 'fr')], 'fr'), 'Francais');
-  assert.equal(__testInternals.localizedText([textItem('中文', 'zh')], 'zh-cn'), '中文');
-  assert.equal(__testInternals.localizedText([textItem('Deutsch', 'de')], 'zh-hant'), 'Deutsch');
+  assert.equal(__testInternals.localizedText([textItem('中文', 'zh')], 'zh'), '中文');
+  assert.equal(__testInternals.localizedText([textItem('Deutsch', 'de')], 'zh'), 'Deutsch');
   assert.equal(__testInternals.localizedText([textItem('English', 'en')], 'fr'), 'English');
   assert.equal(__testInternals.localizedText([], 'fr'), '');
-  assert.deepEqual(__testInternals.multilangText([textItem('英文', 'zh-cn')]), ['英文', '英文']);
+  assert.deepEqual(__testInternals.multilangText([textItem('英文', 'zh')]), ['英文', '英文']);
   assert.deepEqual(__testInternals.multilangFromText('', '中文'), [
     { '@xml:lang': 'zh', '#text': '中文' },
   ]);
@@ -496,11 +496,11 @@ test('lifecyclemodel auto-build utility helpers cover fallback parsing branches'
   );
   assert.deepEqual(
     __testInternals.buildNameSummary({
-      baseName: [{ '@xml:lang': 'xx', '#text': 'First only' }],
+      baseName: [{ '@xml:lang': 'de', '#text': 'First only' }],
       treatmentStandardsRoutes: [textItem('Route', 'en')],
     }),
     [
-      { '@xml:lang': 'xx', '#text': 'First only; Route' },
+      { '@xml:lang': 'de', '#text': 'First only; Route' },
       { '@xml:lang': 'en', '#text': 'First only; Route' },
     ],
   );
