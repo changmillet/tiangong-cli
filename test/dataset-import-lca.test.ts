@@ -51,6 +51,11 @@ test('runDatasetImportLcaConvert wraps tidas-tools and writes a report', () => {
       }),
       'utf8',
     );
+    // tidas-tools >= 0.0.28 writes process bundles by default and only writes
+    // mapping.csv.gz when --write-mapping-csv is passed.
+    const bundlesDir = path.join(outDir, 'process-bundles');
+    mkdirSync(bundlesDir, { recursive: true });
+    writeFileSync(path.join(bundlesDir, 'index.json'), '{}', 'utf8');
     return {
       status: 0,
       signal: null,
@@ -79,12 +84,17 @@ test('runDatasetImportLcaConvert wraps tidas-tools and writes a report', () => {
     assert.notEqual(report.files.ilcd_dir, null);
     assert.ok(report.command.args.includes('--mapping-dir'));
     assert.ok(report.command.args.includes('--fail-on-warning'));
-    assert.ok(report.command.args.includes('--process-bundles'));
+    // Bundles are on by default in tidas-tools >= 0.0.28; a bare
+    // --process-bundles flag is no longer a valid argument.
+    assert.equal(report.command.args.includes('--process-bundles'), false);
+    assert.equal(report.command.args.includes('--no-process-bundles'), false);
+    assert.equal(report.command.args.includes('--process-bundles-dir'), false);
     assert.equal(report.files.process_bundles_dir, path.join(outDir, 'process-bundles'));
     assert.equal(
       report.files.process_bundles_index,
       path.join(outDir, 'process-bundles', 'index.json'),
     );
+    assert.equal(report.files.mapping_csv, null);
     assert.equal(report.conversion_report && typeof report.conversion_report, 'object');
     assert.equal(existsSync(report.files.report), true);
     assert.deepEqual(readJson(report.files.report), report);
@@ -282,12 +292,11 @@ test('runDatasetImportLcaConvert records blocked commands and default spawn outp
     assert.equal(blocked.command.stderr, '');
     assert.equal(blocked.files.tidas_dir, path.join(outDir, 'tidas'));
     assert.equal(blocked.files.ilcd_dir, path.join(outDir, 'ilcd'));
-    assert.ok(blocked.command.args.includes('--process-bundles'));
-    assert.equal(blocked.files.process_bundles_dir, path.join(outDir, 'process-bundles'));
-    assert.equal(
-      blocked.files.process_bundles_index,
-      path.join(outDir, 'process-bundles', 'index.json'),
-    );
+    assert.equal(blocked.command.args.includes('--process-bundles'), false);
+    assert.equal(blocked.command.args.includes('--no-process-bundles'), false);
+    // The blocked run produced no bundle output, so the report must not claim any.
+    assert.equal(blocked.files.process_bundles_dir, null);
+    assert.equal(blocked.files.process_bundles_index, null);
 
     const completed = runDatasetImportLcaConvert({
       inputPath,
@@ -298,8 +307,52 @@ test('runDatasetImportLcaConvert records blocked commands and default spawn outp
     });
     assert.equal(completed.status, 'completed');
     assert.equal(completed.command.executable, '/usr/bin/true');
+    assert.equal(completed.command.args.includes('--no-process-bundles'), true);
     assert.equal(completed.command.args.includes('--process-bundles'), false);
     assert.equal(completed.files.process_bundles_dir, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('runDatasetImportLcaConvert forwards a custom process bundles directory', () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-import-lca-bundles-dir-'));
+  const inputPath = path.join(dir, 'package.zip');
+  const outDir = path.join(dir, 'out');
+  const bundlesDir = path.join(dir, 'custom-bundles');
+  const toolsDir = path.join(dir, 'tidas-tools');
+  const cliPath = path.join(toolsDir, 'src/tidas_tools/import_lca/cli.py');
+  writeFileSync(inputPath, 'fixture', 'utf8');
+  mkdirSync(path.dirname(cliPath), { recursive: true });
+  writeFileSync(cliPath, '', 'utf8');
+
+  try {
+    const report = runDatasetImportLcaConvert({
+      inputPath,
+      outputDir: outDir,
+      processBundlesDir: bundlesDir,
+      tidasToolsDir: toolsDir,
+      spawnImpl: ((): SpawnSyncReturns<string> => {
+        mkdirSync(bundlesDir, { recursive: true });
+        writeFileSync(path.join(bundlesDir, 'index.json'), '{}', 'utf8');
+        return {
+          status: 0,
+          signal: null,
+          output: [],
+          pid: 1,
+          stdout: '',
+          stderr: '',
+        };
+      }) as unknown as typeof spawnSync,
+    });
+
+    const dirFlagIndex = report.command.args.indexOf('--process-bundles-dir');
+    assert.notEqual(dirFlagIndex, -1);
+    assert.equal(report.command.args[dirFlagIndex + 1], bundlesDir);
+    assert.equal(report.command.args.includes('--process-bundles'), false);
+    assert.equal(report.command.args.includes('--no-process-bundles'), false);
+    assert.equal(report.files.process_bundles_dir, bundlesDir);
+    assert.equal(report.files.process_bundles_index, path.join(bundlesDir, 'index.json'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

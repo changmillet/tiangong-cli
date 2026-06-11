@@ -26,8 +26,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-07
-lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -47,6 +47,8 @@ Review note, 2026-06-05: release 0.0.12 is a package metadata bump only; no comm
 Review note, 2026-06-06: release 0.0.13 keeps the release architecture unchanged: maintainers open a version-bump PR, update `package.json` and `package-lock.json`, merge to upstream `main`, and let GitHub Actions create the tag and publish through npm Trusted Publishing. Local `npm publish` is not part of the release architecture.
 
 Review note, 2026-06-07: release 0.0.14 keeps the architecture in the existing TypeScript dataset classification command family. The location apply helper now creates only explicit schema-derived missing location targets and does not introduce a new orchestration layer or release path.
+
+Review note, 2026-06-11: release 0.0.15 keeps the import-lca wrapper inside the existing TypeScript dataset command family. Only the tidas-tools spawn argument construction and report file derivation changed to match tidas-tools 0.0.28; no new orchestration layer or release path.
 
 ## Stable Path Map
 

@@ -18,8 +18,8 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-06-07
-lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -36,6 +36,8 @@ related:
 Review note, 2026-06-04: `dataset curation-queue next/verify` extends the existing CLI-native dataset command family and does not change maintainer runtime, env, or release guidance.
 
 Review note, 2026-06-07: release 0.0.14 keeps maintainer runtime and release guidance unchanged. `dataset classification apply --type location` now supports explicit missing location targets for Foundry saturation workflows, and still rejects ambiguous target paths.
+
+Review note, 2026-06-11: release 0.0.15 keeps maintainer runtime and release guidance unchanged. `dataset import-lca convert` now adapts to the tidas-tools 0.0.28 process-bundle flags (no bare `--process-bundles`, `--no-process-bundles` only when disabled) and reports bundle/mapping files from actual on-disk state.
 
 设计原则：
 

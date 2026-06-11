@@ -17,8 +17,8 @@ checkPaths:
   - bin/**
   - src/cli.ts
   - src/main.ts
-lastReviewedAt: 2026-06-04
-lastReviewedCommit: 44d7a7450d1050ec2c4a76ebf97394698a89800c
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 ---
 
 # TianGong LCA CLI

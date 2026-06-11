@@ -16,8 +16,8 @@ checkPaths:
   - README.md
   - src/**
   - test/**
-lastReviewedAt: 2026-06-06
-lastReviewedCommit: 2ea2094cd0f120eab40f76182fcd7ae4af902baf
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -144,7 +144,7 @@ tiangong-lca
 | `tiangong-lca dataset validate` | 本地 support / flow / process / lifecyclemodel rows 的统一 TIDAS SDK validation 与稳定报告输出 |
 | `tiangong-lca dataset classification` | 本地 TIDAS 分类/位置编码治理入口；从 bundled schema 步进列子类、解析 path、审计 `tidas_locations_category.json` 位置编码，并可 deterministic apply AI/human decision |
 | `tiangong-lca dataset curation-queue build/next/verify` | 本地 Foundry external dataset import 的 entity-level curation queue 状态机；`build` 输出 manifest、tasks、locks、blockers、per-entity input/closure/run-plan artifacts，`next` 基于 checkpoint 返回下一条 runnable entity task，`verify` 校验 scoped checkpoint 完成度；不执行 AI、不写远端 |
-| `tiangong-lca dataset import-lca convert` | 外部 LCA 包转换入口；调用 `tidas-tools import_lca` 生成 TIDAS/ILCD/mapping/conversion report，并默认打开 `--process-bundles` 产出每个 process 的依赖子目录，便于后续 entity-level curation |
+| `tiangong-lca dataset import-lca convert` | 外部 LCA 包转换入口；调用 `tidas-tools import_lca` 生成 TIDAS/ILCD/conversion report；tidas-tools >= 0.0.28 默认产出每个 process 的依赖子目录（可用 `--no-process-bundles` 关闭、`--process-bundles-dir` 自定义目录），便于后续 entity-level curation |
 | `tiangong-lca dataset references rewrite` | 本地 process / lifecyclemodel rows 的 flow reference rewrite、patch evidence 输出，并可选走 state-aware save-draft commit |
 | `tiangong-lca dataset maintenance clear-account` | 已实现的当前账号 draft 清理入口；先生成当前用户 RLS 可见 snapshot，默认 dry-run，只有显式 `--commit --confirm <当前账号邮箱>` 才按 `lifecyclemodels -> processes -> flows -> sources -> contacts` 顺序执行。普通 dataset rows 通过 `app_dataset_delete` / `cmd_dataset_delete` 删除，读回验证剩余行数；`unitgroups` / `flowproperties` 默认保护不删 |
 | `tiangong-lca dataset maintenance plan/apply/verify` | 规划中的用户 RLS 约束 row-level 数据维护入口；用于错误导入后的删除、退役、重新导入和引用修复。必须先生成不可变 maintenance plan、当前用户可见 snapshot、protected rows、reference impact、dry-run、commit 与 readback verify artifacts；不得绕过 RLS，也不得由 Foundry 私有实现 delete |

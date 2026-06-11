@@ -68,7 +68,6 @@ export function runDatasetImportLcaConvert(
   const processBundlesDir = options.processBundlesDir
     ? path.resolve(options.processBundlesDir)
     : path.join(outputDir, 'process-bundles');
-  const processBundles = !options.detectOnly && options.processBundles !== false;
   if (options.processBundles === false && options.processBundlesDir?.trim()) {
     throw new CliError('--process-bundles-dir cannot be used with --no-process-bundles.', {
       code: 'DATASET_IMPORT_LCA_PROCESS_BUNDLES_INVALID',
@@ -102,8 +101,11 @@ export function runDatasetImportLcaConvert(
   if (options.failOnWarning) {
     commandArgs.push('--fail-on-warning');
   }
-  if (!options.detectOnly && (processBundles || options.processBundlesDir?.trim())) {
-    commandArgs.push('--process-bundles');
+  // tidas-tools >= 0.0.28 enables process bundles by default and only accepts
+  // --no-process-bundles / --process-bundles-dir; a bare --process-bundles flag
+  // gets prefix-matched by argparse to --process-bundles-dir and aborts.
+  if (!options.detectOnly && options.processBundles === false) {
+    commandArgs.push('--no-process-bundles');
   }
   if (!options.detectOnly && options.processBundlesDir?.trim()) {
     commandArgs.push('--process-bundles-dir', processBundlesDir);
@@ -121,6 +123,13 @@ export function runDatasetImportLcaConvert(
     encoding: 'utf8',
   }) as SpawnSyncReturns<string>;
   const conversionReport = readOptionalJson(reportPath);
+  // Mapping CSV is opt-in in tidas-tools >= 0.0.28 (mapping.csv.gz) and bundle
+  // output depends on converter defaults, so report what is actually on disk.
+  const mappingCsv = firstExistingPath([
+    path.join(outputDir, 'mapping.csv.gz'),
+    path.join(outputDir, 'mapping.csv'),
+  ]);
+  const processBundlesIndexPath = path.join(processBundlesDir, 'index.json');
   const files = {
     report: path.join(outputDir, 'outputs', 'import-lca-report.json'),
     conversion_report: reportPath,
@@ -129,9 +138,9 @@ export function runDatasetImportLcaConvert(
       !options.detectOnly && (target === 'ilcd' || target === 'both')
         ? path.join(outputDir, 'ilcd')
         : null,
-    mapping_csv: options.detectOnly ? null : path.join(outputDir, 'mapping.csv'),
-    process_bundles_dir: processBundles ? processBundlesDir : null,
-    process_bundles_index: processBundles ? path.join(processBundlesDir, 'index.json') : null,
+    mapping_csv: mappingCsv,
+    process_bundles_dir: existsSync(processBundlesDir) ? processBundlesDir : null,
+    process_bundles_index: existsSync(processBundlesIndexPath) ? processBundlesIndexPath : null,
   };
   const report: DatasetImportLcaReport = {
     schema_version: 1,
@@ -251,6 +260,10 @@ function resolveCliRepoRoot(candidatesOverride?: string[]): string {
 
 function buildPythonPath(tidasToolsRoot: string, env: NodeJS.ProcessEnv): string {
   return [path.join(tidasToolsRoot, 'src'), env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+}
+
+function firstExistingPath(candidates: string[]): string | null {
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
 function readOptionalJson(filePath: string): unknown | null {

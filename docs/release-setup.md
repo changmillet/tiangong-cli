@@ -19,8 +19,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-07
-lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -76,6 +76,8 @@ Release 0.0.12 note, 2026-06-05: package version bump only; no repository secret
 Release 0.0.13 note, 2026-06-06: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The operator path is PR merge to upstream `main`, then GitHub Actions tag and publish.
 
 Release 0.0.14 note, 2026-06-07: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The release includes a deterministic location apply fix and uses the same PR merge to upstream `main`, tag, and npm Trusted Publishing path.
+
+Release 0.0.15 note, 2026-06-11: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The release includes the `dataset import-lca convert` adaptation to tidas-tools 0.0.28 process-bundle flags and uses the same PR merge to upstream `main`, tag, and npm Trusted Publishing path.
 
 The publish workflow file is fixed at:
 

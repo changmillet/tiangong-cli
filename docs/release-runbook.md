@@ -22,8 +22,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-07
-lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -65,6 +65,8 @@ Release 0.0.12 note, 2026-06-05: prechecks are `node ./scripts/ci/release-versio
 Release 0.0.13 note, 2026-06-06: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.13`, `npm run prepush:gate`, and `npm pack --dry-run`; this release adds `process save-draft --target-user-id` account/write guard support for batch import handoff.
 
 Release 0.0.14 note, 2026-06-07: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.14`, `npm run prepush:gate`, and `npm pack --dry-run`; this release lets `dataset classification apply --type location` create explicit missing location fields such as flow `locationOfSupply` while keeping ambiguous paths blocked.
+
+Release 0.0.15 note, 2026-06-11: prechecks are `node ./scripts/ci/release-version.cjs assert-unpublished --version 0.0.15`, `npm run prepush:gate`, and `npm pack --dry-run`; this release adapts `dataset import-lca convert` to the tidas-tools 0.0.28 process-bundle CLI surface (no bare `--process-bundles` flag, `--no-process-bundles` forwarded when disabled) and derives report bundle/mapping file fields from on-disk state.
 
 Useful commands:
 
