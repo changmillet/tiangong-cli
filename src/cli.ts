@@ -949,7 +949,7 @@ Options:
   --mapping-dir <dir>     Optional custom mapping/reference data directory
   --language <lang>       Default language for generated text (default: en)
   --validation-jobs <n>   Parallel validation jobs passed to tidas-tools (default: 1)
-  --process-bundles       Write per-process dependency bundles (default: enabled)
+  --process-bundles       Write per-process dependency bundles (default: enabled by tidas-tools)
   --process-bundles-dir <dir>
                            Custom per-process bundle directory (default: <output-dir>/process-bundles)
   --no-process-bundles    Disable per-process dependency bundle generation
@@ -964,7 +964,6 @@ Outputs written under --output-dir:
   - conversion-report.json
   - tidas/ when target includes TIDAS and not detect-only
   - ilcd/ when target includes ILCD and not detect-only
-  - mapping.csv when not detect-only
   - process-bundles/ when not detect-only and process bundles are enabled
   - outputs/import-lca-report.json
 `.trim();

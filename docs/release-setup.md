@@ -77,6 +77,8 @@ Release 0.0.13 note, 2026-06-06: package version and lockfile bump only; no repo
 
 Release 0.0.14 note, 2026-06-07: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The release includes a deterministic location apply fix and uses the same PR merge to upstream `main`, tag, and npm Trusted Publishing path.
 
+Release 0.0.15 note, 2026-06-11: package version and lockfile bump only; no repository secret, Trusted Publisher, tag, workflow filename, or GitHub environment setup change is required. The release includes the `dataset import-lca convert` adaptation to tidas-tools 0.0.28 process-bundle flags and uses the same PR merge to upstream `main`, tag, and npm Trusted Publishing path.
+
 The publish workflow file is fixed at:
 
 - `.github/workflows/publish.yml`
