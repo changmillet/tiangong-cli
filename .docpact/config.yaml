@@ -2,7 +2,7 @@ version: 1
 layout: repo
 # Review note, 2026-06-11: release 0.0.15 keeps existing command-family, validation, and release routing. The dataset import-lca wrapper now targets the tidas-tools 0.0.28 process-bundle CLI surface; routing and ownership are unchanged.
 lastReviewedAt: "2026-06-11"
-lastReviewedCommit: "4994cb623bc4acc278502af8bdbae43d374fa2f8"
+lastReviewedCommit: "bb203a607873b01331dead75396de3dd9799fbda"
 
 catalog:
   repos:
