@@ -1,8 +1,8 @@
 version: 1
 layout: repo
 # Review note, 2026-06-11: release 0.0.15 keeps existing command-family, validation, and release routing. The dataset import-lca wrapper now targets the tidas-tools 0.0.28 process-bundle CLI surface; routing and ownership are unchanged.
-lastReviewedAt: '2026-06-11'
-lastReviewedCommit: '98104c9d377fda260a0655f3871804b5c59d6f6b'
+lastReviewedAt: "2026-06-11"
+lastReviewedCommit: "4994cb623bc4acc278502af8bdbae43d374fa2f8"
 
 catalog:
   repos:
@@ -62,6 +62,7 @@ ownership:
           - src/lib/run.ts
           - src/lib/runtime-rulesets.ts
           - src/lib/state-lock.ts
+          - src/lib/tidas-languages.ts
           - src/lib/tidas-sdk-validation.ts
           - src/lib/tidas-sdk-package-validator.ts
           - src/lib/validation.ts
@@ -198,6 +199,7 @@ routing:
         - src/lib/run.ts
         - src/lib/runtime-rulesets.ts
         - src/lib/state-lock.ts
+        - src/lib/tidas-languages.ts
         - docs/IMPLEMENTATION_GUIDE_CN.md
     tidas-sdk-validation:
       paths:
@@ -389,6 +391,8 @@ rules:
         kind: command-logic
       - path: src/lib/state-lock.ts
         kind: artifact-runtime
+      - path: src/lib/tidas-languages.ts
+        kind: validation-runtime
       - path: src/lib/tidas-sdk-validation.ts
         kind: validation-runtime
       - path: src/lib/tidas-sdk-package-validator.ts
