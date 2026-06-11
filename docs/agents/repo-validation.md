@@ -27,8 +27,8 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-06-07
-lastReviewedCommit: 651c42cc9b41fb83ec5e8a45e4f6c67fa68633e9
+lastReviewedAt: 2026-06-11
+lastReviewedCommit: 98104c9d377fda260a0655f3871804b5c59d6f6b
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -69,6 +69,8 @@ Review note, 2026-06-05: release 0.0.12 uses the existing release proof contract
 Review note, 2026-06-06: release 0.0.13 keeps local validation separate from publication. Local proof is unpublished-version check, `npm run prepush:gate`, `npm pack --dry-run`, and docpact; npm publication must happen only after the version-bump PR merges to upstream `main` and GitHub Actions runs the tag and publish workflows.
 
 Review note, 2026-06-07: release 0.0.14 requires the same local proof plus focused dataset classification coverage for explicit missing location target creation. Publication remains PR merge to upstream `main`, tag workflow, and npm Trusted Publishing.
+
+Review note, 2026-06-11: release 0.0.15 requires the same local proof plus focused dataset import-lca coverage for the tidas-tools 0.0.28 bundle-flag adaptation and disk-derived report fields. Publication remains PR merge to upstream `main`, tag workflow, and npm Trusted Publishing.
 
 ## Validation Matrix
 
