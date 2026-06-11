@@ -6,7 +6,7 @@ import {
   type SdkValidationFactory,
   validateSchemaWithDeepFallback,
 } from './tidas-sdk-validation.js';
-import { ILCD_LANGUAGE_CODE_SET } from './ilcd-languages.js';
+import { TIDAS_LANGUAGE_CODE_SET } from './tidas-languages.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -430,9 +430,9 @@ function validateLocalizedTextLanguageConstraints(node: unknown, currentPath = '
     const location = currentPath || '<root>';
 
     if (typeof language === 'string') {
-      if (!ILCD_LANGUAGE_CODE_SET.has(language)) {
+      if (!TIDAS_LANGUAGE_CODE_SET.has(language)) {
         errors.push(
-          `Localized text error at ${location}: @xml:lang '${language}' is not an ILCD Languages enumeration value`,
+          `Localized text error at ${location}: @xml:lang '${language}' is not a TIDAS Languages enumeration value`,
         );
       }
     }
@@ -528,8 +528,8 @@ function collectLocalizedTextIssues(
       filePath,
       extractLocalizedTextLocation(message),
       message,
-      message.includes('is not an ILCD Languages enumeration value')
-        ? 'localized_text_language_not_in_ilcd_enum'
+      message.includes('is not a TIDAS Languages enumeration value')
+        ? 'localized_text_language_not_in_tidas_enum'
         : 'localized_text_language_error',
     );
   });

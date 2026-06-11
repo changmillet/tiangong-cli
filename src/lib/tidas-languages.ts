@@ -1,4 +1,4 @@
-export const ILCD_LANGUAGE_CODES = [
+export const TIDAS_LANGUAGE_CODES = [
   'aa',
   'ab',
   'ae',
@@ -186,6 +186,6 @@ export const ILCD_LANGUAGE_CODES = [
   'zu',
 ] as const;
 
-export type IlcdLanguageCode = (typeof ILCD_LANGUAGE_CODES)[number];
+export type TidasLanguageCode = (typeof TIDAS_LANGUAGE_CODES)[number];
 
-export const ILCD_LANGUAGE_CODE_SET: ReadonlySet<string> = new Set(ILCD_LANGUAGE_CODES);
+export const TIDAS_LANGUAGE_CODE_SET: ReadonlySet<string> = new Set(TIDAS_LANGUAGE_CODES);

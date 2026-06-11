@@ -17,7 +17,7 @@ import {
   type RunDatasetValidateOptions,
 } from './dataset-validate.js';
 import { runFlowQa, type FlowQaReport, type RunFlowQaOptions } from './flow-qa.js';
-import { ILCD_LANGUAGE_CODE_SET } from './ilcd-languages.js';
+import { TIDAS_LANGUAGE_CODE_SET } from './tidas-languages.js';
 import { runProcessQa, type ProcessQaReport, type RunProcessQaOptions } from './process-qa.js';
 
 type BilingualDatasetType = 'auto' | DatasetKind;
@@ -239,11 +239,11 @@ function normalizeType(value: string | null | undefined): BilingualDatasetType {
 function normalizeLang(value: string | null | undefined, fallback: string): string {
   const normalized = value?.trim().toLowerCase();
   const lang = normalized || fallback;
-  if (!ILCD_LANGUAGE_CODE_SET.has(lang)) {
+  if (!TIDAS_LANGUAGE_CODE_SET.has(lang)) {
     throw new CliError(
-      `Expected language to use an ILCD Languages enumeration value, got: ${lang}`,
+      `Expected language to use a TIDAS Languages enumeration value, got: ${lang}`,
       {
-        code: 'DATASET_BILINGUAL_LANGUAGE_NOT_IN_ILCD_ENUM',
+        code: 'DATASET_BILINGUAL_LANGUAGE_NOT_IN_TIDAS_ENUM',
         exitCode: 2,
       },
     );
@@ -579,12 +579,12 @@ function scanText(node: unknown, pathSegments: string[], visit: PathVisit): Bili
       lang,
       text_preview: textPreview(text),
     };
-    if (rawLang && !ILCD_LANGUAGE_CODE_SET.has(rawLang)) {
+    if (rawLang && !TIDAS_LANGUAGE_CODE_SET.has(rawLang)) {
       findings.push({
         ...base,
-        code: 'localized_text_language_not_in_ilcd_enum',
+        code: 'localized_text_language_not_in_tidas_enum',
         severity: 'blocker',
-        message: 'Localized text @xml:lang is not an ILCD Languages enumeration value.',
+        message: 'Localized text @xml:lang is not a TIDAS Languages enumeration value.',
       });
     }
     if (PLACEHOLDER_RE.test(text)) {

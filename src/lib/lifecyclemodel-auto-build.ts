@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeTextArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
-import { ILCD_LANGUAGE_CODE_SET } from './ilcd-languages.js';
+import { TIDAS_LANGUAGE_CODE_SET } from './tidas-languages.js';
 import { readJsonInput } from './io.js';
 import {
   buildRunId,
@@ -238,7 +238,7 @@ function langTextMap(value: unknown): Record<string, string> {
     }
 
     const candidateLang = nonEmptyString(item['@xml:lang'])?.toLowerCase() ?? 'en';
-    const lang = ILCD_LANGUAGE_CODE_SET.has(candidateLang) ? candidateLang : 'en';
+    const lang = TIDAS_LANGUAGE_CODE_SET.has(candidateLang) ? candidateLang : 'en';
     const text = nonEmptyString(item['#text']);
     if (text && !mapping[lang]) {
       mapping[lang] = text;

@@ -594,7 +594,7 @@ test('dataset bilingual scan catches long previews and English CJK text', () => 
   assert.match(findings[0].text_preview, /\.\.\.$/u);
 });
 
-test('dataset bilingual scan blocks language codes outside the ILCD enum', () => {
+test('dataset bilingual scan blocks language codes outside the TIDAS enum', () => {
   const findings = __testInternals.scanRows([
     {
       index: 0,
@@ -616,7 +616,7 @@ test('dataset bilingual scan blocks language codes outside the ILCD enum', () =>
     },
   ]);
   assert.equal(findings.length, 1);
-  assert.equal(findings[0].code, 'localized_text_language_not_in_ilcd_enum');
+  assert.equal(findings[0].code, 'localized_text_language_not_in_tidas_enum');
   assert.equal(findings[0].severity, 'blocker');
 });
 
