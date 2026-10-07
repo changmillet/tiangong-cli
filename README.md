@@ -31,9 +31,9 @@ checkPaths:
   - test/auth-identity*.test.ts
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: ab4d851a92767b57378c08f3f4ab24ce0d78a8c5
-lastReviewedNote: 'Reviewed CLI #403: version-only 0.1.25 preparation from merged PCR task snapshots PR #402; package identity and eight directly bound fixtures advance, with runtime/dependencies/lock/exports/workflows unchanged.'
+lastReviewedAt: 2026-10-07
+lastReviewedCommit: b08147bf9814ff8fbfe7f1f7fd112229b36dedff
+lastReviewedNote: 'Reviewed CLI #382/#405 source and exact SDK 0.5.1 adoption at b08147b; ordinary package consumers, existing authentication and release workflow stay governed by the current contracts. CLI release and managed binding acceptance remain pending.'
 ---
 
 Review note, 2026-10-05: CLI #403 prepares 0.1.25 from merged task-pinned PCR source #401 / PR #402 at main `ab4d851a92767b57378c08f3f4ab24ce0d78a8c5`. The package version and eight directly bound fixture values advance. npm latest remains 0.1.24 and cli-v0.1.25 is absent at preparation; publication still requires the existing four-platform merge-tag and native pnpm OIDC/provenance route. Runtime source, dependencies, lockfile, exports, authorization and release workflows remain unchanged.
@@ -496,6 +496,8 @@ Key `flow materialize-decisions` outputs:
 - `blocked-clusters.json`
 
 ## Other Common Commands
+
+Process validation reports include `allocation_semantics`, which distinguishes complete qualification from failed or unresolved exact Flow evidence. A local input wrapper may supply `{ "json_ordered": <Process>, "semantic_context": { "flow_documents": [<complete exact Flow documents>] } }`; `dataset validate --type process` binds candidate and dependency hashes without changing authored bytes. Strict Process writers recheck allocation recipients against current-user exact Flow reads before dispatch. `lifecyclemodel build-resulting-process` preserves source exchange provenance and quantity-weighted shares and reports `qualification.publish_ready` separately from candidate export status. This source capability requires the subsequent qualified CLI release and managed consumer adoption before installed-runtime acceptance.
 
 ```bash
 tiangong-lca process identity-preflight --input ./process-preflight.json --candidate-input /abs/path/to/process-candidates.jsonl --out-dir /abs/path/to/process-preflight --json

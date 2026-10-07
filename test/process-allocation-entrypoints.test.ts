@@ -139,6 +139,37 @@ test('semantic context recomputes changed same-ID/version bytes and rejects fore
     analyzeProcessPayloadSemantics(
       payload,
       semanticContextFromInput({
+        semantic_context: bound,
+        allocation_transformation: bound.allocation_transformation,
+      }),
+    ).status,
+    'passed',
+  );
+  for (const marker of [
+    'malformed',
+    [],
+    null,
+    { profile: 'wrong', candidate_sha256: sha256Json(payload) },
+  ]) {
+    assert.equal(
+      analyzeProcessPayloadSemantics(
+        payload,
+        semanticContextFromInput({ semantic_context: bound, allocation_transformation: marker }),
+      ).status,
+      'failed',
+    );
+    assert.equal(
+      analyzeProcessPayloadSemantics(
+        payload,
+        semanticContextFromInput({ semantic_context: context, allocation_transformation: marker }),
+      ).status,
+      'failed',
+    );
+  }
+  assert.equal(
+    analyzeProcessPayloadSemantics(
+      payload,
+      semanticContextFromInput({
         semantic_context: {
           ...bound,
           allocation_transformation: { profile: 'wrong', candidate_sha256: sha256Json(payload) },
@@ -159,4 +190,30 @@ test('Flow schema defaults cannot supply missing exact caller identity', () => {
     analyzeProcessPayloadSemantics(payload, { flow_documents: [{}] }, sdk).status,
     'failed',
   );
+});
+
+test('malformed provided semantic bindings fail rather than becoming absent evidence', () => {
+  const { payload, context } = allocationFixture();
+  for (const supplied of [
+    null,
+    'malformed',
+    { ...context, candidate_sha256: 123 },
+    { ...context, candidate_sha256: null },
+    { ...context, candidate_sha256: 'invalid' },
+    { ...context, flow_documents: {} },
+    { ...context, flow_documents: [...context.flow_documents, 'malformed'] },
+    { ...context, invalid_bindings: null },
+    { ...context, invalid_bindings: [123] },
+  ]) {
+    const parsed = semanticContextFromInput({ semantic_context: supplied });
+    assert.equal(analyzeProcessPayloadSemantics(payload, parsed).status, 'failed');
+    assert.equal(
+      analyzeProcessPayloadSemantics(
+        payload,
+        semanticContextFromInput({ semantic_context: parsed }),
+      ).status,
+      'failed',
+    );
+  }
+  assert.deepEqual(semanticContextFromInput({ semantic_context: { invalid_bindings: [] } }), {});
 });

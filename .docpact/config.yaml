@@ -55,6 +55,8 @@ ownership:
           - assets/runtime/**
           - src/lib/batch/**
           - src/lib/artifacts.ts
+          - src/lib/canonical-json-hash.ts
+          - src/lib/resulting-process-allocation.ts
           - src/lib/dataset-command.ts
           - src/lib/dataset-*.ts
           - src/lib/errors.ts
@@ -215,6 +217,8 @@ routing:
     workflow-commands:
       paths:
         - src/lib/artifacts.ts
+        - src/lib/canonical-json-hash.ts
+        - src/lib/resulting-process-allocation.ts
         - src/lib/dataset-command.ts
         - src/lib/dataset-*.ts
         - src/lib/errors.ts
@@ -454,6 +458,10 @@ rules:
     triggers:
       - path: src/lib/artifacts.ts
         kind: artifact-runtime
+      - path: src/lib/canonical-json-hash.ts
+        kind: shared-runtime
+      - path: src/lib/resulting-process-allocation.ts
+        kind: command-logic
       - path: src/lib/dataset-command.ts
         kind: command-logic
       - path: src/lib/dataset-*.ts

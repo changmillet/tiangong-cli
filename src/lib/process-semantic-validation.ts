@@ -8,6 +8,7 @@ export type ProcessSemanticContext = {
   flow_documents?: readonly JsonObject[];
   candidate_sha256?: string;
   allocation_transformation?: JsonObject;
+  invalid_bindings?: string[];
 };
 type SemanticAnalysis = {
   profile: string;
@@ -32,11 +33,41 @@ function record(value: unknown): JsonObject {
   return isRecord(value) ? value : {};
 }
 export function semanticContextFromInput(input: unknown): ProcessSemanticContext {
-  const context = record(record(input).semantic_context);
+  const supplied = record(input).semantic_context;
+  const context = record(supplied);
+  const invalid_bindings: string[] = [];
+  if (supplied !== undefined && !isRecord(supplied)) invalid_bindings.push('semantic_context');
+  if (context.invalid_bindings !== undefined) {
+    if (
+      Array.isArray(context.invalid_bindings) &&
+      context.invalid_bindings.every((path) => typeof path === 'string')
+    )
+      invalid_bindings.push(...context.invalid_bindings);
+    else invalid_bindings.push('semantic_context.invalid_bindings');
+  }
+  if (
+    context.flow_documents !== undefined &&
+    (!Array.isArray(context.flow_documents) ||
+      context.flow_documents.some((document) => !isRecord(document)))
+  )
+    invalid_bindings.push('semantic_context.flow_documents');
+  if (
+    context.candidate_sha256 !== undefined &&
+    (typeof context.candidate_sha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(context.candidate_sha256))
+  )
+    invalid_bindings.push('semantic_context.candidate_sha256');
+  const top = record(input).allocation_transformation;
+  const nested = context.allocation_transformation;
   const transformation =
-    record(input).allocation_transformation ?? context.allocation_transformation;
+    top === undefined
+      ? nested
+      : nested !== undefined && sha256Json(top) !== sha256Json(nested)
+        ? {}
+        : top;
   return {
-    ...(isRecord(transformation) ? { allocation_transformation: transformation } : {}),
+    ...(invalid_bindings.length ? { invalid_bindings } : {}),
+    ...(transformation !== undefined ? { allocation_transformation: record(transformation) } : {}),
     ...(Array.isArray(context.flow_documents)
       ? { flow_documents: context.flow_documents.filter(isRecord) }
       : {}),
@@ -56,6 +87,12 @@ export function analyzeProcessPayloadSemantics(
   const candidate_sha256 = sha256Json(payload);
   const flows: FlowEvidence[] = [];
   const contextIssues: Array<{ path: string; code: string; message: string }> = [];
+  for (const path of context.invalid_bindings ?? [])
+    contextIssues.push({
+      path,
+      code: 'allocation_semantic_binding_invalid',
+      message: 'A supplied semantic evidence binding has an invalid shape or value.',
+    });
   if (context.candidate_sha256 !== undefined && context.candidate_sha256 !== candidate_sha256)
     contextIssues.push({
       path: '<root>',
