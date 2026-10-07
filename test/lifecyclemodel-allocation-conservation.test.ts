@@ -263,7 +263,12 @@ test('allocated deterministic cancellation conserves remaining source contributi
   );
   await assert.rejects(build(fixture, false, true), /no unique source lineage/);
   const insufficient = setup();
-  await assert.rejects(build(insufficient, false, true), /exceeds contribution/);
+  const partial = await build(insufficient, false, true);
+  const residual = (
+    obj(obj(obj(partial.projected.json_ordered).processDataSet).exchanges).exchange as Json[]
+  ).find((item) => item.exchangeDirection === 'Input')!;
+  assert.equal(residual.meanAmount, '29');
+  assert.deepEqual(partial.report.qualification, { status: 'qualified', publish_ready: true });
 });
 
 test('legacy undeclared inventory with divergent amounts fails before conversion', async () => {

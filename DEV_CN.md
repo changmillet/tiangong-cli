@@ -23,8 +23,8 @@ checkPaths:
   - scripts/**
   - .github/workflows/**
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: b08147bf9814ff8fbfe7f1f7fd112229b36dedff
-lastReviewedNote: 'Reviewed CLI #382/#405 source and exact SDK 0.5.1 adoption at b08147b; ordinary package consumers, existing authentication and release workflow stay governed by the current contracts. CLI release and managed binding acceptance remain pending.'
+lastReviewedCommit: a438138fa40845a69ad72f96f015d6f36faa4ff6
+lastReviewedNote: 'Reviewed CLI384/385/386/387 boundary projection fixes; precise transfers, integer reference selection, preserved activity factors and schema array output follow the existing native builder/validator. Allocation/admission and release authorization remain unchanged.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
