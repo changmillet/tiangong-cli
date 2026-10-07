@@ -26,14 +26,16 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: a438138fa40845a69ad72f96f015d6f36faa4ff6
-lastReviewedNote: 'Reviewed CLI384/385/386/387 builder boundary fixes: exact unique transfers preserve residual inventory, integer instance selection is explicit, activity multipliers scale before final formatting, and singleton exchanges remain schema arrays. Allocation lineage/admission, dependencies, version0.1.26 and release workflow remain unchanged; source delivery requires separate released qualification.'
+lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
+lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
   - ./release-setup.md
   - ./agents/repo-validation.md
 ---
+
+Review note, 2026-10-07: CLI #410 prepares0.1.27 from reviewed lifecyclemodel builder source PR409 at main `6d3515e7bc58b5e2fc2ff26344600e0d77c9037b`. The helper selected0.1.27 from repository/npm latest0.1.26 and proved exact npm/tag absence. Only package identity and eight bound fixture values advance; runtime, SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Exact-head four-platformCI, independent review, automatic merge tag, native Trusted Publishing/provenance, source-free installed public builder/validator checks and required root integration must precede final release acceptance. Foundry223 consumer adoption remains separately owned.
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
 

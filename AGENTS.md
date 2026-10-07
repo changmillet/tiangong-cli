@@ -38,8 +38,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: a438138fa40845a69ad72f96f015d6f36faa4ff6
-lastReviewedNote: 'Reviewed CLI384/385/386/387 builder boundary fixes: exact unique transfers preserve residual inventory, integer instance selection is explicit, activity multipliers scale before final formatting, and singleton exchanges remain schema arrays. Allocation lineage/admission, dependencies, version0.1.26 and release workflow remain unchanged; source delivery requires separate released qualification.'
+lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
+lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
