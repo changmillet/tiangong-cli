@@ -1,3 +1,4 @@
+import { processTransportFixture } from './helpers/process-allocation-fixture.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
@@ -99,7 +100,7 @@ test('dataset command helper posts create and save-draft payloads with normalize
     table: 'processes',
     id: '22222222-2222-2222-2222-222222222222',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     extraData: {
       modelId: '33333333-3333-3333-3333-333333333333',
       modelVersion: '01.01.021',
@@ -126,9 +127,7 @@ test('dataset command helper posts create and save-draft payloads with normalize
     table: 'processes',
     id: '22222222-2222-2222-2222-222222222222',
     version: '01.00.001',
-    jsonOrdered: {
-      processDataSet: {},
-    },
+    jsonOrdered: processTransportFixture(),
     modelId: '33333333-3333-3333-3333-333333333333',
     modelVersion: '01.01.021',
     ruleVerification: null,
@@ -237,7 +236,7 @@ test('dataset command helper carries an optional complete before image and omits
     timeoutMs: 10,
   });
   const id = '77777777-7777-4777-8777-777777777777';
-  const payload = { processDataSet: { processInformation: {} } };
+  const payload = processTransportFixture();
   const before = { processDataSet: { processInformation: { 'common:generalComment': 'before' } } };
 
   await saveDraftDatasetRecord({

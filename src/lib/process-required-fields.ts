@@ -1,15 +1,9 @@
+import type { DatasetRowInput, JsonObject } from './dataset-local.js';
+import { materializeDatasetRows } from './dataset-local.js';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
 import { CliError } from './errors.js';
-import {
-  cloneJson,
-  datasetRoot,
-  firstNonEmpty,
-  isRecord,
-  materializeDatasetRows,
-  type DatasetRowInput,
-  type JsonObject,
-} from './dataset-local.js';
+import { cloneJson, datasetRoot, firstNonEmpty, isRecord } from './dataset-json.js';
 
 export const ANNUAL_SUPPLY_FIELD =
   'processDataSet.modellingAndValidation.dataSourcesTreatmentAndRepresentativeness.annualSupplyOrProductionVolume';

@@ -22,9 +22,9 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: 4fcbcebf2d18a08f201556db63e7faa7657ffac7
-lastReviewedNote: 'Reviewed CLI #401 TypeScript snapshot modules and full validation; Node24.19, pnpm11.24 and frozen dependencies remain unchanged.'
+lastReviewedAt: 2026-10-07
+lastReviewedCommit: b08147bf9814ff8fbfe7f1f7fd112229b36dedff
+lastReviewedNote: 'Reviewed CLI #382/#405 source and exact SDK 0.5.1 adoption at b08147b; ordinary package consumers, existing authentication and release workflow stay governed by the current contracts. CLI release and managed binding acceptance remain pending.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -416,6 +416,8 @@ node ./bin/tiangong-lca.js admin embedding-run --input ./jobs.json --dry-run
 ```
 
 ## process / review / publish / validation 边界
+
+Process allocation/reference 校验统一消费精确固定的已发布 SDK 0.5.1。离线 wrapper 的 `semantic_context.flow_documents` 必须提供完整的精确 Flow 文档；报告区分 passed、failed、unresolved 并绑定候选、依赖与规则 profile hash。Process 写路径在 dispatch 前通过当前 actor 读取精确 UUID/version，再核对本地证据的字节 hash；不完整或 stale 的语义证据不能使用既有 annual-volume draft-repair 例外。`build-resulting-process` 按 source instance/exchange lineage 守恒 quantity-weighted allocation，并将 candidate export 与 `qualification.publish_ready` 分开。源码版本仍为 0.1.25；CLI 0.1.26 发布与 Foundry managed binding 是后续验收。
 
 `tiangong-lca dataset maintenance plan/apply/freeze-protected/seal-protected-approval/run-protected/verify` 是错误导入后 row-level 修复和受保护衍生重建的 CLI-owned 入口。`plan` 冻结当前用户 RLS 可见快照、保护行、引用影响、desired payload 和 canonical plan SHA-256；普通操作只允许精确 `id + version` 的当前账号 `state_code=0` draft 通过 `cmd_dataset_save_draft` / `cmd_dataset_delete` 执行。BAFU alias operation 还要求 scope/plan `target_mode=owner_draft`，冻结 source/target FP/UG、52 个 changed row、59 条 exchange、118 个 amount 字段和 309 条不变 exchange。固定 protected profile 先由 `freeze-protected` 直接读取生产 owner-draft 状态并输出未批准请求，再由完全离线的 `seal-protected-approval` 记录人类逐字节批准；只有随后独立的 production-only `run-protected` 可以执行或恢复，不得回退 Dev 或旧 alias RPC。`rebuild-derivatives` V1 仍只允许一个 `table=processes` action；protected Step 2 的终态则要求精确证明 23 个 flows 与 27 个 processes。所有执行路径都把 plan/action/mode correlation 写入数据库审计与本地 durable proof。Foundry/skills 只能调用已发布 CLI 并保留报告/产物，不得读取数据库 env、直调 RPC、重算 canonical hash，或实现私有 Edge/admin/queue/SQL/service-role/raw REST mutation fallback。
 

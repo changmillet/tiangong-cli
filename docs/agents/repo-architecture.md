@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: ab4d851a92767b57378c08f3f4ab24ce0d78a8c5
-lastReviewedNote: 'Reviewed CLI #403: version-only 0.1.25 preparation from merged PCR task snapshots PR #402; package identity and eight directly bound fixtures advance, with runtime/dependencies/lock/exports/workflows unchanged.'
+lastReviewedAt: 2026-10-07
+lastReviewedCommit: 6e5318c2a018e159d22ce85bdd633434e29e930f
+lastReviewedNote: 'Reviewed CLI #382/#405: source-instance allocation conservation, pure SDK semantic qualification, all-Process mutation admission and exact current-user Flow evidence; candidate export remains distinct from qualified admission.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -300,3 +300,15 @@ Important constraints:
 This repository has a versioned local `pre-push` hook under `.githooks/pre-push` that delegates to `scripts/docpact-gate.sh` and then runs `pnpm prepush:gate`. The gate resolves the CLI through `scripts/docpact`, so local agent shells do not need bare `docpact` on `PATH`. The hook is the local guard for docpact config validation, enforced doc-governance linting, and the CLI test gate; ordinary GitHub push tests are replaced by this local gate plus release-time gates.
 
 Task PCR content uses `src/lib/pcr-snapshot-{contract,release,cache,tool,command}.ts` and the dedicated [task snapshot contract](pcr-snapshot-contract.md). The CLI prepares exact published compatible content into a separate data cache, retains task and installed reader pins, and forces those selectors during shell-free PCR consumption. PCR core remains the offline semantic owner.
+
+## Process allocation admission and resulting-process lineage
+
+`process-semantic-validation.ts` adapts the pinned SDK's pure, versioned `analyzeProcessSemantics` API. `validateProcessPayload` keeps structural, authoring, content and multilingual layers and reports `allocation_semantics` separately, including unresolved coverage, candidate hash, exact Flow-document hashes, profile and tolerance. Local callers supply `semantic_context.flow_documents` containing complete exact-version Flow datasets; the adapter validates their schema and original identity without fetching or rewriting scientific data. A local report can be unresolved; draft and publish admission requires a passed report. A generator's optional `allocation_transformation` receipt binds its candidate hash and declared profile. A schema-valid wrong recipient cannot reveal lost source identity, so this receipt is generator evidence rather than a validator retargeting policy.
+
+Remote process create, save-draft and state-aware save/publish routes share `process-allocation-write-admission.ts`. Immediately before dispatch they read explicit target Flows through the existing current-user Supabase RLS boundary at exact UUID/version. Missing or ambiguous evidence blocks dispatch. Supplied local Flow bytes must match those reads; admission then recomputes semantics against fresh bytes. Local evidence alone cannot authorize a forged Product type for a remote Elementary Flow. These reads introduce no privileged credential or production mutation.
+
+`resulting-process-allocation.ts` conserves declared allocated quantities across compatible exchange groups: `sum(quantity * fraction) / sum(quantity)`. Keys include exact Flow version, direction and explicit quantity-basis fields; provenance keys include source process instance and source exchange ID. Final numbering maps those source identities to final exchanges, and compatible many-to-one targets add their fractions. Multipliers apply to quantities before aggregation; the builder does not apply allocation coefficients to inventory amounts. Conflicting mean/resulting amounts, signed or zero allocated contributions, already allocated inventory, eliminated targets and cancellation without unique exact endpoint lineage fail with an explicit diagnostic. Unique compatible cancellation updates the individual source contributions before reconciliation.
+
+The SDK owns compatibility interpretation. Whole-inventory legacy Output shares are projected uniformly before aggregation, including undeclared exchanges. A legacy share vector omitting the selected reference has Worker default-one semantics that an explicit sparse vector cannot conserve; that conversion is rejected. Mixing explicit declarations with undeclared inventory requires its verified unique reference fallback. The builder never chooses a new allocation recipient. Source lineage, contribution quantities and the final candidate hash are emitted alongside the unchanged payload; the projection report contains its real shared validation result.
+
+Allocation serialization follows the public three-decimal `Perc` boundary using deterministic largest remainder, tied by stable final target numbering. The sidecar reports actual percentage/amount error per target and bounds error below 0.001 percentage points, or inventory amount × 0.00001; conservation is qualified within this tolerance.

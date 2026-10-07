@@ -1,3 +1,5 @@
+import { assertProcessAllocationWriteAdmission } from './process-allocation-write-admission.js';
+import { type ProcessSemanticContext } from './process-semantic-validation.js';
 // data-api-relations: processes
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
@@ -70,6 +72,7 @@ export type SyncStateAwareProcessRecordOptions = {
   modelId?: string | null;
   modelVersion?: string | null;
   targetUserId?: string | null;
+  semanticContext?: ProcessSemanticContext;
 };
 
 function buildVisibleRowsUrl(restBaseUrl: string, id: string, version: string): string {
@@ -245,12 +248,17 @@ async function saveDraft(options: {
   id: string;
   version: string;
   payload: JsonObject;
+  semanticContext?: ProcessSemanticContext;
   timeoutMs: number;
   fetchImpl: FetchLike;
   audit?: JsonObject;
   modelId?: string | null;
   modelVersion?: string | null;
 }): Promise<ProcessSaveDraftRpcResult> {
+  await assertProcessAllocationWriteAdmission(options.payload, options.semanticContext ?? {}, {
+    apiBaseUrl: options.restBaseUrl,
+    ...options,
+  });
   const capability = resolveDataApiCapability({
     kind: 'rpc',
     name: 'cmd_dataset_save_draft',
@@ -335,10 +343,11 @@ export async function syncStateAwareProcessRecord(
       extraData:
         options.modelId !== undefined || options.modelVersion !== undefined
           ? {
+              semantic_context: options.semanticContext,
               modelId: options.modelId ?? null,
               modelVersion: options.modelVersion ?? null,
             }
-          : undefined,
+          : { semantic_context: options.semanticContext },
     });
   }
 
@@ -353,6 +362,7 @@ export async function syncStateAwareProcessRecord(
       id: options.id,
       version: options.version,
       payload: options.payload,
+      semanticContext: options.semanticContext,
       timeoutMs,
       fetchImpl: options.fetchImpl,
       audit: options.audit,

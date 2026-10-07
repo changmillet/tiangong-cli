@@ -1,4 +1,5 @@
-import crypto from 'node:crypto';
+import { sha256Json, sha256Text, stableJsonText } from './canonical-json-hash.js';
+export { sha256Json, sha256Text, stableJsonText, stableJsonValue } from './canonical-json-hash.js';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { inspectMaintenanceSupportPayload } from './dataset-maintenance-support-validation.js';
@@ -353,32 +354,6 @@ function token(value: unknown): string | null {
 
 export function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-export function stableJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(stableJsonValue);
-  }
-  if (isJsonObject(value)) {
-    return Object.fromEntries(
-      Object.keys(value)
-        .sort()
-        .map((key) => [key, stableJsonValue(value[key])]),
-    );
-  }
-  return value;
-}
-
-export function stableJsonText(value: unknown): string {
-  return JSON.stringify(stableJsonValue(value));
-}
-
-export function sha256Text(value: string): string {
-  return crypto.createHash('sha256').update(value).digest('hex');
-}
-
-export function sha256Json(value: unknown): string {
-  return sha256Text(stableJsonText(value));
 }
 
 export function snapshotRemoteRow(row: DatasetMaintenanceRemoteRow): DatasetMaintenanceRowSnapshot {

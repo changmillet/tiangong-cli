@@ -1,3 +1,7 @@
+import {
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
@@ -195,6 +199,7 @@ export type ProcessSaveDraftCandidate = {
   source: ProcessSaveDraftSource;
   bundle_path: string | null;
   payload: JsonObject;
+  semantic_context?: ProcessSemanticContext;
   validation?: ProcessPayloadValidationResult;
   error?: { message: string };
 };
@@ -265,10 +270,14 @@ function candidateFromPayload(
   source: ProcessSaveDraftSource,
   bundlePath: string | null,
   validateProcessPayloadImpl: (payload: JsonObject) => ProcessPayloadValidationResult,
+  context: ProcessSemanticContext = {},
 ): ProcessSaveDraftCandidate {
   try {
     const [id, version] = extractProcessIdentity(payload);
-    const validation = validateProcessPayloadImpl(payload);
+    const validation =
+      validateProcessPayloadImpl === validateProcessPayload
+        ? validateProcessPayload(payload, undefined, undefined, context)
+        : validateProcessPayloadImpl(payload);
     if (!validation.ok) {
       return {
         id,
@@ -276,6 +285,7 @@ function candidateFromPayload(
         source,
         bundle_path: bundlePath,
         payload,
+        semantic_context: context,
         validation,
         error: {
           message: summarizeProcessPayloadValidation(validation),
@@ -288,6 +298,7 @@ function candidateFromPayload(
       source,
       bundle_path: bundlePath,
       payload,
+      semantic_context: context,
       validation,
     };
   } catch (error) {
@@ -321,6 +332,7 @@ function candidateFromPublishEntry(
     sourceFromPublishOrigin(entry.origin),
     entry.origin.bundle_path,
     validateProcessPayloadImpl,
+    semanticContextFromInput(entry.entry),
   );
 }
 
@@ -356,6 +368,7 @@ function prepareRowsFileInput(
         'rows_file',
         null,
         validateProcessPayloadImpl,
+        semanticContextFromInput(row),
       ),
     ),
   };
@@ -498,6 +511,7 @@ export async function runProcessSaveDraft(
         id: candidate.id!,
         version: candidate.version!,
         payload: candidate.payload,
+        semanticContext: candidate.semantic_context,
         env: options.env!,
         fetchImpl: options.fetchImpl!,
         timeoutMs: options.timeoutMs,

@@ -1085,6 +1085,21 @@ function appendReportRow(reportFile: string, record: ProgressRecord): void {
   );
 }
 
+function resolvedFlowDocuments(
+  cache: Map<string, LatestReferenceCacheEntry>,
+  refs: CollectedReference[],
+): JsonObject[] {
+  const flowIds = new Set(
+    refs
+      .filter(({ node }) => tableForReferenceType(node['@type']) === 'flows')
+      .map(({ node }) => node['@refObjectId']),
+  );
+  return [...flowIds].flatMap((id) => {
+    const row = cache.get(`flows:${id}`)!.row;
+    return row ? [row.json] : [];
+  });
+}
+
 async function processOne(options: {
   row: ProcessManifestRow;
   apply: boolean;
@@ -1140,7 +1155,12 @@ async function processOne(options: {
     });
 
     const update = updateProcessJson(payload, refs, options.refCache);
-    const validation = options.validateProcessPayloadImpl(payload);
+    const validation =
+      options.validateProcessPayloadImpl === validateProcessPayload
+        ? validateProcessPayload(payload, undefined, undefined, {
+            flow_documents: resolvedFlowDocuments(options.refCache, refs),
+          })
+        : options.validateProcessPayloadImpl(payload);
 
     if (!validation.ok || update.unresolved_refs.length > 0) {
       const noteParts: string[] = [];
@@ -1181,6 +1201,9 @@ async function processOne(options: {
         id: detail.id,
         version: detail.version,
         payload,
+        semanticContext: {
+          flow_documents: resolvedFlowDocuments(options.refCache, refs),
+        },
         env: options.env,
         fetchImpl: options.fetchImpl,
         timeoutMs: options.timeoutMs,

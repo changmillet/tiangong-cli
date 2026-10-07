@@ -40,6 +40,7 @@ export const DATA_API_RELATION_CONSUMERS = {
     'src/lib/process-refresh-references.ts',
   ],
   flows: [
+    'src/lib/process-allocation-write-admission.ts',
     'src/lib/flow-read.ts',
     'src/lib/flow-list.ts',
     'src/lib/flow-publish-version.ts',

@@ -1,3 +1,5 @@
+import { assertProcessAllocationWriteAdmission } from './process-allocation-write-admission.js';
+import { semanticContextFromInput } from './process-semantic-validation.js';
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
 import { postJson, requireRemoteOkPayload } from './http.js';
@@ -187,6 +189,12 @@ export async function createDatasetRecord(options: {
   extraData?: JsonObject;
   beforeDispatch?: () => void;
 }): Promise<JsonObject> {
+  if (options.table === 'processes')
+    await assertProcessAllocationWriteAdmission(
+      options.payload,
+      semanticContextFromInput(options.extraData),
+      { apiBaseUrl: options.transport.functionsBaseUrl, ...options.transport },
+    );
   const body: JsonObject = {
     table: options.table,
     id: options.id,
@@ -228,6 +236,12 @@ export async function saveDraftDatasetRecord(options: {
   extraData?: JsonObject;
   beforeDispatch?: () => void;
 }): Promise<JsonObject> {
+  if (options.table === 'processes')
+    await assertProcessAllocationWriteAdmission(
+      options.payload,
+      semanticContextFromInput(options.extraData),
+      { apiBaseUrl: options.transport.functionsBaseUrl, ...options.transport },
+    );
   const body: JsonObject = {
     table: options.table,
     id: options.id,

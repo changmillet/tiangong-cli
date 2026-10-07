@@ -132,6 +132,7 @@ function makeProcessRow(options: {
           },
         },
         quantitativeReference: {
+          '@type': 'Reference flow(s)',
           referenceToReferenceFlow: String(exchanges[0]?.['@dataSetInternalID'] ?? '1'),
           functionalUnitOrOther: [],
         },

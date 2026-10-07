@@ -1,3 +1,4 @@
+import { processTransportFixture } from './helpers/process-allocation-fixture.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolveDatasetCommandTransport } from '../src/lib/dataset-command.js';
@@ -87,7 +88,7 @@ test('supabase json_ordered write inserts when no exact row exists', async () =>
     table: 'processes',
     id: 'proc-1',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     writeMode: 'upsert_current_version',
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -229,7 +230,7 @@ test('append-only insert skips existing rows and validates helper branches', asy
     table: 'processes',
     id: 'proc-skip',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     writeMode: 'append_only_insert',
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -295,7 +296,7 @@ test('supabase json_ordered helpers handle empty/text success payloads and inval
     transport,
     table: 'processes',
     id: 'proc-text',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
   });
 
   await __testInternals.updateJsonOrderedRow({
@@ -303,7 +304,7 @@ test('supabase json_ordered helpers handle empty/text success payloads and inval
     table: 'processes',
     id: 'proc-empty',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
   });
 
   assert.deepEqual(
@@ -330,7 +331,7 @@ test('supabase json_ordered write surfaces remote request failures and invalid J
         table: 'processes',
         id: 'proc-http-fail',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         writeMode: 'upsert_current_version',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -362,7 +363,7 @@ test('supabase json_ordered write surfaces remote request failures and invalid J
         table: 'processes',
         id: 'proc-invalid-json',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         writeMode: 'upsert_current_version',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -392,7 +393,7 @@ test('supabase json_ordered write rethrows insert conflicts when the row is stil
         table: 'processes',
         id: 'proc-conflict-missing',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         writeMode: 'upsert_current_version',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -431,7 +432,7 @@ test('append-only insert skips rows that appear after an insert conflict', async
     table: 'processes',
     id: 'proc-conflict-skip',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     writeMode: 'append_only_insert',
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -468,4 +469,27 @@ test('append-only insert skips rows that appear after an insert conflict', async
     operation: 'skipped_existing',
   });
   assert.deepEqual(observed, ['GET', 'POST', 'GET']);
+});
+
+test('Process semantic admission failures are not retried as insert conflicts', async () => {
+  const calls: string[] = [];
+  await assert.rejects(
+    syncSupabaseJsonOrderedRecord({
+      table: 'processes',
+      id: 'proc-invalid',
+      writeMode: 'upsert_current_version',
+      version: '01.00.001',
+      payload: { processDataSet: {} },
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
+        TIANGONG_LCA_ACCESS_TOKEN: 'synthetic-token',
+      }),
+      fetchImpl: async (url) => {
+        calls.push(String(url));
+        return makeResponse({ ok: true, status: 200, body: '[]' });
+      },
+    }),
+    /complete current-user/,
+  );
+  assert.equal(calls.length, 1);
 });

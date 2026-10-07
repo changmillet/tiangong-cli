@@ -1,3 +1,4 @@
+import { processTransportFixture } from './helpers/process-allocation-fixture.js';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -29,20 +30,21 @@ function writeJson(filePath: string, value: unknown): void {
 }
 
 function makeCanonicalProcess(id: string): Record<string, unknown> {
-  return {
-    processDataSet: {
-      processInformation: {
-        dataSetInformation: {
-          'common:UUID': id,
-        },
-      },
-      administrativeInformation: {
-        publicationAndOwnership: {
-          'common:dataSetVersion': '01.01.000',
-        },
-      },
-    },
-  };
+  const payload = processTransportFixture();
+  const root = payload.processDataSet as Record<string, unknown>;
+  (
+    (root.processInformation as Record<string, unknown>).dataSetInformation as Record<
+      string,
+      unknown
+    >
+  )['common:UUID'] = id;
+  (
+    (root.administrativeInformation as Record<string, unknown>).publicationAndOwnership as Record<
+      string,
+      unknown
+    >
+  )['common:dataSetVersion'] = '01.01.000';
+  return payload;
 }
 
 function makeSource(id: string): Record<string, unknown> {

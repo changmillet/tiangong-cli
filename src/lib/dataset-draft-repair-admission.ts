@@ -212,13 +212,18 @@ function walkRepairDiff(
  */
 export type RepairValidationResult = {
   ok: boolean;
+  allocation_semantics?: { status: string };
   validation_layers?: RepairValidationLayers;
 } | null;
 
 /** Schema, content and multilingual must pass while the annual evidence gap is the only authoring issue. */
 function hasOnlyAnnualAuthoringGap(validation: RepairValidationResult): boolean {
   const layers = validation?.validation_layers;
-  if (validation?.ok !== false || !layers) {
+  if (
+    validation?.ok !== false ||
+    !layers ||
+    (validation.allocation_semantics && validation.allocation_semantics.status !== 'passed')
+  ) {
     return false;
   }
   if (

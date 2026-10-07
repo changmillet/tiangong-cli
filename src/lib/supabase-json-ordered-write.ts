@@ -247,6 +247,8 @@ export async function syncSupabaseJsonOrderedRecord(options: {
       operation: 'insert',
     };
   } catch (error) {
+    if (error instanceof CliError && error.code.startsWith('PROCESS_ALLOCATION_WRITE_'))
+      throw error;
     const visibleAfter = await exactVisibleRows({
       client,
       restBaseUrl,

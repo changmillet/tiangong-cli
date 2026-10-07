@@ -776,9 +776,9 @@ test('runLifecyclemodelBuildResultingProcess builds and aggregates a resulting p
     assert.deepEqual(
       exchanges.map((item) => [item.exchangeDirection, item.meanAmount]),
       [
-        ['Output', 1],
-        ['Input', 1],
-        ['Input', 5.5],
+        ['Output', '1'],
+        ['Input', '1'],
+        ['Input', '5.5'],
       ],
     );
     assert.equal((exchanges[0] as JsonRecord).quantitativeReference, true);
@@ -920,7 +920,7 @@ test('runLifecyclemodelBuildResultingProcess auto-detects process dirs and write
       (processInformation.dataSetInformation as JsonRecord)['common:UUID'] as string,
       'proc-solo-result',
     );
-    assert.equal(exchanges.meanAmount, 2);
+    assert.equal(exchanges.meanAmount, '2');
     assert.equal(exchanges.resultingAmount, undefined);
     assert.equal(
       (exchanges.referenceToFlowDataSet as JsonRecord)['@refObjectId'] as string,
@@ -931,11 +931,11 @@ test('runLifecyclemodelBuildResultingProcess auto-detects process dirs and write
       'proc-solo',
     );
     assert.equal(metadata.graph_snapshot_uri, undefined);
-    assert.equal(metadata.type_of_data_set, 'partly terminated system');
+    assert.equal(metadata.type_of_data_set, 'Partly terminated system');
     assert.equal(
       ((processDataSet.modellingAndValidation as JsonRecord).LCIMethodAndAllocation as JsonRecord)
         .typeOfDataSet,
-      'partly terminated system',
+      'Partly terminated system',
     );
     assert.equal(
       ((bundle.projected_processes as JsonRecord[])[0] as JsonRecord).id,
@@ -2192,7 +2192,7 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
       referenceToFlowDataSet: {
         '@refObjectId': 'flow-direct',
       },
-      meanAmount: 3,
+      meanAmount: '3',
       quantitativeReference: false,
     },
   );
@@ -2336,7 +2336,7 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
   assert.equal(
     (((builtProcess.processDataSet as JsonRecord).exchanges as JsonRecord).exchange as JsonRecord)
       .meanAmount,
-    1,
+    '1',
   );
   assert.equal((builtDataset.quantitativeReference as JsonRecord).referenceToReferenceFlow, '1');
   assert.equal(
@@ -2356,7 +2356,7 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
       ((builtProcess.processDataSet as JsonRecord).modellingAndValidation as JsonRecord)
         .LCIMethodAndAllocation as JsonRecord
     ).typeOfDataSet,
-    'partly terminated system',
+    'Partly terminated system',
   );
 
   const builtWithoutProcessInformation = internals.buildResultingProcessPayload({

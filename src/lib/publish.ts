@@ -1,3 +1,7 @@
+import {
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 import path from 'node:path';
 import { CliError } from './errors.js';
 import { writeJsonArtifact } from './artifacts.js';
@@ -202,6 +206,7 @@ export type DatasetPublishExecutorArgs = {
   payload: JsonObject;
   metadata?: LifecyclemodelPublishMetadata | null;
   processModel?: ProcessModelReference;
+  semanticContext?: ProcessSemanticContext;
   source: 'bundle' | 'input';
   bundle_path: string | null;
   publish: PublishRequest['publish'];
@@ -793,6 +798,7 @@ async function maybe_execute_dataset(
     table: 'lifecyclemodels' | 'processes' | 'sources';
     metadata?: LifecyclemodelPublishMetadata | null;
     processModel?: ProcessModelReference;
+    semanticContext?: ProcessSemanticContext;
   },
 ): Promise<PublishDatasetReport> {
   if (!options.commit) {
@@ -811,6 +817,7 @@ async function maybe_execute_dataset(
       version: report.version,
       payload,
       metadata: options.metadata,
+      ...(options.semanticContext ? { semanticContext: options.semanticContext } : {}),
       source: report.source,
       bundle_path: report.bundle_path,
       publish: options.publish,
@@ -870,7 +877,10 @@ async function publish_processes(
       payload = unwrap_dataset_entry_source(source);
       const modelReference = resolve_process_model_reference(source, payload);
       const [datasetId, version] = extract_process_identity(payload);
-      const validation = validate(payload);
+      const validation =
+        validate === validateProcessPayload
+          ? validateProcessPayload(payload, undefined, undefined, semanticContextFromInput(source))
+          : validate(payload);
       if (!validation.ok) {
         reports.push({
           table: 'processes',
@@ -907,6 +917,7 @@ async function publish_processes(
           ...options,
           table: 'processes',
           executor: options.executor,
+          semanticContext: semanticContextFromInput(source),
           ...(modelReference ? { processModel: modelReference } : {}),
         }),
       );
@@ -1054,6 +1065,7 @@ function build_default_dataset_executor(options: {
         env: options.env,
         fetchImpl: options.fetchImpl,
         timeoutMs: options.timeoutMs,
+        semanticContext: args.semanticContext,
         modelId: args.processModel?.modelId,
         modelVersion: args.processModel?.modelVersion,
         audit: {

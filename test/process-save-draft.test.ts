@@ -1,3 +1,4 @@
+import { processTransportFixture } from './helpers/process-allocation-fixture.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CliError } from '../src/lib/errors.js';
@@ -46,7 +47,7 @@ test('state-aware process write routes visible drafts through cmd_dataset_save_d
   const result = await syncStateAwareProcessRecord({
     id: 'proc-draft',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     modelId: 'model-source',
     modelVersion: '01.01.021',
     env: buildSupabaseTestEnv({
@@ -85,7 +86,7 @@ test('state-aware process write routes visible drafts through cmd_dataset_save_d
     p_table: 'processes',
     p_id: 'proc-draft',
     p_version: '01.00.001',
-    p_json_ordered: { processDataSet: {} },
+    p_json_ordered: processTransportFixture(),
     p_model_id: 'model-source',
     p_model_version: '01.01.021',
     p_audit: null,
@@ -109,7 +110,7 @@ test('state-aware process write enforces target user guard before remote writes'
   const result = await syncStateAwareProcessRecord({
     id: 'proc-target',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     targetUserId: 'user-1',
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -171,7 +172,7 @@ test('state-aware process write rejects target user mismatches', async () => {
       syncStateAwareProcessRecord({
         id: 'proc-target-mismatch',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         targetUserId: 'target-user',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -207,7 +208,7 @@ test('state-aware process write rejects target user guards without current auth 
       syncStateAwareProcessRecord({
         id: 'proc-target-missing-user',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         targetUserId: 'target-user',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -241,7 +242,7 @@ test('state-aware process write rejects target user guards without current auth 
       syncStateAwareProcessRecord({
         id: 'proc-target-malformed-user',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         targetUserId: 'target-user',
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
@@ -276,7 +277,7 @@ test('state-aware process write rejects visible non-draft rows before raw table 
       syncStateAwareProcessRecord({
         id: 'proc-public',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
           TIANGONG_LCA_ACCESS_TOKEN: 'key',
@@ -304,7 +305,7 @@ test('state-aware process write treats HTTP 200 ok:false RPC payloads as failure
       syncStateAwareProcessRecord({
         id: 'proc-owner-blocked',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
           TIANGONG_LCA_ACCESS_TOKEN: 'key',
@@ -339,7 +340,7 @@ test('state-aware process write falls back to dataset create when no exact visib
   const result = await syncStateAwareProcessRecord({
     id: 'proc-new',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     modelId: 'model-source',
     modelVersion: '01.01.021',
     env: buildSupabaseTestEnv({
@@ -376,9 +377,7 @@ test('state-aware process write falls back to dataset create when no exact visib
   assert.deepEqual(JSON.parse(observed[2]?.body ?? '{}'), {
     table: 'processes',
     id: 'proc-new',
-    jsonOrdered: {
-      processDataSet: {},
-    },
+    jsonOrdered: processTransportFixture(),
     modelId: 'model-source',
     modelVersion: '01.01.021',
   });
@@ -393,7 +392,7 @@ test('state-aware process create omits model metadata when the caller supplies n
   await syncStateAwareProcessRecord({
     id: 'proc-independent',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     env: buildSupabaseTestEnv({
       TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
       TIANGONG_LCA_API_KEY: 'key',
@@ -418,7 +417,7 @@ test('state-aware process create omits model metadata when the caller supplies n
   assert.deepEqual(JSON.parse(observed[2]?.body ?? '{}'), {
     table: 'processes',
     id: 'proc-independent',
-    jsonOrdered: { processDataSet: {} },
+    jsonOrdered: processTransportFixture(),
   });
 });
 
@@ -427,7 +426,7 @@ test('state-aware process create accepts an explicit independent model reference
   await syncStateAwareProcessRecord({
     id: 'proc-explicit-independent',
     version: '01.00.001',
-    payload: { processDataSet: {} },
+    payload: processTransportFixture(),
     modelId: null,
     modelVersion: null,
     env: buildSupabaseTestEnv({
@@ -454,7 +453,7 @@ test('state-aware process create accepts an explicit independent model reference
   assert.deepEqual(JSON.parse(observed[2]?.body ?? '{}'), {
     table: 'processes',
     id: 'proc-explicit-independent',
-    jsonOrdered: { processDataSet: {} },
+    jsonOrdered: processTransportFixture(),
   });
 });
 
@@ -554,7 +553,7 @@ test('state-aware process write rejects unexpected RPC payloads even on HTTP 200
       syncStateAwareProcessRecord({
         id: 'proc-draft-invalid',
         version: '01.00.001',
-        payload: { processDataSet: {} },
+        payload: processTransportFixture(),
         env: buildSupabaseTestEnv({
           TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co',
           TIANGONG_LCA_ACCESS_TOKEN: 'key',

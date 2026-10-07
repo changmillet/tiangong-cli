@@ -70,7 +70,7 @@ export const RUNTIME_RULESET_VERSION = '1';
 const EXPECTED_PUBLIC_SOURCE = {
   schema_version: 'tidas.public-rules-source.v1',
   repository: 'https://github.com/tiangong-lca/tidas-spec.git',
-  commit: 'f118660dbcbfbf736be74837cce0bf26cd177245',
+  commit: '32e1ba38da7d5f4f6245c6c1927f83b326cd5404',
   rules_version: '2026.09.20',
   status: 'released',
   index_sha256: 'd8f1e90777fe0c675d1e24cbd7f1141ee776d3ebda9d8b24c91f714779540dec',
