@@ -1,3 +1,8 @@
+import { validateProcessPayload } from './process-payload-validation.js';
+import {
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
@@ -14,10 +19,6 @@ import {
   type SdkValidationFactory,
   validateSchemaWithDeepFallback,
 } from './tidas-sdk-validation.js';
-import {
-  collectProcessPlaceholderIssues,
-  collectProcessRequiredFieldIssues,
-} from './process-required-fields.js';
 import { withOptionalReviewReportReference } from './tidas-review-report-optionality.js';
 import {
   buildDatasetValidationLayers,
@@ -43,6 +44,7 @@ export type DatasetValidateRowReport = {
   issues: DatasetValidateIssue[];
   payload_sha256?: string;
   validation_layers?: DatasetValidationLayers;
+  allocation_semantics?: ReturnType<typeof validateProcessPayload>['allocation_semantics'];
 };
 
 export type DatasetValidateReport = {
@@ -274,6 +276,7 @@ function validateRow(
   row: DatasetRowInput,
   requestedType: DatasetValidateType,
   schemas: Partial<Record<DatasetKind, SafeParseSchema>> | undefined,
+  context: ProcessSemanticContext,
 ): DatasetValidateRowReport {
   const kind = requestedType === 'auto' ? row.kind : requestedType;
   if (!kind) {
@@ -281,17 +284,24 @@ function validateRow(
   }
 
   const { validator, schema, createEntity } = schemaForKind(kind, schemas);
+  if (kind === 'process') {
+    const result = validateProcessPayload(row.payload, schema, createEntity, context);
+    return {
+      index: row.index,
+      id: row.id,
+      version: row.version,
+      type: kind,
+      status: result.ok ? 'valid' : 'invalid',
+      ...result,
+    };
+  }
   const outcome = validateSchemaWithDeepFallback(
     schema,
     structuredClone(row.payload),
     createEntity,
   );
-  const requiredFieldIssues =
-    kind === 'process' ? collectProcessRequiredFieldIssues(row.payload) : [];
-  const placeholderIssues =
-    kind === 'process'
-      ? collectProcessPlaceholderIssues(row.payload)
-      : collectImportContentIssues(row.payload);
+  const requiredFieldIssues: DatasetValidateIssue[] = [];
+  const placeholderIssues = collectImportContentIssues(row.payload);
   const { additional_multilingual_issues, ...evidence } = buildDatasetValidationLayers(
     row.payload,
     outcome,
@@ -375,7 +385,9 @@ export async function runDatasetValidate(
 ): Promise<DatasetValidateReport> {
   const requestedType = normalizeType(options.type);
   const rows = materializeDatasetRows(options.inputPath, options.rawInput);
-  const reports = rows.map((row) => validateRow(row, requestedType, options.schemas));
+  const reports = rows.map((row) =>
+    validateRow(row, requestedType, options.schemas, semanticContextFromInput(row.row)),
+  );
   const invalidRows = reports.filter((row) => row.status === 'invalid');
   const files = buildFiles(options.outDir);
 

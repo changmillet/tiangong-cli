@@ -26,6 +26,15 @@ function layerStatuses(result: {
 function validProcessPayload(overrides: Record<string, unknown> = {}) {
   return {
     processDataSet: {
+      processInformation: {
+        quantitativeReference: {
+          '@type': 'Other parameter',
+          functionalUnitOrOther: {
+            '@xml:lang': 'en',
+            '#text': 'Controlled schema isolation fixture',
+          },
+        },
+      },
       modellingAndValidation: {
         dataSourcesTreatmentAndRepresentativeness: {
           annualSupplyOrProductionVolume: [
@@ -211,6 +220,15 @@ test('process payload validation enforces annual supply authoring fields beyond 
   const result = validateProcessPayload(
     {
       processDataSet: {
+        processInformation: {
+          quantitativeReference: {
+            '@type': 'Other parameter',
+            functionalUnitOrOther: {
+              '@xml:lang': 'en',
+              '#text': 'Controlled schema isolation fixture',
+            },
+          },
+        },
         modellingAndValidation: {
           validation: {
             review: {
@@ -261,6 +279,15 @@ test('process payload validation rejects placeholder authoring content', () => {
   const result = validateProcessPayload(
     validProcessPayload({
       processDataSet: {
+        processInformation: {
+          quantitativeReference: {
+            '@type': 'Other parameter',
+            functionalUnitOrOther: {
+              '@xml:lang': 'en',
+              '#text': 'Controlled schema isolation fixture',
+            },
+          },
+        },
         modellingAndValidation: {
           dataSourcesTreatmentAndRepresentativeness: {
             annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],

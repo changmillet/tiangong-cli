@@ -1,11 +1,14 @@
-import { sha256Json } from './dataset-maintenance-contract.js';
-import { datasetRoot, isRecord } from './dataset-local.js';
+import { sha256Json } from './canonical-json-hash.js';
 import { ANNUAL_SUPPLY_FIELD } from './process-required-fields.js';
 import {
   normalizeIssuePath,
   type SafeParseIssue,
   type SchemaValidationOutcome,
 } from './tidas-sdk-validation.js';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 export type DatasetValidationIssue = { path: string; message: string; code: string };
 export type DatasetValidationLayer = {
@@ -52,7 +55,7 @@ function sdkLanguageIssues(
 function duplicateAnnualVolumeLanguages(
   payload: Record<string, unknown>,
 ): DatasetValidationIssue[] {
-  const root = datasetRoot(payload, 'process');
+  const root = isRecord(payload.processDataSet) ? payload.processDataSet : payload;
   const modelling = isRecord(root.modellingAndValidation) ? root.modellingAndValidation : {};
   const sources = isRecord(modelling.dataSourcesTreatmentAndRepresentativeness)
     ? modelling.dataSourcesTreatmentAndRepresentativeness

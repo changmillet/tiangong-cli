@@ -1,3 +1,16 @@
+import { sha256Json } from './canonical-json-hash.js';
+import {
+  analyzeProcessPayloadSemantics,
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
+import { validateProcessPayload } from './process-payload-validation.js';
+import {
+  allocationAggregationKey,
+  hasAllocationDeclaration,
+  reconcileResultingAllocations,
+  type AllocationGroup,
+} from './resulting-process-allocation.js';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -25,6 +38,7 @@ export type ProjectionMode = 'primary-only' | 'all-subproducts';
 export type PublishIntent = 'dry_run' | 'prepare_only' | 'publish';
 
 export type LifecyclemodelResultingProcessRequest = {
+  semantic_context?: ProcessSemanticContext;
   source_model: {
     id: string | null;
     version: string | null;
@@ -59,6 +73,7 @@ export type LifecyclemodelResultingProcessReport = {
   request_path: string;
   out_dir: string;
   status: string;
+  qualification?: { status: string; publish_ready: boolean };
   projected_process_count: number;
   relation_count: number;
   source_model: {
@@ -438,6 +453,7 @@ export function normalizeLifecyclemodelResultingProcessRequest(
   const publishRaw = isRecord(input.publish) ? input.publish : {};
 
   const normalized: LifecyclemodelResultingProcessRequest = {
+    semantic_context: semanticContextFromInput(input),
     source_model: {
       id: firstNonEmpty(sourceModelRaw.id),
       version: firstNonEmpty(sourceModelRaw.version),
@@ -1172,9 +1188,9 @@ function cloneExchangeWithAmount(
   const cloned = copyJson(exchange);
   cloned['@dataSetInternalID'] = internalId;
   const normalizedAmount = normalizeNumericOutput(amount);
-  cloned.meanAmount = normalizedAmount;
+  cloned.meanAmount = String(normalizedAmount);
   if ('resultingAmount' in cloned) {
-    cloned.resultingAmount = normalizedAmount;
+    cloned.resultingAmount = String(normalizedAmount);
   }
   cloned.quantitativeReference = options.quantitativeReference;
   return cloned;
@@ -1195,6 +1211,8 @@ function buildResultingProcessPayload(options: {
   referenceProcessInstanceId: string | null;
   metadataOverrides: JsonObject;
   attachGraphSnapshotUri: string | null;
+  semanticContext?: ProcessSemanticContext;
+  transformationEvidence?: JsonObject;
 }): JsonObject {
   const chosenInstance = chooseReferenceInstance(
     options.processInstances,
@@ -1204,7 +1222,9 @@ function buildResultingProcessPayload(options: {
   const finalRecord = options.processRecords[chosenKey];
   const finalProcess = copyJson(finalRecord.raw);
   const finalDataset = processDatasetRoot(finalProcess);
-  const totals = new Map<string, { amount: number; exchange: JsonObject }>();
+  const totals = new Map<string, AllocationGroup>();
+  const sourceTargets = new Map<string, AllocationGroup>();
+  const instancesWithAllocation = new Set<string>();
 
   options.processInstances.forEach((instance) => {
     if (instance.multiplication_factor === 0) {
@@ -1217,6 +1237,21 @@ function buildResultingProcessPayload(options: {
       ? (recordDataset.exchanges as JsonObject)
       : {};
     const exchanges = ensureList<JsonObject>(exchangesWrapper.exchange).filter(isRecord);
+    const sourceMethod = isRecord(recordDataset.modellingAndValidation)
+      ? (recordDataset.modellingAndValidation.LCIMethodAndAllocation as JsonObject | undefined)
+      : undefined;
+    const alreadyAllocated = sourceMethod?.typeOfDataSet === 'LCI result';
+    const semantics = analyzeProcessPayloadSemantics(record.raw, {
+      flow_documents: options.semanticContext?.flow_documents,
+    });
+    if (
+      exchanges.some((exchange) => exchange.allocations !== undefined) &&
+      semantics.status !== 'passed'
+    )
+      throw new CliError(
+        `Source allocation semantics failed at ${instance.instance_id}: ${semantics.issues.map((issue) => `${issue.path}: ${issue.code}`).join('; ')}`,
+        { code: 'LIFECYCLEMODEL_SOURCE_ALLOCATION_INVALID', exitCode: 2 },
+      );
 
     exchanges.forEach((exchange) => {
       const flowRef = isRecord(exchange.referenceToFlowDataSet)
@@ -1229,22 +1264,143 @@ function buildResultingProcessPayload(options: {
         return;
       }
 
-      const key = `${flowUuid}\u0000${direction}`;
+      const interpretation = semantics.interpretations?.find(
+        (item) => item.exchangeId === String(exchange['@dataSetInternalID']),
+      );
+      const compatibilityVector =
+        interpretation?.mode.startsWith('legacy-') && interpretation.allocations
+          ? interpretation.allocations
+          : undefined;
+      if (
+        interpretation?.mode === 'legacy-output-share' &&
+        compatibilityVector &&
+        !compatibilityVector.some((item) => item.targetId === record.referenceExchangeInternalId)
+      )
+        throw new CliError(
+          `Legacy Output-share compatibility has default-one reference outside the declared targets at ${instance.instance_id}; no conservative explicit-vector conversion is available.`,
+          { code: 'LIFECYCLEMODEL_ALLOCATION_COMPATIBILITY_UNREPRESENTABLE', exitCode: 2 },
+        );
+      const contributionExchange = compatibilityVector
+        ? {
+            ...exchange,
+            allocations: {
+              allocation: compatibilityVector.map(({ targetId, fraction }) => ({
+                '@internalReferenceToCoProduct': targetId,
+                '@allocatedFraction': String(fraction),
+              })),
+            },
+          }
+        : exchange;
+      const undeclaredReferenceProjection =
+        semantics.status === 'passed' &&
+        interpretation &&
+        (interpretation.mode === 'undeclared' || interpretation.mode === 'legacy-scalar-empty') &&
+        semantics.reference?.ids.length === 1
+          ? [{ targetId: semantics.reference.ids[0], fraction: 100 }]
+          : undefined;
+      const key = allocationAggregationKey(exchange);
+      const source = `${instance.instance_id}/${String(exchange['@dataSetInternalID'])}`;
+      const sourceKey = JSON.stringify([
+        instance.instance_id,
+        String(exchange['@dataSetInternalID']),
+      ]);
+      if (sourceTargets.has(sourceKey))
+        throw new CliError(`Duplicate exchange identity ${source}`, {
+          code: 'LIFECYCLEMODEL_ALLOCATION_ID_AMBIGUOUS',
+          exitCode: 2,
+        });
+      if (hasAllocationDeclaration(exchange)) {
+        instancesWithAllocation.add(instance.instance_id);
+        if (alreadyAllocated)
+          throw new CliError(`Already allocated inventory cannot declare allocation at ${source}`, {
+            code: 'LIFECYCLEMODEL_ALLOCATION_ALREADY_APPLIED',
+            exitCode: 2,
+          });
+      }
       const scaledAmount =
         toFiniteNumber(exchange.meanAmount ?? exchange.resultingAmount, 'exchange amount') *
         instance.multiplication_factor;
+      if (hasAllocationDeclaration(contributionExchange) && scaledAmount <= 0)
+        throw new CliError(`Zero or signed allocated contribution at ${source}`, {
+          code: 'LIFECYCLEMODEL_ALLOCATION_TRANSFORMATION_UNSUPPORTED',
+          exitCode: 2,
+        });
       const existing = totals.get(key);
       if (existing) {
-        existing.amount = normalizeNumericOutput(existing.amount + scaledAmount);
+        existing.amount += scaledAmount;
+        existing.contributions.push({
+          source,
+          instance: instance.instance_id,
+          mode: semantics.interpretations?.find(
+            (item) => item.exchangeId === String(exchange['@dataSetInternalID']),
+          )?.mode,
+          exchange: contributionExchange,
+          fallbackAllocations: undeclaredReferenceProjection,
+          alreadyAllocated,
+          amount: scaledAmount,
+        });
+        sourceTargets.set(sourceKey, existing);
         return;
       }
 
-      totals.set(key, {
-        amount: normalizeNumericOutput(scaledAmount),
+      const group = {
+        key,
+        amount: scaledAmount,
         exchange: copyJson(exchange),
-      });
+        contributions: [
+          {
+            source,
+            instance: instance.instance_id,
+            mode: semantics.interpretations?.find(
+              (item) => item.exchangeId === String(exchange['@dataSetInternalID']),
+            )?.mode,
+            exchange: contributionExchange,
+            fallbackAllocations: undeclaredReferenceProjection,
+            alreadyAllocated,
+            amount: scaledAmount,
+          },
+        ],
+      };
+      totals.set(key, group);
+      sourceTargets.set(sourceKey, group);
     });
   });
+
+  for (const group of totals.values()) {
+    group.contributions.sort((left, right) =>
+      JSON.stringify([left.instance, left.exchange['@dataSetInternalID']]).localeCompare(
+        JSON.stringify([right.instance, right.exchange['@dataSetInternalID']]),
+      ),
+    );
+    group.amount = normalizeNumericOutput(
+      group.contributions.reduce((sum, item) => sum + item.amount, 0),
+    );
+    if (group.contributions.some((item) => hasAllocationDeclaration(item.exchange))) {
+      if (group.amount <= 0)
+        throw new CliError(`Zero or signed allocated quantity basis at ${group.key}`, {
+          code: 'LIFECYCLEMODEL_ALLOCATION_TRANSFORMATION_UNSUPPORTED',
+          exitCode: 2,
+        });
+      for (const item of group.contributions) {
+        if (item.alreadyAllocated)
+          throw new CliError(
+            `Already allocated inventory cannot participate in declared allocation at ${item.source}`,
+            {
+              code: 'LIFECYCLEMODEL_ALLOCATION_ALREADY_APPLIED',
+              exitCode: 2,
+            },
+          );
+        if (
+          item.exchange.resultingAmount !== undefined &&
+          Number(item.exchange.meanAmount) !== Number(item.exchange.resultingAmount)
+        )
+          throw new CliError(`Conflicting quantity basis at ${item.source}`, {
+            code: 'LIFECYCLEMODEL_ALLOCATION_QUANTITY_BASIS_CONFLICT',
+            exitCode: 2,
+          });
+      }
+    }
+  }
 
   const instanceById = new Map(options.processInstances.map((item) => [item.instance_id, item]));
   options.edges.forEach((edge) => {
@@ -1269,15 +1425,68 @@ function buildResultingProcessPayload(options: {
       (downstreamRecord.inputAmounts[edge.flow_uuid] ?? 0) *
       downstreamInstance.multiplication_factor;
 
-    ['Output', 'Input'].forEach((direction) => {
-      const key = `${edge.flow_uuid}\u0000${direction}`;
-      const existing = totals.get(key);
-      if (!existing) {
-        return;
+    const downstreamCandidates = [...totals.values()]
+      .flatMap((group) => group.contributions.map((contribution) => ({ group, contribution })))
+      .filter(
+        ({ contribution }) =>
+          contribution.instance === edge.to &&
+          (contribution.exchange.referenceToFlowDataSet as JsonObject)?.['@refObjectId'] ===
+            edge.flow_uuid &&
+          contribution.exchange.exchangeDirection === 'Input',
+      );
+    const upstreamCandidates = [...totals.values()]
+      .flatMap((group) => group.contributions.map((contribution) => ({ group, contribution })))
+      .filter(
+        ({ contribution }) =>
+          contribution.instance === edge.from &&
+          (contribution.exchange.referenceToFlowDataSet as JsonObject)?.['@refObjectId'] ===
+            edge.flow_uuid &&
+          contribution.exchange.exchangeDirection === 'Output',
+      );
+    const affectedAllocationGroup = [...downstreamCandidates, ...upstreamCandidates].some(
+      ({ group }) => group.contributions.some((item) => hasAllocationDeclaration(item.exchange)),
+    );
+    if (
+      instancesWithAllocation.has(edge.from) ||
+      instancesWithAllocation.has(edge.to) ||
+      affectedAllocationGroup
+    ) {
+      if (
+        downstreamCandidates.length !== 1 ||
+        upstreamCandidates.length !== 1 ||
+        upstreamCandidates[0].group.key.replace('"Output"', '"Input"') !==
+          downstreamCandidates[0].group.key ||
+        internalAmount < 0
+      ) {
+        throw new CliError(
+          `Allocation cancellation has no unique source lineage at ${edge.edge_id}; retain exact endpoint exchanges.`,
+          { code: 'LIFECYCLEMODEL_ALLOCATION_CANCELLATION_AMBIGUOUS', exitCode: 2 },
+        );
       }
-
-      existing.amount = normalizeNumericOutput(existing.amount - internalAmount);
-    });
+      for (const { group, contribution } of [downstreamCandidates[0], upstreamCandidates[0]]) {
+        if (contribution.amount < internalAmount)
+          throw new CliError(
+            `Allocation cancellation exceeds contribution at ${contribution.source}`,
+            { code: 'LIFECYCLEMODEL_ALLOCATION_CANCELLATION_AMBIGUOUS', exitCode: 2 },
+          );
+        contribution.amount = normalizeNumericOutput(contribution.amount - internalAmount);
+        group.amount = normalizeNumericOutput(group.amount - internalAmount);
+      }
+    } else {
+      for (const direction of ['Output', 'Input']) {
+        const groups = [...totals.values()].filter(
+          (group) =>
+            (group.exchange.referenceToFlowDataSet as JsonObject)?.['@refObjectId'] ===
+              edge.flow_uuid && group.exchange.exchangeDirection === direction,
+        );
+        if (groups.length > 1)
+          throw new CliError(`Mixed exact Flow/basis cancellation at ${edge.edge_id}`, {
+            code: 'LIFECYCLEMODEL_CANCELLATION_BASIS_AMBIGUOUS',
+            exitCode: 2,
+          });
+        if (groups[0]) groups[0].amount = normalizeNumericOutput(groups[0].amount - internalAmount);
+      }
+    }
   });
 
   const exchangeItems: JsonObject[] = [];
@@ -1287,16 +1496,70 @@ function buildResultingProcessPayload(options: {
     left[0].localeCompare(right[0]),
   );
 
-  sortedEntries.forEach(([key, payload]) => {
+  const finalIds = new Map<AllocationGroup, string>();
+  for (const [, group] of sortedEntries)
+    if (group.amount > 0) finalIds.set(group, String(finalIds.size + 1));
+  reconcileResultingAllocations(
+    sortedEntries.filter(([, group]) => group.amount > 0).map(([, group]) => group),
+    sourceTargets,
+    finalIds,
+  );
+  if (options.transformationEvidence)
+    Object.assign(options.transformationEvidence, {
+      profile: 'tiangong.resulting-process-allocation.v1',
+      inventory_mode: 'allocation-not-applied-by-builder',
+      allocation_percentage_precision: 3,
+      allocation_percentage_error_bound: 0.001,
+      allocation_absolute_amount_error_bound_factor: 0.00001,
+      allocation_quantization: [...totals.values()].flatMap((group) =>
+        (group.quantization ?? []).map((item) => ({
+          ...item,
+          final_exchange_id: finalIds.get(group) ?? null,
+        })),
+      ),
+      source_processes: options.processInstances.map((instance) => ({
+        instance_id: instance.instance_id,
+        process_id: instance.process_id,
+        version: instance.process_version,
+        content_sha256: sha256Json(
+          options.processRecords[`${instance.process_id}@${instance.process_version}`].raw,
+        ),
+        multiplier: instance.multiplication_factor,
+      })),
+      provenance: [...sourceTargets.entries()].map(([identity, group]) => ({
+        identity: JSON.parse(identity) as unknown,
+        final_exchange_id: finalIds.get(group) ?? null,
+      })),
+      contributions: [...totals.values()].flatMap((group) =>
+        group.contributions.map((item) => ({
+          source: item.source,
+          instance: item.instance,
+          remaining_amount: item.amount,
+          final_exchange_id: finalIds.get(group) ?? null,
+        })),
+      ),
+    });
+  const chosenTarget =
+    sourceTargets.get(
+      JSON.stringify([chosenInstance.instance_id, finalRecord.referenceExchangeInternalId]),
+    ) ??
+    [...totals.values()].find(
+      (group) =>
+        group.contributions.some(
+          (item) =>
+            item.instance === chosenInstance.instance_id &&
+            item.exchange['@dataSetInternalID'] === undefined,
+        ) &&
+        (group.exchange.referenceToFlowDataSet as JsonObject)?.['@refObjectId'] ===
+          finalRecord.referenceFlowUuid &&
+        group.exchange.exchangeDirection === (finalRecord.referenceDirection || 'Output'),
+    );
+  sortedEntries.forEach(([, payload]) => {
     if (payload.amount <= 0) {
       return;
     }
 
-    const [flowUuid, direction] = key.split('\u0000');
-    const quantitativeReference =
-      flowUuid === finalRecord.referenceFlowUuid &&
-      direction === (finalRecord.referenceDirection || 'Output') &&
-      !referenceExchangeInternalId;
+    const quantitativeReference = payload === chosenTarget && !referenceExchangeInternalId;
 
     const internalId = String(nextInternalId);
     nextInternalId += 1;
@@ -1381,7 +1644,7 @@ function buildResultingProcessPayload(options: {
     : {};
   modellingAndValidation.LCIMethodAndAllocation = lciMethod;
   const typeOfDataSet =
-    firstNonEmpty(options.metadataOverrides.type_of_data_set) ?? 'partly terminated system';
+    firstNonEmpty(options.metadataOverrides.type_of_data_set) ?? 'Partly terminated system';
   lciMethod.typeOfDataSet = typeOfDataSet;
 
   dataInfo.generatedFromLifecycleModel = {
@@ -1466,6 +1729,7 @@ async function buildProjectionBundle(options: {
     'Remote writes remain gated behind an explicit publish layer.',
   ];
 
+  const transformationEvidence: JsonObject = {};
   const primaryPayload = buildResultingProcessPayload({
     sourceModelId: modelIdentity.id,
     sourceModelVersion: modelIdentity.version,
@@ -1481,8 +1745,17 @@ async function buildProjectionBundle(options: {
     referenceProcessInstanceId: referenceProcessInstance,
     metadataOverrides: options.request.projection.metadata_overrides,
     attachGraphSnapshotUri: options.request.projection.attach_graph_snapshot_uri,
+    semanticContext: options.request.semantic_context,
+    transformationEvidence,
   });
 
+  transformationEvidence.candidate_sha256 = sha256Json(primaryPayload);
+  const outputValidation = validateProcessPayload(
+    primaryPayload,
+    undefined,
+    undefined,
+    options.request.semantic_context,
+  );
   if (options.request.projection.mode === 'all-subproducts') {
     const jsonTg = isRecord(root.json_tg) ? root.json_tg : {};
     const submodels = ensureList<JsonObject>(jsonTg.submodels).filter(isRecord);
@@ -1506,6 +1779,16 @@ async function buildProjectionBundle(options: {
 
   const report = {
     generated_at: nowIso(),
+    validation: outputValidation,
+    qualification: {
+      status: outputValidation.ok
+        ? 'qualified'
+        : outputValidation.allocation_semantics?.status === 'unresolved'
+          ? 'unresolved'
+          : 'failed',
+      publish_ready: outputValidation.ok,
+    },
+    allocation_transformation: transformationEvidence,
     status:
       options.request.publish.intent === 'publish'
         ? 'projected_local_bundle'
@@ -1538,6 +1821,8 @@ async function buildProjectionBundle(options: {
         name: modelIdentity.name,
         json_ordered: primaryPayload,
         metadata: primaryPayload.projectionMetadata,
+        semantic_context: options.request.semantic_context,
+        allocation_transformation: transformationEvidence,
       },
     ],
     relations: [
@@ -1636,6 +1921,7 @@ export async function runLifecyclemodelBuildResultingProcess(
     request_path: requestPath,
     out_dir: outDir,
     status: String(projection.report.status),
+    qualification: projection.report.qualification as { status: string; publish_ready: boolean },
     projected_process_count: 1,
     relation_count: 1,
     source_model: {

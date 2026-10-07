@@ -1,3 +1,7 @@
+import {
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { readJsonArtifact, writeJsonArtifact } from './artifacts.js';
@@ -679,13 +683,17 @@ function buildProcessSchemaGateReport(
   processes: JsonRecord[],
   options: {
     now: Date;
+    semanticContext?: ProcessSemanticContext;
     validateProcessPayloadImpl?: (payload: JsonRecord) => ProcessPayloadValidationResult;
   },
 ): ProcessPublishSchemaGateReport {
   const ruleset = getRuntimeRuleset('process-publish/default');
   const validate = options.validateProcessPayloadImpl ?? validateProcessPayload;
   const processResults = processes.map((process, index) => {
-    const result = validate(process);
+    const result =
+      validate === validateProcessPayload
+        ? validateProcessPayload(process, undefined, undefined, options.semanticContext)
+        : validate(process);
     const summary = extractProcessSummary(process);
     return {
       index,
@@ -800,6 +808,7 @@ export async function runProcessPublishBuild(
       };
       const schemaGate = buildProcessSchemaGateReport(datasets.processes, {
         now,
+        semanticContext: semanticContextFromInput(runManifest),
         validateProcessPayloadImpl: options.validateProcessPayloadImpl,
       });
       writeJsonArtifact(layout.processSchemaGatePath, schemaGate);

@@ -2065,3 +2065,69 @@ test('runProcessRefreshReferences covers non-array auth, snapshot, and detail re
     rmSync(stringFailureDir, { recursive: true, force: true });
   }
 });
+
+test('native refresh reports shared semantic failures using exact cached Flow documents without dispatch', async () => {
+  const { allocationFixture } = await import('./helpers/process-allocation-fixture.js');
+  for (const available of [true, false]) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'cli-refresh-semantic-'));
+    try {
+      const { payload, context } = allocationFixture('Input', 'Elementary flow');
+      mkdirSync(path.join(dir, 'inputs'), { recursive: true });
+      writeFileSync(
+        path.join(dir, 'inputs', 'processes.manifest.json'),
+        JSON.stringify({
+          rows: [{ id: 'proc-semantic', version: '01.00.000', state_code: 0 }],
+          user_id: 'user-1',
+          masked_user_email: 'synthetic',
+        }),
+      );
+      let writes = 0;
+      const fetchImpl = withSupabaseAuthBootstrap(async (url, init) => {
+        assert.equal(init?.method ?? 'GET', 'GET');
+        const parsed = new URL(String(url));
+        if (parsed.pathname === '/auth/v1/user')
+          return makeJsonResponse({ body: { id: 'user-1' } });
+        if (parsed.pathname === '/rest/v1/processes')
+          return makeJsonResponse({
+            body: [
+              {
+                id: 'proc-semantic',
+                version: '01.00.000',
+                state_code: 0,
+                user_id: 'user-1',
+                json: payload,
+              },
+            ],
+          });
+        if (parsed.pathname === '/rest/v1/flows' && available)
+          return makeJsonResponse({
+            body: [
+              {
+                id: '22222222-2222-4222-8222-222222222222',
+                version: '01.00.000',
+                json: context.flow_documents[0],
+              },
+            ],
+          });
+        return makeJsonResponse({ body: [] });
+      });
+      const report = await runProcessRefreshReferences({
+        outDir: dir,
+        reuseManifest: true,
+        apply: true,
+        env: buildSupabaseTestEnv({
+          TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co/functions/v1',
+        }),
+        fetchImpl,
+        syncStateAwareProcessRecordImpl: async () => {
+          writes++;
+          throw new Error('dispatch forbidden');
+        },
+      });
+      assert.equal(writes, 0);
+      assert.equal(report.counts.validation_blocked, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});

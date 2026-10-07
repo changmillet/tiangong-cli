@@ -16,8 +16,8 @@ importers:
         specifier: ^2.112.4
         version: 2.112.4
       '@tiangong-lca/tidas-sdk':
-        specifier: 0.4.1
-        version: 0.4.1
+        specifier: 0.5.1
+        version: 0.5.1
     devDependencies:
       '@types/node':
         specifier: ^24.13.3
@@ -450,8 +450,8 @@ packages:
       '@opentelemetry/api':
         optional: true
 
-  '@tiangong-lca/tidas-sdk@0.4.1':
-    resolution: {integrity: sha512-YVW2lSQl3nQXv2LbMEliQyTji/+gBWcZQvXmuDiCBKAU4LPRXtbXBLhDxk6EfrXyCwY1Yzk3+Jp0nLFt1JXalA==}
+  '@tiangong-lca/tidas-sdk@0.5.1':
+    resolution: {integrity: sha512-Wj/bgHq3SYDpPBmqrNWkpMtdtGTCD7L5yhCyJ/ytfCSzFu+L2ZJ0TQK1t5x10l/7rTln0By0rolE0dMFPuO1WA==}
     engines: {node: 24.19.0}
 
   '@tufjs/canonical-json@2.0.0':
@@ -1273,7 +1273,7 @@ snapshots:
       '@supabase/realtime-js': 2.112.4
       '@supabase/storage-js': 2.112.4
 
-  '@tiangong-lca/tidas-sdk@0.4.1':
+  '@tiangong-lca/tidas-sdk@0.5.1':
     dependencies:
       jsonschema: 1.5.0
       xmltodict: 1.0.5

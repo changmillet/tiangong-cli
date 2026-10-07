@@ -1,3 +1,7 @@
+import {
+  semanticContextFromInput,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 // data-api-relations: contacts, flowproperties, flows, processes, sources, unitgroups
 // data-api-dynamic-relation-expression: options.table
 import { closeSync, chmodSync, fsyncSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
@@ -859,9 +863,10 @@ function validatePayload(
   payload: JsonObject,
   type: ConcreteDatasetSaveDraftType,
   config: DatasetTypeConfig,
+  context: ProcessSemanticContext = {},
 ): DatasetSaveDraftValidationResult {
   const { schema, createEntity } = schemaForConfig(config);
-  if (type === 'process') return validateProcessPayload(payload, schema, createEntity);
+  if (type === 'process') return validateProcessPayload(payload, schema, createEntity, context);
   // SDK schema/entity validation may apply defaults by mutating its input. Keep validation
   // isolated so execution-contract hashing, dispatch, and readback all use the exact input.
   const validationPayload = structuredClone(payload);
@@ -1130,7 +1135,10 @@ function prepareRows(
       config,
       id: identity.id,
       version: identity.version,
-      validation: config && type ? validatePayload(payload, type, config) : null,
+      validation:
+        config && type
+          ? validatePayload(payload, type, config, semanticContextFromInput(row))
+          : null,
     };
   });
 }
@@ -1900,6 +1908,7 @@ async function runExecutionContractBatch(options: {
           structuredClone(beforeImage as JsonObject),
           'process',
           DATASET_CONFIGS.process,
+          { flow_documents: semanticContextFromInput(row.row).flow_documents },
         ),
         beforeSha256: sha256Json(beforeImage as JsonObject),
         desiredSha256: action.desired_sha256,
@@ -2004,7 +2013,10 @@ async function runExecutionContractBatch(options: {
           table: action.table,
           id: action.id,
           payload: row.payload,
-          extraData: { ruleVerification: true },
+          extraData: {
+            ruleVerification: true,
+            semantic_context: semanticContextFromInput(row.row),
+          },
           beforeDispatch,
         });
       } else {
@@ -2021,7 +2033,10 @@ async function runExecutionContractBatch(options: {
           // Only the Process annual-gap repair writes without the platform rule-verification flag;
           // it is exactly the case whose authoring evidence gap the admission records. A support
           // repair is fully valid on both sides, so it keeps the ordinary flag.
-          extraData: { ruleVerification: draftRepairAdmission?.policy !== DRAFT_REPAIR_POLICY },
+          extraData: {
+            ruleVerification: draftRepairAdmission?.policy !== DRAFT_REPAIR_POLICY,
+            semantic_context: semanticContextFromInput(row.row),
+          },
           beforeDispatch,
         });
       }
@@ -2336,7 +2351,10 @@ export async function runDatasetSaveDraft(
           id: row.id!,
           version: row.version!,
           payload: row.payload,
-          extraData: { ruleVerification: true },
+          extraData: {
+            ruleVerification: true,
+            semantic_context: semanticContextFromInput(row.row),
+          },
         });
         reports.push({
           ...baseReport,
@@ -2350,7 +2368,10 @@ export async function runDatasetSaveDraft(
           table: row.config!.table,
           id: row.id!,
           payload: row.payload,
-          extraData: { ruleVerification: true },
+          extraData: {
+            ruleVerification: true,
+            semantic_context: semanticContextFromInput(row.row),
+          },
         });
         reports.push({
           ...baseReport,

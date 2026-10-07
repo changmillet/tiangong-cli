@@ -1,3 +1,4 @@
+import { semanticContextFromInput } from './process-semantic-validation.js';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { writeJsonArtifact, writeJsonLinesArtifact } from './artifacts.js';
@@ -1021,6 +1022,7 @@ async function commit_process_plans(options: {
         id: plan.entity_id,
         version: plan.publish_version,
         payload: process_publish_payload_from_row(plan.row),
+        extraData: { semantic_context: semanticContextFromInput(plan.row) },
         writeMode:
           plan.publish_policy === 'append_only_bump'
             ? 'append_only_insert'

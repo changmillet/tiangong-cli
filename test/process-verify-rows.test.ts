@@ -333,6 +333,10 @@ test('runProcessVerifyRows returns a completed status for fully valid rows and v
         process: {
           processDataSet: {
             processInformation: {
+              quantitativeReference: {
+                '@type': 'Other parameter',
+                functionalUnitOrOther: [lang('1 kg output')],
+              },
               dataSetInformation: {
                 'common:UUID': 'proc-valid',
                 name: {

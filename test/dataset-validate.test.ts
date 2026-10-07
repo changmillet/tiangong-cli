@@ -39,6 +39,15 @@ function readJsonl(filePath: string): unknown[] {
 function validProcessPayload(overrides: Record<string, unknown> = {}) {
   return {
     processDataSet: {
+      processInformation: {
+        quantitativeReference: {
+          '@type': 'Other parameter',
+          functionalUnitOrOther: {
+            '@xml:lang': 'en',
+            '#text': 'Controlled schema isolation fixture',
+          },
+        },
+      },
       modellingAndValidation: {
         dataSourcesTreatmentAndRepresentativeness: {
           annualSupplyOrProductionVolume: [
@@ -221,6 +230,15 @@ test('runDatasetValidate treats process placeholders as invalid authoring conten
         id: 'proc-placeholder',
         json_ordered: validProcessPayload({
           processDataSet: {
+            processInformation: {
+              quantitativeReference: {
+                '@type': 'Other parameter',
+                functionalUnitOrOther: {
+                  '@xml:lang': 'en',
+                  '#text': 'Controlled schema isolation fixture',
+                },
+              },
+            },
             modellingAndValidation: {
               dataSourcesTreatmentAndRepresentativeness: {
                 annualSupplyOrProductionVolume: [{ '@xml:lang': 'en', '#text': '3.6 MJ/year' }],
@@ -636,4 +654,18 @@ test('runDatasetValidate preserves a non-flow Process accounting basis under the
     ),
     true,
   );
+});
+
+test('support schema diagnostics preserve fallback message and code through the shared row report', async () => {
+  const report = await runDatasetValidate({
+    inputPath: 'memory',
+    rawInput: { flowDataSet: {} },
+    type: 'flow',
+    schemas: { flow: { safeParse: () => ({ success: false, error: { issues: [{}] } }) } },
+  });
+  assert.deepEqual(report.rows[0].issues[0], {
+    path: '<root>',
+    message: 'Validation failed',
+    code: 'custom',
+  });
 });

@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: ab4d851a92767b57378c08f3f4ab24ce0d78a8c5
-lastReviewedNote: 'Reviewed CLI #403: version-only 0.1.25 preparation from merged PCR task snapshots PR #402; package identity and eight directly bound fixtures advance, with runtime/dependencies/lock/exports/workflows unchanged.'
+lastReviewedAt: 2026-10-07
+lastReviewedCommit: 6e5318c2a018e159d22ce85bdd633434e29e930f
+lastReviewedNote: 'Reviewed CLI #382/#405: source-instance allocation conservation, pure SDK semantic qualification, all-Process mutation admission and exact current-user Flow evidence; candidate export remains distinct from qualified admission.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -187,3 +187,11 @@ Publication floor: new-identity publication (tag creation and release) requires 
 The event SHA and workflow-definition SHA are separate facts (`github.sha` and `github.workflow_sha`). Both tag pushes and exact-tag dispatch must match the resolved release commit; a moved tag or divergent workflow fails before publication. The workflow regression reads the actual YAML-to-shell bindings so one SHA cannot be substituted for the other. The shared source policy is loaded as ESM by the private CommonJS helpers without requiring a build or application runtime imports.
 
 Git-backed test fixtures must clear inherited repository routing (`GIT_DIR`, `GIT_COMMON_DIR`, `GIT_WORK_TREE`, index/object paths and prefix) before running Git or release-shell commands in temporary repositories. Preserve scoped configuration/credential inputs. The release-context suite exercises a foreign Git hook environment and verifies its config, HEAD, index and files remain byte-identical. This isolation is required when the suite runs from the pre-push hook in a linked worktree.
+
+## Allocation/reference validation changes
+
+Use the actual pinned SDK, complete Process and Flow documents and the public generator/write routes. Cover Input and Output recipients for Product and Waste Flows, rejection of Elementary targets, exact UUID/version and byte hashes, unresolved local coverage, and strict draft/publish zero-dispatch behavior. Remote admission must reject caller-forged types, changed same-identity bytes and unavailable/ambiguous current-user evidence. Preserve the bounded annual-volume draft-repair exception without admitting semantic failures.
+
+Resulting-process proof must validate the emitted payload unchanged, assert the real report, preserve source-instance/exchange identity through renumbering, and prove weighted allocation conservation (10 at 60/40 plus 20 at 30/70 produces 30 at 40/60). Include source reorder, compatible target merges, multipliers, legacy whole-inventory shares, unrepresentable default-one legacy conversion, deterministic cancellation and ambiguous cancellation. Helper coverage supplements the public command evidence. Candidate-package qualification is distinct from released CLI/SDK and Foundry managed-runtime adoption; record the exact published dependency and runtime binding before claiming that acceptance.
+
+Allocation serialization follows the public three-decimal `Perc` boundary using deterministic largest remainder, tied by stable final target numbering. The sidecar reports actual percentage/amount error per target and bounds error below 0.001 percentage points, or inventory amount × 0.00001; conservation is qualified within this tolerance.

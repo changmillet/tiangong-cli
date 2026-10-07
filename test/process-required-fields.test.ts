@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { loadDistModule } from './helpers/load-dist-module.js';
 import {
   __testInternals,
   collectProcessPlaceholderIssues,
@@ -13,6 +14,24 @@ import {
 function writeJsonl(filePath: string, rows: unknown[]): void {
   writeFileSync(filePath, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8');
 }
+
+test('built required-field completion preserves bounded missing-evidence behavior after pure helper isolation', async () => {
+  const built = await loadDistModule<typeof import('../src/lib/process-required-fields.js')>(
+    'src/lib/process-required-fields.js',
+  );
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cli-built-required-fields-'));
+  try {
+    const report = await built.runProcessRequiredFieldsComplete({
+      inputPath: 'memory',
+      rawInput: [processRow()],
+      outPath: path.join(dir, 'rows.jsonl'),
+    });
+    assert.equal(report.status, 'completed_with_blockers');
+    assert.equal(report.rows[0].status, 'blocked');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function readJson(filePath: string): unknown {
   return JSON.parse(readFileSync(filePath, 'utf8'));

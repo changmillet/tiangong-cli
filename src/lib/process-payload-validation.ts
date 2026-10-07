@@ -1,3 +1,7 @@
+import {
+  analyzeProcessPayloadSemantics,
+  type ProcessSemanticContext,
+} from './process-semantic-validation.js';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import {
   normalizeIssuePath,
@@ -27,6 +31,7 @@ export type ProcessPayloadValidationIssue = {
 };
 
 export type ProcessPayloadValidationResult = {
+  allocation_semantics?: ReturnType<typeof analyzeProcessPayloadSemantics>;
   payload_sha256?: string;
   validation_layers?: DatasetValidationLayers;
 } & (
@@ -80,7 +85,9 @@ export function validateProcessPayload(
   payload: JsonObject,
   schema: SafeParseSchema = getProcessSchema(),
   createEntity: SdkValidationFactory | null = getProcessFactory(),
+  context: ProcessSemanticContext = {},
 ): ProcessPayloadValidationResult {
+  const allocation_semantics = analyzeProcessPayloadSemantics(payload, context);
   const outcome = validateSchemaWithDeepFallback(schema, structuredClone(payload), createEntity);
   const requiredFieldIssues = collectProcessRequiredFieldIssues(payload);
   const placeholderIssues = collectProcessPlaceholderIssues(payload);
@@ -92,6 +99,7 @@ export function validateProcessPayload(
   );
 
   if (
+    allocation_semantics.status === 'passed' &&
     outcome.success &&
     requiredFieldIssues.length === 0 &&
     placeholderIssues.length === 0 &&
@@ -103,10 +111,12 @@ export function validateProcessPayload(
       issue_count: 0,
       issues: [],
       ...evidence,
+      allocation_semantics,
     };
   }
 
   const issues = [
+    ...allocation_semantics.issues,
     ...outcome.issues.map((issue) => ({
       path: normalizeIssuePath(issue.path),
       message: issue.message ?? 'Validation failed',
@@ -123,6 +133,7 @@ export function validateProcessPayload(
     issue_count: issues.length,
     issues,
     ...evidence,
+    allocation_semantics,
   };
 }
 

@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: 4fcbcebf2d18a08f201556db63e7faa7657ffac7
-lastReviewedNote: 'Reviewed CLI #401 native command routing and PCR-owned scientific semantics; no duplicate method interpretation or executable provisioning is introduced.'
+lastReviewedAt: 2026-10-07
+lastReviewedCommit: 6e5318c2a018e159d22ce85bdd633434e29e930f
+lastReviewedNote: 'Reviewed CLI #382/#405: source-instance allocation conservation, pure SDK semantic qualification, all-Process mutation admission and exact current-user Flow evidence; candidate export remains distinct from qualified admission.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1396,3 +1396,11 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 先判断它是不是稳定的业务动作，再决定它是不是应该进入 `tiangong-lca` 命令树。
 
 PCR 任务快照由 `src/lib/pcr-snapshot-*.ts` 管理。新任务通过 `pcr snapshot ensure` 选择已发布且兼容的内容，并保存不可变任务 pin；后续 `pcr exec` 强制使用该快照和首次明确选择的已安装 PCR 工具。详见 [任务快照契约](agents/pcr-snapshot-contract.md)。PCR 核心继续负责离线只读语义，不新增运行时依赖。
+
+### Process allocation 与 resulting-process 验证
+
+Process 的共享验证器增加独立的 `allocation_semantics` 结果：报告 candidate SHA256、精确 Flow UUID/version 与内容 SHA256、SDK profile/tolerance，以及 passed/failed/unresolved coverage。本地输入在包装对象中提供 `semantic_context.flow_documents`（完整 Flow dataset）；离线缺失证据返回 unresolved，draft/publish 严格阻止写入。远程 Process create/save/publish 派发前会通过当前用户 RLS 重新读取精确 allocation target Flow，并核对本地证据内容，不能用伪造的 Product Flow JSON 绕过实际 Elementary Flow 的限制。合法 target 可以是 Input 或 Output，类型必须为 Product 或 Waste；CLI 不替消费者选择 recipient。
+
+`build-resulting-process` 按精确 Flow version、方向与数量基准聚合，并以 source process instance + exchange ID 保留 lineage。allocation 使用贡献数量加权（10@60/40 + 20@30/70 => 30@40/60），同目标合并后的 share 求和；乘数先作用于贡献数量，builder 不重复应用 allocation coefficient。SDK 的 legacy Output shares 对整个 inventory 生效。无法守恒的 default-one legacy 转换、已分配 inventory、矛盾 amount 字段、signed/zero contribution、失去目标或非唯一 cancellation 会显式阻止；唯一兼容 endpoint cancellation 可以继续。输出 sidecar 记录 source-to-final identity、贡献数量与 candidate hash，报告使用真实共享验证器验证未经修改的最终 payload。
+
+Allocation serialization follows the public three-decimal `Perc` boundary using deterministic largest remainder, tied by stable final target numbering. The sidecar reports actual percentage/amount error per target and bounds error below 0.001 percentage points, or inventory amount × 0.00001; conservation is qualified within this tolerance.
