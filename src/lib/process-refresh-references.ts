@@ -1085,10 +1085,19 @@ function appendReportRow(reportFile: string, record: ProgressRecord): void {
   );
 }
 
-function resolvedFlowDocuments(cache: Map<string, LatestReferenceCacheEntry>): JsonObject[] {
-  return [...cache.entries()]
-    .filter(([key, entry]) => key.startsWith('flows:') && entry.row !== null)
-    .map(([, entry]) => entry.row!.json);
+function resolvedFlowDocuments(
+  cache: Map<string, LatestReferenceCacheEntry>,
+  refs: CollectedReference[],
+): JsonObject[] {
+  const flowIds = new Set(
+    refs
+      .filter(({ node }) => tableForReferenceType(node['@type']) === 'flows')
+      .map(({ node }) => node['@refObjectId']),
+  );
+  return [...flowIds].flatMap((id) => {
+    const row = cache.get(`flows:${id}`)!.row;
+    return row ? [row.json] : [];
+  });
 }
 
 async function processOne(options: {
@@ -1149,7 +1158,7 @@ async function processOne(options: {
     const validation =
       options.validateProcessPayloadImpl === validateProcessPayload
         ? validateProcessPayload(payload, undefined, undefined, {
-            flow_documents: resolvedFlowDocuments(options.refCache),
+            flow_documents: resolvedFlowDocuments(options.refCache, refs),
           })
         : options.validateProcessPayloadImpl(payload);
 
@@ -1193,7 +1202,7 @@ async function processOne(options: {
         version: detail.version,
         payload,
         semanticContext: {
-          flow_documents: resolvedFlowDocuments(options.refCache),
+          flow_documents: resolvedFlowDocuments(options.refCache, refs),
         },
         env: options.env,
         fetchImpl: options.fetchImpl,

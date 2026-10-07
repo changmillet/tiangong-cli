@@ -2131,3 +2131,102 @@ test('native refresh reports shared semantic failures using exact cached Flow do
     }
   }
 });
+
+test('native refresh binds only the current row Flow evidence across the shared fetch cache', async () => {
+  const { allocationFixture } = await import('./helpers/process-allocation-fixture.js');
+  const first = allocationFixture(),
+    second = allocationFixture();
+  const firstFlow = '22222222-2222-4222-8222-222222222222';
+  const secondFlow = '44444444-4444-4444-8444-444444444444';
+  const replace = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      if ((key === '@refObjectId' || key === 'common:UUID') && child === firstFlow)
+        (value as Record<string, unknown>)[key] = secondFlow;
+      else replace(child);
+    }
+  };
+  replace(second.payload);
+  replace(second.context.flow_documents[0]);
+  const versions = new Map<string, string>();
+  const collect = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    const ref = value as Record<string, unknown>;
+    if (typeof ref['@refObjectId'] === 'string' && typeof ref['@version'] === 'string')
+      versions.set(ref['@refObjectId'], ref['@version']);
+    Object.values(value).forEach(collect);
+  };
+  collect(first.payload);
+  collect(second.payload);
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'cli-refresh-row-evidence-'));
+  try {
+    mkdirSync(path.join(dir, 'inputs'), { recursive: true });
+    writeFileSync(
+      path.join(dir, 'inputs', 'processes.manifest.json'),
+      JSON.stringify({
+        rows: ['proc-first', 'proc-second'].map((id) => ({
+          id,
+          version: '01.00.000',
+          state_code: 0,
+        })),
+        user_id: 'user-1',
+        masked_user_email: 'synthetic',
+      }),
+    );
+    const fetchImpl = withSupabaseAuthBootstrap(async (url, init) => {
+      assert.equal(init?.method ?? 'GET', 'GET');
+      const parsed = new URL(String(url));
+      if (parsed.pathname === '/auth/v1/user') return makeJsonResponse({ body: { id: 'user-1' } });
+      if (parsed.pathname === '/rest/v1/processes') {
+        const id = parsed.searchParams.get('id')!.slice(3);
+        return makeJsonResponse({
+          body: [
+            {
+              id,
+              version: '01.00.000',
+              state_code: 0,
+              user_id: 'user-1',
+              json: id === 'proc-first' ? first.payload : second.payload,
+            },
+          ],
+        });
+      }
+      const ids = parsed.searchParams.get('id')!.slice(4, -1).split(',');
+      return makeJsonResponse({
+        body: ids.map((id) => ({
+          id,
+          version: versions.get(id),
+          json: id === secondFlow ? second.context.flow_documents[0] : {},
+        })),
+      });
+    });
+    let writes = 0;
+    const report = await runProcessRefreshReferences({
+      outDir: dir,
+      reuseManifest: true,
+      concurrency: 1,
+      apply: true,
+      env: buildSupabaseTestEnv({
+        TIANGONG_LCA_API_BASE_URL: 'https://example.supabase.co/functions/v1',
+      }),
+      fetchImpl,
+      syncStateAwareProcessRecordImpl: async (options) => {
+        writes++;
+        assert.equal(options.id, 'proc-second');
+        assert.deepEqual(options.semanticContext?.flow_documents, second.context.flow_documents);
+        return {
+          status: 'success',
+          operation: 'save_draft',
+          write_path: 'cmd_dataset_save_draft',
+          rpc_result: { ok: true },
+          visible_row: { id: options.id, version: '01.00.000', user_id: 'user-1', state_code: 0 },
+        };
+      },
+    });
+    assert.equal(report.counts.validation_blocked, 1);
+    assert.equal(report.counts.saved, 1);
+    assert.equal(writes, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
