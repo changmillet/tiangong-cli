@@ -22,8 +22,8 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6e5318c2a018e159d22ce85bdd633434e29e930f
-lastReviewedNote: 'Reviewed CLI #382/#405: source-instance allocation conservation, pure SDK semantic qualification, all-Process mutation admission and exact current-user Flow evidence; candidate export remains distinct from qualified admission.'
+lastReviewedCommit: a438138fa40845a69ad72f96f015d6f36faa4ff6
+lastReviewedNote: 'Reviewed CLI384/385/386/387 builder boundary fixes: exact unique transfers preserve residual inventory, integer instance selection is explicit, activity multipliers scale before final formatting, and singleton exchanges remain schema arrays. Allocation lineage/admission, dependencies, version0.1.26 and release workflow remain unchanged; source delivery requires separate released qualification.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1404,3 +1404,13 @@ Process 的共享验证器增加独立的 `allocation_semantics` 结果：报告
 `build-resulting-process` 按精确 Flow version、方向与数量基准聚合，并以 source process instance + exchange ID 保留 lineage。allocation 使用贡献数量加权（10@60/40 + 20@30/70 => 30@40/60），同目标合并后的 share 求和；乘数先作用于贡献数量，builder 不重复应用 allocation coefficient。SDK 的 legacy Output shares 对整个 inventory 生效。无法守恒的 default-one legacy 转换、已分配 inventory、矛盾 amount 字段、signed/zero contribution、失去目标或非唯一 cancellation 会显式阻止；唯一兼容 endpoint cancellation 可以继续。输出 sidecar 记录 source-to-final identity、贡献数量与 candidate hash，报告使用真实共享验证器验证未经修改的最终 payload。
 
 Allocation serialization follows the public three-decimal `Perc` boundary using deterministic largest remainder, tied by stable final target numbering. The sidecar reports actual percentage/amount error per target and bounds error below 0.001 percentage points, or inventory amount × 0.00001; conservation is qualified within this tolerance.
+
+### Model 边界 inventory 与引用实例
+
+连接未提供 transfer quantity 或竞争分配规则，因此 builder 仅自动处理双方各有唯一 exchange、相同 Flow UUID/version/property/unit basis 的连接，按两端已缩放 contribution 的较小值取消。2 的供给连接 5 的需求保留外部 Input3，5 的供给连接 2 的需求保留 Output3；未连接 inventory 不参与扣减。取消量同时从精确 source instance/exchange contribution 与聚合组扣除，保留 allocation 守恒。重复或竞争 provider/consumer、多个候选 exchange、signed quantity 或不同 exact basis 明确报错，不能靠 edge 顺序猜 split。factor0 节点及其连接禁用，不取消其他有效节点的 boundary inventory。
+
+`referenceToReferenceProcess` 的 schema integer（含0）按 string instance ID 精确匹配；既有非空 string 和 reference object 兼容。显式无效、未解析或重复 instance ID 阻止投影；只有完全省略 reference 才保留既有 first-positive/fallback 行为。builder 不替消费者选另一个产品来修复错误 reference。
+
+Model activity multiplier 要求显式 finite nonnegative numeric scalar，缺失不是科学上的0。乘数保持 JavaScript finite number 精度直到乘法，不能按最终 exchange 截断；5e-11 ×20000000000=1，1.23456e-10 ×10000000000=1.23456。非有限乘法结果报错。最终 inventory 仍沿用既有12位小数格式及 absolute1e-10 cutoff（按该 exchange 的原数量基准），这只是数值输出策略，不构成单位无关的科学可忽略结论；allocation 无法守恒的微小量继续明确阻止。
+
+最终 `exchanges.exchange` 始终是 schema array，即使只保留一个 reference output。默认 type 为 `Partly terminated system`，amount 为 numeric string；supported override 保留，无效 enum 仍由真实 Schema 拒绝。未知 annual volume 仍是单独 authoring evidence 缺项，不伪造年产量。builder 的 validation/qualification 报告区分可保留的诊断 candidate 与 qualified/publish_ready output；释放软件不改历史数据。

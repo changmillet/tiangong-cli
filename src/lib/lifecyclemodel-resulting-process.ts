@@ -690,6 +690,23 @@ function extractProcessInstances(model: JsonObject): ProcessInstance[] {
 
   return instances.filter(isRecord).map((item, index) => {
     const ref = isRecord(item.referenceToProcess) ? item.referenceToProcess : {};
+    const rawFactor = item['@multiplicationFactor'];
+    if (rawFactor === undefined || rawFactor === null || String(rawFactor).trim() === '')
+      throw new CliError('A process instance requires an explicit multiplication factor.', {
+        code: 'LIFECYCLEMODEL_MULTIPLIER_REQUIRED',
+        exitCode: 2,
+      });
+    if (typeof rawFactor !== 'string' && typeof rawFactor !== 'number')
+      throw new CliError('A process instance multiplication factor must be a numeric scalar.', {
+        code: 'LIFECYCLEMODEL_INVALID_NUMBER',
+        exitCode: 2,
+      });
+    const factor = toFiniteNumber(rawFactor, 'processInstance.@multiplicationFactor');
+    if (factor < 0)
+      throw new CliError('A process instance multiplication factor must be nonnegative.', {
+        code: 'LIFECYCLEMODEL_INVALID_NUMBER',
+        exitCode: 2,
+      });
     return {
       instance_id:
         firstNonEmpty(item['@dataSetInternalID'], item['@id'], item.id) ?? `pi-${index + 1}`,
@@ -702,9 +719,7 @@ function extractProcessInstances(model: JsonObject): ProcessInstance[] {
           resolveNameField(ref.name),
           ref['@refObjectId'],
         ) ?? `process-${index + 1}`,
-      multiplication_factor: normalizeNumericOutput(
-        toFiniteNumber(item['@multiplicationFactor'], 'processInstance.@multiplicationFactor'),
-      ),
+      multiplication_factor: factor,
       reference_to_process: copyJson(ref),
       raw: copyJson(item),
     };
@@ -1147,34 +1162,53 @@ function referenceProcessInstanceId(model: JsonObject): string | null {
   const info = isRecord(root.lifeCycleModelInformation) ? root.lifeCycleModelInformation : {};
   const quantitative = isRecord(info.quantitativeReference) ? info.quantitativeReference : {};
   const ref = quantitative.referenceToReferenceProcess;
-  return isRecord(ref) ? firstNonEmpty(ref['@refObjectId'], ref.id) : firstNonEmpty(ref);
+  if (ref === undefined) return null;
+  const value = isRecord(ref) ? (ref['@refObjectId'] ?? ref.id) : ref;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  const id = firstNonEmpty(value);
+  if (id) return id;
+  throw new CliError('The declared reference process instance is invalid.', {
+    code: 'LIFECYCLEMODEL_REFERENCE_INSTANCE_INVALID',
+    exitCode: 2,
+  });
 }
 
 function chooseReferenceInstance(
   processInstances: ProcessInstance[],
   requestedInstanceId: string | null,
 ): ProcessInstance {
+  if (processInstances.length === 0)
+    throw new CliError('Lifecycle model does not contain any process instances.', {
+      code: 'LIFECYCLEMODEL_PROCESS_INSTANCES_REQUIRED',
+      exitCode: 2,
+    });
+  const ids = new Set<string>();
+  for (const instance of processInstances) {
+    if (ids.has(instance.instance_id))
+      throw new CliError(`Duplicate process instance ID ${instance.instance_id}`, {
+        code: 'LIFECYCLEMODEL_REFERENCE_INSTANCE_AMBIGUOUS',
+        exitCode: 2,
+      });
+    ids.add(instance.instance_id);
+  }
   const directMatch = requestedInstanceId
     ? processInstances.find((item) => item.instance_id === requestedInstanceId)
     : null;
   if (directMatch) {
     return directMatch;
   }
+  if (requestedInstanceId !== null)
+    throw new CliError(`Reference process instance ${requestedInstanceId} was not found.`, {
+      code: 'LIFECYCLEMODEL_REFERENCE_INSTANCE_NOT_FOUND',
+      exitCode: 2,
+    });
 
   const scaled = processInstances.find((item) => item.multiplication_factor > 0);
   if (scaled) {
     return scaled;
   }
 
-  const fallback = processInstances[0];
-  if (!fallback) {
-    throw new CliError('Lifecycle model does not contain any process instances.', {
-      code: 'LIFECYCLEMODEL_PROCESS_INSTANCES_REQUIRED',
-      exitCode: 2,
-    });
-  }
-
-  return fallback;
+  return processInstances[0];
 }
 
 function cloneExchangeWithAmount(
@@ -1320,6 +1354,11 @@ function buildResultingProcessPayload(options: {
       const scaledAmount =
         toFiniteNumber(exchange.meanAmount ?? exchange.resultingAmount, 'exchange amount') *
         instance.multiplication_factor;
+      if (!Number.isFinite(scaledAmount))
+        throw new CliError(`Scaled exchange amount is not finite at ${source}`, {
+          code: 'LIFECYCLEMODEL_INVALID_NUMBER',
+          exitCode: 2,
+        });
       if (hasAllocationDeclaration(contributionExchange) && scaledAmount <= 0)
         throw new CliError(`Zero or signed allocated contribution at ${source}`, {
           code: 'LIFECYCLEMODEL_ALLOCATION_TRANSFORMATION_UNSUPPORTED',
@@ -1403,7 +1442,12 @@ function buildResultingProcessPayload(options: {
   }
 
   const instanceById = new Map(options.processInstances.map((item) => [item.instance_id, item]));
-  options.edges.forEach((edge) => {
+  const connections = [...options.edges].sort((left, right) =>
+    JSON.stringify([left.from, left.to, left.flow_uuid, left.edge_id]).localeCompare(
+      JSON.stringify([right.from, right.to, right.flow_uuid, right.edge_id]),
+    ),
+  );
+  connections.forEach((edge) => {
     if (!edge.flow_uuid) {
       return;
     }
@@ -1412,18 +1456,11 @@ function buildResultingProcessPayload(options: {
     if (!downstreamInstance) {
       return;
     }
-
-    const downstreamRecord =
-      options.processRecords[
-        `${downstreamInstance.process_id}@${downstreamInstance.process_version}`
-      ];
-    if (!downstreamRecord) {
+    if (
+      downstreamInstance.multiplication_factor === 0 ||
+      instanceById.get(edge.from)?.multiplication_factor === 0
+    )
       return;
-    }
-
-    const internalAmount =
-      (downstreamRecord.inputAmounts[edge.flow_uuid] ?? 0) *
-      downstreamInstance.multiplication_factor;
 
     const downstreamCandidates = [...totals.values()]
       .flatMap((group) => group.contributions.map((contribution) => ({ group, contribution })))
@@ -1446,46 +1483,44 @@ function buildResultingProcessPayload(options: {
     const affectedAllocationGroup = [...downstreamCandidates, ...upstreamCandidates].some(
       ({ group }) => group.contributions.some((item) => hasAllocationDeclaration(item.exchange)),
     );
-    if (
+    const allocated =
       instancesWithAllocation.has(edge.from) ||
       instancesWithAllocation.has(edge.to) ||
-      affectedAllocationGroup
+      affectedAllocationGroup;
+    const competing = options.edges.some(
+      (other) =>
+        other !== edge &&
+        instanceById.get(other.from)?.multiplication_factor !== 0 &&
+        instanceById.get(other.to)?.multiplication_factor !== 0 &&
+        other.flow_uuid === edge.flow_uuid &&
+        (other.from === edge.from || other.to === edge.to),
+    );
+    if (
+      competing ||
+      downstreamCandidates.length !== 1 ||
+      upstreamCandidates.length !== 1 ||
+      upstreamCandidates[0].group.key.replace('"Output"', '"Input"') !==
+        downstreamCandidates[0].group.key ||
+      downstreamCandidates[0].contribution.amount < 0 ||
+      upstreamCandidates[0].contribution.amount < 0
     ) {
-      if (
-        downstreamCandidates.length !== 1 ||
-        upstreamCandidates.length !== 1 ||
-        upstreamCandidates[0].group.key.replace('"Output"', '"Input"') !==
-          downstreamCandidates[0].group.key ||
-        internalAmount < 0
-      ) {
-        throw new CliError(
-          `Allocation cancellation has no unique source lineage at ${edge.edge_id}; retain exact endpoint exchanges.`,
-          { code: 'LIFECYCLEMODEL_ALLOCATION_CANCELLATION_AMBIGUOUS', exitCode: 2 },
-        );
-      }
-      for (const { group, contribution } of [downstreamCandidates[0], upstreamCandidates[0]]) {
-        if (contribution.amount < internalAmount)
-          throw new CliError(
-            `Allocation cancellation exceeds contribution at ${contribution.source}`,
-            { code: 'LIFECYCLEMODEL_ALLOCATION_CANCELLATION_AMBIGUOUS', exitCode: 2 },
-          );
-        contribution.amount = normalizeNumericOutput(contribution.amount - internalAmount);
-        group.amount = normalizeNumericOutput(group.amount - internalAmount);
-      }
-    } else {
-      for (const direction of ['Output', 'Input']) {
-        const groups = [...totals.values()].filter(
-          (group) =>
-            (group.exchange.referenceToFlowDataSet as JsonObject)?.['@refObjectId'] ===
-              edge.flow_uuid && group.exchange.exchangeDirection === direction,
-        );
-        if (groups.length > 1)
-          throw new CliError(`Mixed exact Flow/basis cancellation at ${edge.edge_id}`, {
-            code: 'LIFECYCLEMODEL_CANCELLATION_BASIS_AMBIGUOUS',
-            exitCode: 2,
-          });
-        if (groups[0]) groups[0].amount = normalizeNumericOutput(groups[0].amount - internalAmount);
-      }
+      throw new CliError(
+        `${allocated ? 'Allocation cancellation has no unique source lineage' : 'Mixed exact Flow/basis cancellation or competing connection'} at ${edge.edge_id}; retain unique exact endpoint exchanges and explicit connection quantities.`,
+        {
+          code: allocated
+            ? 'LIFECYCLEMODEL_ALLOCATION_CANCELLATION_AMBIGUOUS'
+            : 'LIFECYCLEMODEL_CANCELLATION_BASIS_AMBIGUOUS',
+          exitCode: 2,
+        },
+      );
+    }
+    const internalAmount = Math.min(
+      downstreamCandidates[0].contribution.amount,
+      upstreamCandidates[0].contribution.amount,
+    );
+    for (const { group, contribution } of [downstreamCandidates[0], upstreamCandidates[0]]) {
+      contribution.amount = normalizeNumericOutput(contribution.amount - internalAmount);
+      group.amount = normalizeNumericOutput(group.amount - internalAmount);
     }
   });
 
@@ -1620,7 +1655,7 @@ function buildResultingProcessPayload(options: {
   }
 
   finalDataset.exchanges = {
-    exchange: exchangeItems.length === 1 ? exchangeItems[0] : exchangeItems,
+    exchange: exchangeItems,
   };
 
   const administrative = isRecord(finalDataset.administrativeInformation)

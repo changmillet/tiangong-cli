@@ -38,8 +38,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: 0a476fee7569af67f4197a1469bb97666d9911e9
-lastReviewedNote: 'Reviewed CLI #407: version-only 0.1.26 preparation from merged allocation/reference PR #406 at 0a476fee; package identity and eight bound fixtures advance, with runtime, dependencies, lock, exports, authentication and workflows unchanged. Published and managed acceptance remains pending.'
+lastReviewedCommit: a438138fa40845a69ad72f96f015d6f36faa4ff6
+lastReviewedNote: 'Reviewed CLI384/385/386/387 builder boundary fixes: exact unique transfers preserve residual inventory, integer instance selection is explicit, activity multipliers scale before final formatting, and singleton exchanges remain schema arrays. Allocation lineage/admission, dependencies, version0.1.26 and release workflow remain unchanged; source delivery requires separate released qualification.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md

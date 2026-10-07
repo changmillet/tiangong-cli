@@ -911,7 +911,7 @@ test('runLifecyclemodelBuildResultingProcess auto-detects process dirs and write
     const projectedProcess = ((bundle.projected_processes as JsonRecord[])[0] as JsonRecord)
       .json_ordered as JsonRecord;
     const processDataSet = projectedProcess.processDataSet as JsonRecord;
-    const exchanges = (processDataSet.exchanges as JsonRecord).exchange as JsonRecord;
+    const exchanges = ((processDataSet.exchanges as JsonRecord).exchange as JsonRecord[])[0];
     const processInformation = processDataSet.processInformation as JsonRecord;
     const technology = processInformation.technology as JsonRecord;
     const metadata = projectedProcess.projectionMetadata as JsonRecord;
@@ -1818,15 +1818,17 @@ test('lifecyclemodel internal helpers cover extraction, parsing, and discovery f
       technology: {
         processes: {
           processInstance: [
-            {},
+            { '@multiplicationFactor': '0' },
             {
               '@dataSetInternalID': 'second',
+              '@multiplicationFactor': '0',
               referenceToProcess: {
                 '@refObjectId': 'proc-duplicate',
               },
             },
             {
               '@dataSetInternalID': 'third',
+              '@multiplicationFactor': '0',
               referenceToProcess: {
                 '@refObjectId': 'proc-duplicate',
               },
@@ -1875,12 +1877,14 @@ test('lifecyclemodel internal helpers cover extraction, parsing, and discovery f
             processInstance: [
               {
                 '@dataSetInternalID': 'one',
+                '@multiplicationFactor': '0',
                 referenceToProcess: {
                   '@refObjectId': 'proc-a',
                 },
               },
               {
                 '@dataSetInternalID': 'two',
+                '@multiplicationFactor': '0',
                 referenceToProcess: {
                   '@refObjectId': 'proc-a',
                 },
@@ -1898,6 +1902,7 @@ test('lifecyclemodel internal helpers cover extraction, parsing, and discovery f
           processes: {
             processInstance: {
               '@dataSetInternalID': 'proc-edge',
+              '@multiplicationFactor': '0',
               referenceToProcess: {
                 '@refObjectId': 'proc-edge',
               },
@@ -1934,6 +1939,7 @@ test('lifecyclemodel internal helpers cover extraction, parsing, and discovery f
           processes: {
             processInstance: {
               '@dataSetInternalID': 'proc-no-connections',
+              '@multiplicationFactor': '0',
               referenceToProcess: {
                 '@refObjectId': 'proc-no-connections',
               },
@@ -2257,20 +2263,6 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
         exchange_id: null,
         flow_uuid: 'flow-ghost',
       },
-      {
-        edge_id: 'missing-total',
-        from: 'a',
-        to: 'c',
-        exchange_id: null,
-        flow_uuid: 'flow-ghost',
-      },
-      {
-        edge_id: 'missing-input-amount',
-        from: 'a',
-        to: 'c',
-        exchange_id: null,
-        flow_uuid: 'flow-no-input',
-      },
     ],
     processRecords: {
       [`proc-a@${VERSION}`]: {
@@ -2334,8 +2326,9 @@ test('lifecyclemodel internal builders cover fallback-only branches', async () =
   });
   const builtDataset = (builtProcess.processDataSet as JsonRecord).processInformation as JsonRecord;
   assert.equal(
-    (((builtProcess.processDataSet as JsonRecord).exchanges as JsonRecord).exchange as JsonRecord)
-      .meanAmount,
+    (
+      ((builtProcess.processDataSet as JsonRecord).exchanges as JsonRecord).exchange as JsonRecord[]
+    )[0].meanAmount,
     '1',
   );
   assert.equal((builtDataset.quantitativeReference as JsonRecord).referenceToReferenceFlow, '1');
