@@ -32,8 +32,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6e5318c2a018e159d22ce85bdd633434e29e930f
-lastReviewedNote: 'Reviewed CLI #382/#405: source-instance allocation conservation, pure SDK semantic qualification, all-Process mutation admission and exact current-user Flow evidence; candidate export remains distinct from qualified admission.'
+lastReviewedCommit: 0a476fee7569af67f4197a1469bb97666d9911e9
+lastReviewedNote: 'Reviewed CLI #407: version-only 0.1.26 preparation from merged allocation/reference PR #406 at 0a476fee; package identity and eight bound fixtures advance, with runtime, dependencies, lock, exports, authentication and workflows unchanged. Published and managed acceptance remains pending.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml

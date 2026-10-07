@@ -26,14 +26,16 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-07
-lastReviewedCommit: b08147bf9814ff8fbfe7f1f7fd112229b36dedff
-lastReviewedNote: 'Reviewed CLI #382/#405 source and exact SDK 0.5.1 adoption at b08147b; ordinary package consumers, existing authentication and release workflow stay governed by the current contracts. CLI release and managed binding acceptance remain pending.'
+lastReviewedCommit: 0a476fee7569af67f4197a1469bb97666d9911e9
+lastReviewedNote: 'Reviewed CLI #407: version-only 0.1.26 preparation from merged allocation/reference PR #406 at 0a476fee; package identity and eight bound fixtures advance, with runtime, dependencies, lock, exports, authentication and workflows unchanged. Published and managed acceptance remains pending.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
   - ./release-setup.md
   - ./agents/repo-validation.md
 ---
+
+Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
 
 Review note, 2026-10-05: CLI #403 prepares 0.1.25 from merged task-pinned PCR source #401 / PR #402 at main `ab4d851a92767b57378c08f3f4ab24ce0d78a8c5`. The package version and eight directly bound fixture values advance. npm latest remains 0.1.24 and cli-v0.1.25 is absent at preparation; publication still requires the existing four-platform merge-tag and native pnpm OIDC/provenance route. Runtime source, dependencies, lockfile, exports, authorization and release workflows remain unchanged.
 
