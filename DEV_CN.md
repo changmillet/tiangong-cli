@@ -22,9 +22,9 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: expiry-aware action getter preserves owner checks, transport token and no replay. Focused regressions and independent source review are complete; full canonical gate remains pending after a coverage-only failure and added explicit read-recovery proof. No session-layer, dependency, public API or release change.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
