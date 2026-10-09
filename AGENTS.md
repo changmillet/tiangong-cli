@@ -38,8 +38,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: cf321a2c96a3e9c1ecac10d87b526eba0c1cafce
-lastReviewedNote: 'Reviewed intended-application generation: plan-only Process builds require an explicit purpose and its evidence binding; embedded canonical payloads retain their existing schema path. No keyword classifier, SDK/lock, release, installation or remote-write change.'
+lastReviewedCommit: 010b35100919d8525af7c91d3cc8f197d890ba8d
+lastReviewedNote: 'Reviewed PR #413 public-command proof and existing-caller recovery guidance. Synthetic replay records actual launcher exits, gates and payload preservation; production behavior, dependencies and installed runtimes are unchanged, and maintainer compatibility acceptance is separate.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
