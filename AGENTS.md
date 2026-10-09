@@ -38,8 +38,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
-lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: expiry-aware action getter preserves owner checks, transport token and no replay. Focused regressions and independent source review are complete; full canonical gate remains pending after a coverage-only failure and added explicit read-recovery proof. No session-layer, dependency, public API or release change.'
+lastReviewedCommit: 662a33695afdfa3c24eaa2ff0fb547ba63dda578
+lastReviewedNote: 'Reviewed CLI #416 candidate 662a336: version-only 0.1.28 from merged owner-token repair PR #415 at dc3c87d; package identity and eight bound fixtures advance. Runtime, dependencies, frozen lock, exports and workflows are unchanged. Full release gate, four-platform CI, publication verification and root integration remain pending.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
