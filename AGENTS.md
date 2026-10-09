@@ -37,9 +37,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
+lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -69,7 +69,7 @@ Review note, 2026-09-24: CLI #368 synchronizes the 0.2.3 Process reference schem
 
 Private live-account testing is maintainer-only and requires explicit account authorization. Follow [the live case guide](docs/agents/live-case-testing.md); public CLI authentication remains OAuth-only and personal credentials never enter public CI.
 
-Process QA consumes explicitly selected exact Flow/Flow Property/Unit Group evidence through `process-mass-balance.ts`; `process-qa.ts` owns report/finding projection. Keep nonmass or unresolved applicability separate from a physical mass result, retain null unavailable values and hash-bound evidence, and never infer arbitrary composite units or use a version label to restore mixed-dimension arithmetic. Foundry #122 owns downstream evidence selection and transport.
+Process QA consumes explicitly selected exact Flow/Flow Property/Unit Group evidence through `process-mass-balance.ts`; `process-qa.ts` owns report/finding projection. Exact `kg*km` and `t*km` are transport work, excluded from material mass sums; unit tags must preserve the selected reference-unit scale. Keep nonmass or unresolved applicability separate from a physical mass result, retain null unavailable values and hash-bound evidence, and never infer arbitrary composite units or use a version label to restore mixed-dimension arithmetic. Foundry #122 owns downstream evidence selection and transport.
 
 Explicit exact-reference verification follows `docs/agents/exact-reference-intent-contract.md`. Keep strict consumer/actor/reference/review binding and current input rechecks in the CLI owner; preserve default latest/root policy and current-user RLS. Foundry transports the evidence without implementing eligibility or treating a review file as write authority.
 

@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
+lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -151,7 +151,7 @@ Facts that matter:
 
 If the task changes control flow, add or update tests instead of using coverage-ignore pragmas.
 
-Process mass QA tests must prove count and canonical area-time are not added to kg, mass-valued fuels and scaled mass units remain included, exact reference/version/occurrence conflicts and malformed selections fail closed, quantity and aggregate overflow remain actionable, zero-input ratios are not fabricated, and source quantities remain byte-stable. The CLI transport must retain every explicit reference file. Both the new unit owner and existing QA module remain subject to exact full-source coverage without exclusions; local focused coverage alone is not the release gate.
+Process mass QA tests must prove count, canonical area-time and exact `kg*km`/`t*km` transport work are not added to kg. Freight-reference products retain `not_applicable` and null mass results; mixed mass/energy/volume/freight inventories select the exact reference unit occurrence, preserve its factor-one requirement and exclude both freight directions. Conflicting freight unit tags fail without implicit scale conversion. Mass-valued fuels and scaled mass units remain included, exact reference/version/occurrence conflicts and malformed selections fail closed, quantity and aggregate overflow remain actionable, zero-input ratios are not fabricated, and source quantities and selected reference files remain byte-stable. The CLI transport must retain every explicit reference file. Both the new unit owner and existing QA module remain subject to exact full-source coverage without exclusions; local focused coverage alone is not the release gate.
 
 Exact-reference tests must cover default latest behavior, explicit older/public/own-draft success, fresh actor/project mismatch, root and undeclared-reference preservation, role/path collisions, consumer/control-file drift, selected/latest owner/state/payload mismatch, missing transport evidence, exact-payload/review caching, and zero mutation through the real RLS adapter with controlled HTTP responses. The parser and verifier remain under the whole-source 100% gate. See [the protocol contract](exact-reference-intent-contract.md).
 

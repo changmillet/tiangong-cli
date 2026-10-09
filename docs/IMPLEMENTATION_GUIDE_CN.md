@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
+lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -889,7 +889,8 @@ outputs/evidence-search-declaration.json
 
 - 从 `--run-root` 读取 `exports/processes/*.json`
 - 以 v2.2-unit-aware 做基础信息和量纲有效的质量平衡核查：显式重复 `--reference-rows-file` 选择 Flow、Flow Property、Unit Group 精确版本证据，沿参考属性和参考单位解析 kg；质量型燃料仍计入输入
-- 计数、规范面积时间（`m2*a` / `m²*a`）等已知非质量参考产品报告 `not_applicable`，质量与偏差为 null；缺失、冲突、未知单位、无效数量和溢出保留待处理 finding，不猜测任意复合单位
+- 精确 `kg*km` / `t*km` 识别为运输功，保留数量、单位和引用，不进入物料质量和；交换单位标签须与选定参考单位的尺度一致，不隐式换算
+- 计数、规范面积时间（`m2*a` / `m²*a`）、运输功等已知非质量参考产品报告 `not_applicable`，质量与偏差为 null；缺失、冲突、未知单位、无效数量和溢出保留待处理 finding，不猜测任意复合单位
 - `mass_balance` 保留过程 payload 哈希和逐 exchange 的精确引用哈希，`reference_evidence` 保留显式输入文件哈希；不修改数量或引用，跨过程合计仅为诊断，独立 source-model 物理平衡仍必需
 - 写出中英文 markdown review、timing、unit issue log、summary 和 report
 - 在显式启用 `--enable-llm` 时，通过 CLI 的 `TIANGONG_LCA_REVIEW_LLM_*` 运行时做可选语义审核

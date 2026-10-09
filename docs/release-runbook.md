@@ -25,9 +25,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
+lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
