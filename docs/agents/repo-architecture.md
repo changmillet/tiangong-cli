@@ -222,6 +222,8 @@ These modules keep validation, entity-level curation queue build/next/verify sta
 
 Execution-contract mode in `dataset-save-draft-run` is deliberately action-scoped rather than report-directory-scoped. The immutable input binds each ordered row to an `action_id@desired_sha256`, expected insert/update operation, before hash, and earlier-only dependencies. The append-only ledger is rooted in stable platform user state and names one file per owner/project/action identity, so copying a contract or output directory cannot create a replay path. A durable attempt without an outcome is recovered by exact current-owner state-0 payload readback only; terminal and unknown actions are never dispatched again, while unrelated actions may continue. Issue #232 keeps the dependency prefix on its existing serial loop and delegates only unique-target suffix claims, exclusive keys, and fatal stop to `runBoundedBatch`; `executeAction` continues to own PREPARED/readback/no-replay and report ordering.
 
+For each eligible action in commit or dry-run mode, the executor obtains the current token through `getAccessToken`, checks its user id and email against the contract owner, and updates the command transport with that token. The existing session layer reuses a fresh bound session and refreshes within its expiry window under its session locks; the action boundary does not force a token rotation. An owner mismatch fails before the durable attempt and dispatch.
+
 The row-level maintenance family is deliberately split by responsibility:
 
 - `contract` owns the versioned scope, immutable plan, action, approval, and report shapes.
