@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: cf321a2c96a3e9c1ecac10d87b526eba0c1cafce
+lastReviewedNote: 'Reviewed intended-application generation: plan-only Process builds require an explicit purpose and its evidence binding; embedded canonical payloads retain their existing schema path. No keyword classifier, SDK/lock, release, installation or remote-write change.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -77,6 +77,8 @@ pnpm prepush:gate
 ```
 
 Process ownership-version changes require focused `dataset-command`, `process-save-draft`, and `publish` tests in addition to the baseline. Prove exact `modelId`/`modelVersion` forwarding, omission-compatible legacy fallback, rejection of `modelVersion` without `modelId`, precedence among canonical source metadata forms, and absence of any latest-Model lookup. The final proof remains the exact-100% `pnpm prepush:gate`.
+
+Process intended-application generation tests use the real SDK through the public build-plan functions. Prove absent/blank inputs produce the native missing-field report and no materialized artifact, explicit bilingual values survive both plan aliases, evidence binding is required, and all embedded-payload aliases preserve their existing bodies without duplicate plan metadata. These checks establish input presence and preservation, not natural-language correctness or a universal keyword ban.
 
 Annual-volume changes require the real SDK Process schema in `process-annual-volume-policy.test.ts`, not an injected passing validator. Prove schema-valid unknown arrays remain authoring gaps; real quantities (including `9999 kg/year`) and language order survive; malformed shapes remain diagnosable; reference amounts and default units never become annual production; and historical trace metadata cannot bypass validation. Compare the two Process draft command families' complete validation results and exact payload digests. Nested SDK union language errors and duplicate annual-language entries must be reported accurately without treating classification hierarchies as multilingual fields. The private real-case lane freezes source inputs before RED and replays those same inputs after the fix; credential or service failures are not product RED evidence.
 

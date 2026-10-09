@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-07
-lastReviewedCommit: 6d3515e7bc58b5e2fc2ff26344600e0d77c9037b
-lastReviewedNote: 'CLI410 prepares separate version-only0.1.27 from independently reviewed builder boundary source PR409 at main6d3515e7. Package identity and eight directly bound fixtures advance; runtime, exact SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Required four-platform, official publication, installed public builder and workspace qualification remain separate acceptance.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: cf321a2c96a3e9c1ecac10d87b526eba0c1cafce
+lastReviewedNote: 'Reviewed intended-application generation: plan-only Process builds require an explicit purpose and its evidence binding; embedded canonical payloads retain their existing schema path. No keyword classifier, SDK/lock, release, installation or remote-write change.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -173,7 +173,7 @@ These modules share one contract:
 
 - `src/cli.ts` owns subcommand registration, help, and exit semantics
 - `process/flow identity-preflight` owns embedded/local candidate scan inputs, explicit hybrid-search remote candidate inputs, identity/fingerprint comparison, duplicate/manual-review decisions, and `identity-candidate-sources.json` provenance artifacts before any build-plan or generation step
-- `process/flow build-plan` validates minimum authoring contracts and writes standard gate artifacts before downstream materialization or publish handoff; materialize now creates canonical `processDataSet` / `flowDataSet` wrappers from plan fields when no canonical payload is supplied
+- `process/flow build-plan` validates minimum authoring contracts and writes standard gate artifacts before downstream materialization or publish handoff; materialize now creates canonical `processDataSet` / `flowDataSet` wrappers from plan fields when no canonical payload is supplied Plan-only Process generation requires an explicit, non-empty intended application and its evidence binding instead of synthesizing workflow prose. Embedded canonical payloads keep their own documentation under the existing schema check. Semantic assessment of field meaning stays with the author/reviewer workflow; the CLI does not infer research goals or blacklist scientific identifiers.
 - `process save-draft` validates canonical payloads with `ProcessSchema` before remote writes and accepts `--target-user-id` as an account/write guard that must match the current CLI auth user and any visible draft owner
 - `flow publish-version` and `process publish-build` validate canonical payloads with `FlowSchema` / `ProcessSchema` before publish planning or handoff artifacts proceed
 - Process dataset writers forward nullable `modelVersion` with `modelId`. `publish run` derives an exact source LifecycleModel identity from canonical Process metadata when present, rejects a version without an id, and persists that pair for resulting Processes; it does not discover or substitute the latest Model revision. Missing `modelVersion` deliberately preserves the database's legacy same-version fallback
