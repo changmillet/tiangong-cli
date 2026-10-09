@@ -32,8 +32,8 @@ checkPaths:
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
-lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
 ---
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
@@ -54,7 +54,7 @@ Issue #278 adds a managed Node host interface in source, for the subsequent qual
 
 # TianGong LCA CLI
 
-Package: `@tiangong-lca/cli` Executable: `tiangong-lca` Source package version: `0.1.26` [Published versions](https://www.npmjs.com/package/@tiangong-lca/cli?activeTab=versions) Node: `24.19.0`
+Package: `@tiangong-lca/cli` Executable: `tiangong-lca` Source package version: `0.1.28` [Published versions](https://www.npmjs.com/package/@tiangong-lca/cli?activeTab=versions) Node: `24.19.0`
 
 Repository development is single-track on pnpm `11.24.0` and TypeScript `7.0.2`. The published package remains a clean, package-manager-neutral consumer artifact: it contains runtime files only, not pnpm, TypeScript, Oxlint, tests, source-only tooling, or repository lockfiles.
 

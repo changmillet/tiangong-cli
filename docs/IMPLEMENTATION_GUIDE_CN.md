@@ -22,8 +22,8 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: 8c14076922ca8f16fca87915bc4a7f55a1ac2add
-lastReviewedNote: 'CLI #391: reviewed exact freight-work QA, distinct unit scales, nonmass applicability, immutable input evidence and conservative failures. Dependencies, package version, release workflow and authorization remain unchanged.'
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml

@@ -16,9 +16,9 @@ checkPaths:
   - src/lib/supabase-client.ts
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
-lastReviewedAt: 2026-09-05
-lastReviewedCommit: c1e6009ede464ccf2e34a5b198438e4da2d7246e
-lastReviewedNote: 'Reviewed for Issue #214: no direct dependency or package-boundary change is introduced.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: getter-only repair and read-recovery tests reuse existing dependencies. Historical Issue #55 facts and TODOs are preserved.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
