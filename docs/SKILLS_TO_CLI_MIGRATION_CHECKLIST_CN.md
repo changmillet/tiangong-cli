@@ -17,9 +17,9 @@ checkPaths:
   - package.json
   - src/**
   - test/**
-lastReviewedAt: 2026-09-05
-lastReviewedCommit: c1e6009ede464ccf2e34a5b198438e4da2d7246e
-lastReviewedNote: 'Reviewed for Issue #214: the remote identity and derivative contract cleanup adds no skill-owned compatibility surface.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
+lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: getter-only execution-contract repair stays in the native CLI and adds no skill-owned runtime, transport or dependency. Historical migration evidence is preserved.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml

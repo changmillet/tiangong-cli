@@ -16,9 +16,9 @@ checkPaths:
   - src/lib/supabase-client.ts
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
-lastReviewedAt: 2026-09-05
-lastReviewedCommit: c1e6009ede464ccf2e34a5b198438e4da2d7246e
-lastReviewedNote: 'Reviewed for Issue #214: no direct dependency or package-boundary change is introduced.'
+lastReviewedAt: 2026-10-09
+lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
+lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: getter-only execution-contract repair reuses existing session/runtime dependencies. No dependency or package-boundary change; historical Issue #55 facts and TODOs are preserved.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
