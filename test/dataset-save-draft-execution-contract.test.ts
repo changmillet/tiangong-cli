@@ -663,6 +663,83 @@ test('execution contract refreshes once when the session expires during a batch'
   }
 });
 
+test(
+  'execution contract parallel suffix shares one expiry refresh and dispatches current owner tokens',
+  { timeout: 10_000 },
+  async (t) => {
+    const start = Date.parse('2026-10-09T00:00:00.000Z');
+    t.mock.timers.enable({ apis: ['Date'], now: start });
+    t.mock.method(globalThis, 'fetch', () => {
+      throw new Error('Non-injected network access is forbidden.');
+    });
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-execution-contract-parallel-expiry-'));
+    const desired = Array.from({ length: 3 }, (_, index) =>
+      flow(`20000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, `Flow ${index}`),
+    );
+    const env = executionEnv(dir, 'parallel-before-expiry');
+    updateExecutionSession(env, { expires_at: start / 1_000 + 3_600 });
+    const initialToken = jwt(OWNER_USER_ID, 'user@example.com', 'parallel-before-expiry');
+    const renewedToken = jwt(OWNER_USER_ID, 'user@example.com', 'parallel-after-expiry');
+    const writes: string[] = [];
+    const authPaths: string[] = [];
+    const edgeTokens: Array<string | null> = [];
+    const baseFetch = executionFetch({ state: new Map(), writes });
+    let initialBeforeReads = 0;
+    let releaseBeforeReads!: () => void;
+    const beforeReadsReady = new Promise<void>((resolve) => {
+      releaseBeforeReads = resolve;
+    });
+    const fetchImpl: FetchLike = async (input, init) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname.startsWith('/auth/')) authPaths.push(pathname);
+      if (pathname === '/auth/v1/oauth/token') {
+        return makeSupabaseAuthResponse({ accessToken: renewedToken, userId: OWNER_USER_ID });
+      }
+      if (pathname === '/rest/v1/flows' && initialBeforeReads < desired.length) {
+        assert.equal(writes.length, 0);
+        assert.deepEqual(authPaths, []);
+        assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${initialToken}`);
+        initialBeforeReads += 1;
+        if (initialBeforeReads === desired.length) {
+          // All workers are still reading before-state; none has passed its final owner check.
+          t.mock.timers.setTime(start + 3_601_000);
+          releaseBeforeReads();
+        }
+        await beforeReadsReady;
+      }
+      if (pathname.includes('/functions/v1/app_dataset_')) {
+        edgeTokens.push(new Headers(init?.headers).get('authorization'));
+      }
+      return baseFetch(input, init);
+    };
+    try {
+      const report = await runDatasetSaveDraft({
+        inputPath: path.join(dir, 'rows.json'),
+        rawInput: { rows: desired },
+        type: 'flow',
+        outDir: path.join(dir, 'out'),
+        commit: true,
+        maxParallel: 3,
+        executionContractPath: writeContract(dir, contract({ desired })),
+        env,
+        fetchImpl,
+      });
+      assert.equal(initialBeforeReads, 3);
+      assert.equal(report.status, 'completed');
+      assert.deepEqual(
+        report.rows.map((row) => row.status),
+        ['executed', 'executed', 'executed'],
+      );
+      assert.equal(report.counts.attempts_consumed, 3);
+      assert.deepEqual([...writes].sort(), desired.map((payload) => identity(payload).id).sort());
+      assert.deepEqual(authPaths, ['/auth/v1/oauth/token', '/auth/v1/oauth/userinfo']);
+      assert.deepEqual(edgeTokens, Array<string>(3).fill(`Bearer ${renewedToken}`));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
 test('execution contract rejects a fresh foreign session replacing the owner during a batch', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-execution-contract-replaced-'));
   const desired = [
