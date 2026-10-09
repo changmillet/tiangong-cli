@@ -18,8 +18,8 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
-lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: getter-only execution-contract repair stays in the native CLI and adds no skill-owned runtime, transport or dependency. Historical migration evidence is preserved.'
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: native getter-only repair and explicit read-recovery tests add no skill runtime, transport or dependency. Historical migration evidence is preserved.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml

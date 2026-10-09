@@ -32,8 +32,8 @@ checkPaths:
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
-lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: execution-contract actions use the expiry-aware session getter while preserving per-action owner checks, current transport token and durable no-replay behavior. Focused regression, lint and build evidence is recorded separately; independent source review is complete and the full canonical gate remains pending. No session-layer, dependency, public API or release change.'
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: expiry-aware action getter preserves owner checks, transport token and no replay. Focused regressions and independent source review are complete; full canonical gate remains pending after a coverage-only failure and added explicit read-recovery proof. No session-layer, dependency, public API or release change.'
 ---
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.

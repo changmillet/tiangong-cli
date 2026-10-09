@@ -38,8 +38,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
-lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: execution-contract actions use the expiry-aware session getter while preserving per-action owner checks, current transport token and durable no-replay behavior. Focused regression, lint and build evidence is recorded separately; independent source review is complete and the full canonical gate remains pending. No session-layer, dependency, public API or release change.'
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: expiry-aware action getter preserves owner checks, transport token and no replay. Focused regressions and independent source review are complete; full canonical gate remains pending after a coverage-only failure and added explicit read-recovery proof. No session-layer, dependency, public API or release change.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md

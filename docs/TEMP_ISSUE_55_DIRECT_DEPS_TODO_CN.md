@@ -17,8 +17,8 @@ checkPaths:
   - src/lib/tidas-sdk-package-validator.ts
   - test/**
 lastReviewedAt: 2026-10-09
-lastReviewedCommit: f8b3ad14e3c26d04ad480c994b74d1ad50a8647a
-lastReviewedNote: 'Reviewed CLI #414 candidate f8b3ad1: getter-only execution-contract repair reuses existing session/runtime dependencies. No dependency or package-boundary change; historical Issue #55 facts and TODOs are preserved.'
+lastReviewedCommit: 6ee127980300a130b0c85d0bf4ffcef742d876da
+lastReviewedNote: 'Reviewed CLI #414 at 6ee1279: getter-only repair and read-recovery tests reuse existing dependencies. Historical Issue #55 facts and TODOs are preserved.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
