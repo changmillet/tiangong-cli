@@ -219,6 +219,7 @@ function fixture(t: import('node:test').TestContext) {
   const controls: {
     onRequest?: (url: URL) => void | Promise<void>;
     transform?: (url: URL, value: unknown) => unknown;
+    payloadReadFailure?: boolean;
     latestBody: JsonObject;
     selectedBody: JsonObject;
     writeBehavior?: 'lost_after_write' | 'lost_before_write';
@@ -255,6 +256,13 @@ function fixture(t: import('node:test').TestContext) {
     const id = url.searchParams.get('id')?.replace(/^eq\./u, '');
     const v = url.searchParams.get('version')?.replace(/^eq\./u, '');
     const table = url.pathname.split('/').at(-1);
+    if (
+      table === 'contacts' &&
+      controls.payloadReadFailure &&
+      url.searchParams.get('select')?.includes('json_ordered')
+    ) {
+      return { ...response({ message: 'private response must not leak' }), ok: false, status: 400 };
+    }
     if (table === 'flows')
       return respond(
         id && state.has(id)
@@ -524,6 +532,7 @@ for (const name of [
 ])
   test(`owner admission rejects ${name} drift`, async (t) => {
     const f = fixture(t);
+    f.controls.payloadReadFailure = name === 'lookup error';
     f.controls.transform = (url, value) => {
       if (name === 'authenticated actor' && url.pathname === '/auth/v1/user')
         return { id: owner, email: 'user@example.com' };
@@ -537,13 +546,17 @@ for (const name of [
       if (name === 'latest owner') return rows.map((row) => ({ ...row, user_id: actor }));
       if (name === 'latest state') return rows.map((row) => ({ ...row, state_code: 20 }));
       if (name === 'latest absent') return [];
-      if (name === 'lookup error') return { error: 'private response must not leak' };
       return value;
     };
     const result = await f.invoke('save-draft', ownerFlags(f, true));
     assert.equal(result.exitCode, 1, result.stderr || result.stdout);
     assert.equal(f.writes.length, 0);
     assert.ok(!JSON.stringify(result).includes('private response must not leak'));
+    if (name === 'lookup error')
+      assert.equal(
+        JSON.parse(result.stdout).rows[0].error.details.references[0].status,
+        'lookup_failed',
+      );
   });
 
 for (const [name, change] of Object.entries({
