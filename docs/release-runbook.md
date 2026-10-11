@@ -25,9 +25,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-10
+lastReviewedCommit: c19e65c61bb7eb81f743e4a57cb90711d1847998
+lastReviewedNote: 'Reviewed CLI #419 at c19e65c: explicit Flow exact-reference admission adds no package version, dependency, lock, public package export, release workflow or credential changes. Full local prepush gate passed with exact 100% source coverage; original caller qualification and any later PR/release remain separate.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
