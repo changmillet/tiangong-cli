@@ -22,9 +22,9 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: cf321a2c96a3e9c1ecac10d87b526eba0c1cafce
-lastReviewedNote: 'Reviewed intended-application generation: plan-only Process builds require an explicit purpose and its evidence binding; embedded canonical payloads retain their existing schema path. No keyword classifier, SDK/lock, release, installation or remote-write change.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'Reviewed PR #413 conflict integration with canonical main 49c4ac5: explicit intended applications and canonical evidence binding, alias precedence, embedded payload path and public proof remain intact; upstream expiry-aware owner-token reuse and CLI 0.1.28 identity are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 related:
   - AGENTS.md
   - .docpact/config.yaml

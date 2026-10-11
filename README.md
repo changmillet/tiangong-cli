@@ -31,9 +31,9 @@ checkPaths:
   - test/auth-identity*.test.ts
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 010b35100919d8525af7c91d3cc8f197d890ba8d
-lastReviewedNote: 'Reviewed PR #413 public-command proof and existing-caller recovery guidance. Synthetic replay records actual launcher exits, gates and payload preservation; production behavior, dependencies and installed runtimes are unchanged, and maintainer compatibility acceptance is separate.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'Reviewed PR #413 conflict integration with canonical main 49c4ac5: explicit intended applications and canonical evidence binding, alias precedence, embedded payload path and public proof remain intact; upstream expiry-aware owner-token reuse and CLI 0.1.28 identity are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 ---
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
@@ -54,7 +54,7 @@ Issue #278 adds a managed Node host interface in source, for the subsequent qual
 
 # TianGong LCA CLI
 
-Package: `@tiangong-lca/cli` Executable: `tiangong-lca` Source package version: `0.1.26` [Published versions](https://www.npmjs.com/package/@tiangong-lca/cli?activeTab=versions) Node: `24.19.0`
+Package: `@tiangong-lca/cli` Executable: `tiangong-lca` Source package version: `0.1.28` [Published versions](https://www.npmjs.com/package/@tiangong-lca/cli?activeTab=versions) Node: `24.19.0`
 
 Repository development is single-track on pnpm `11.24.0` and TypeScript `7.0.2`. The published package remains a clean, package-manager-neutral consumer artifact: it contains runtime files only, not pnpm, TypeScript, Oxlint, tests, source-only tooling, or repository lockfiles.
 

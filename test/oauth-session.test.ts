@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { CliError, toErrorPayload } from '../src/lib/errors.js';
 import type { FetchLike, ResponseLike } from '../src/lib/http.js';
-import type { SupabaseRestRuntime } from '../src/lib/supabase-client.js';
+import { createSupabaseFetch, type SupabaseRestRuntime } from '../src/lib/supabase-client.js';
 import {
   __testInternals,
   createSupabaseDataRuntime,
@@ -872,6 +872,143 @@ test('stale refresh success cannot overwrite a newer login or resurrect a logged
     }
   } finally {
     __testInternals.SESSION_MEMORY_CACHE.clear();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('OAuth data runtime refreshes a fresh rejected read once and never replays a mutation', async () => {
+  __testInternals.SESSION_MEMORY_CACHE.clear();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-oauth-read-recovery-'));
+  const sessionFile = path.join(dir, 'session.json');
+  const { oauthRuntime, stale } = staleRefreshFixture(sessionFile);
+  __testInternals.writeCachedSessionRecord(sessionFile, {
+    ...stale,
+    access_token: 'fresh-rejected-access',
+    expires_at: Math.floor(NOW.getTime() / 1000) + 3600,
+  });
+  const readUrl = 'https://example.supabase.co/rest/v1/flows';
+  const requests: Array<{ url: string; method: string; token: string | null }> = [];
+  let reads = 0;
+  const fetchImpl: FetchLike = async (url, init) => {
+    const method = init?.method ?? 'GET';
+    requests.push({ url, method, token: new Headers(init?.headers).get('authorization') });
+    if (url.endsWith('/auth/v1/oauth/token')) {
+      assert.equal(
+        new URLSearchParams(String(init?.body)).get('refresh_token'),
+        stale.refresh_token,
+      );
+      return jsonResponse({
+        access_token: 'read-recovery-access',
+        refresh_token: 'read-recovery-refresh',
+        token_type: 'bearer',
+        expires_in: 3600,
+        scope: 'email openid profile',
+      });
+    }
+    if (url.endsWith('/auth/v1/oauth/userinfo')) {
+      return jsonResponse({ sub: USER_ID, email: 'fixture@example.com' });
+    }
+    assert.equal(url, readUrl);
+    if (method === 'GET') {
+      reads += 1;
+      return reads === 1 ? jsonResponse({}, 401) : jsonResponse([{ id: 'fixture-flow' }]);
+    }
+    assert.equal(method, 'POST');
+    return jsonResponse({}, 401);
+  };
+  try {
+    const dataRuntime = createSupabaseDataRuntime({ runtime: oauthRuntime, fetchImpl, now: NOW });
+    const supabaseFetch = createSupabaseFetch(fetchImpl, 1000, dataRuntime);
+    const read = await supabaseFetch(readUrl);
+    assert.equal(read.status, 200);
+    assert.deepEqual(await read.json(), [{ id: 'fixture-flow' }]);
+    assert.deepEqual(requests, [
+      { url: readUrl, method: 'GET', token: 'Bearer fresh-rejected-access' },
+      { url: 'https://example.supabase.co/auth/v1/oauth/token', method: 'POST', token: null },
+      {
+        url: 'https://example.supabase.co/auth/v1/oauth/userinfo',
+        method: 'GET',
+        token: 'Bearer read-recovery-access',
+      },
+      { url: readUrl, method: 'GET', token: 'Bearer read-recovery-access' },
+    ]);
+    const persisted = JSON.parse(readFileSync(sessionFile, 'utf8'));
+    assert.equal(persisted.access_token, 'read-recovery-access');
+    assert.equal(persisted.refresh_token, 'read-recovery-refresh');
+    assert.equal(persisted.expires_at, Math.floor(NOW.getTime() / 1000) + 3600);
+    const mutation = await supabaseFetch(readUrl, { method: 'POST', body: '{}' });
+    assert.equal(mutation.status, 401);
+    assert.equal(requests.length, 5);
+    assert.deepEqual(requests[4], {
+      url: readUrl,
+      method: 'POST',
+      token: 'Bearer read-recovery-access',
+    });
+    assert.equal(existsSync(`${sessionFile}.lock`), false);
+  } finally {
+    __testInternals.SESSION_MEMORY_CACHE.clear();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('concurrent independent getters share one successful expired-session refresh', async () => {
+  const independent = await loadDistModule<typeof import('../src/lib/supabase-session.js')>(
+    'src/lib/supabase-session.js',
+  );
+  __testInternals.SESSION_MEMORY_CACHE.clear();
+  independent.__testInternals.SESSION_MEMORY_CACHE.clear();
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-oauth-concurrent-success-'));
+  const sessionFile = path.join(dir, 'session.json');
+  const { oauthRuntime, stale } = staleRefreshFixture(sessionFile);
+  const requests: string[] = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    requests.push(url);
+    if (url.endsWith('/auth/v1/oauth/token')) {
+      assert.equal(init?.method, 'POST');
+      assert.equal(
+        new URLSearchParams(String(init?.body)).get('refresh_token'),
+        stale.refresh_token,
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return jsonResponse({
+        access_token: 'shared-rotated-access',
+        refresh_token: 'shared-rotated-refresh',
+        token_type: 'bearer',
+        expires_in: 3600,
+        scope: 'email openid profile',
+      });
+    }
+    assert.ok(url.endsWith('/auth/v1/oauth/userinfo'));
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer shared-rotated-access');
+    return jsonResponse({ sub: USER_ID, email: 'fixture@example.com' });
+  };
+  try {
+    const clients = [createSupabaseDataRuntime, independent.createSupabaseDataRuntime].map(
+      (createRuntime) => createRuntime({ runtime: oauthRuntime, fetchImpl, now: NOW }),
+    );
+    const tokens = await Promise.all(
+      Array.from({ length: 8 }, (_entry, index) =>
+        clients[index % clients.length]!.getAccessToken(),
+      ),
+    );
+    assert.deepEqual(tokens, Array<string>(8).fill('shared-rotated-access'));
+    assert.deepEqual(requests, [
+      'https://example.supabase.co/auth/v1/oauth/token',
+      'https://example.supabase.co/auth/v1/oauth/userinfo',
+    ]);
+    const persisted = JSON.parse(readFileSync(sessionFile, 'utf8'));
+    assert.equal(persisted.access_token, 'shared-rotated-access');
+    assert.equal(persisted.refresh_token, 'shared-rotated-refresh');
+    assert.equal(persisted.expires_at, Math.floor(NOW.getTime() / 1000) + 3600);
+    assert.deepEqual(await Promise.all(clients.map((client) => client.getAccessToken())), [
+      'shared-rotated-access',
+      'shared-rotated-access',
+    ]);
+    assert.equal(requests.length, 2);
+    assert.equal(existsSync(`${sessionFile}.lock`), false);
+  } finally {
+    __testInternals.SESSION_MEMORY_CACHE.clear();
+    independent.__testInternals.SESSION_MEMORY_CACHE.clear();
     rmSync(dir, { recursive: true, force: true });
   }
 });

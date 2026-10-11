@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 010b35100919d8525af7c91d3cc8f197d890ba8d
-lastReviewedNote: 'Reviewed PR #413 public-command proof and existing-caller recovery guidance. Synthetic replay records actual launcher exits, gates and payload preservation; production behavior, dependencies and installed runtimes are unchanged, and maintainer compatibility acceptance is separate.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'Reviewed PR #413 conflict integration with canonical main 49c4ac5: explicit intended applications and canonical evidence binding, alias precedence, embedded payload path and public proof remain intact; upstream expiry-aware owner-token reuse and CLI 0.1.28 identity are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -221,6 +221,8 @@ These modules keep validation, entity-level curation queue build/next/verify sta
 `lifecyclemodel-save-draft-run` selects create or update only after an exact visible-row lookup, then delegates to the existing actor-bound `save_lifecycle_model_bundle` Edge transport. The official Production OAuth client must be configured with the dedicated `EDGE-BUNDLE-01` database capability in addition to its retained general CLI, core read/write, and Next read/search grants; OAuth scopes do not grant database capabilities. The command report preserves the Edge application's sanitized `code` and `details` for actionable failures, but excludes the raw text held by the generic `REMOTE_REQUEST_FAILED` fallback.
 
 Execution-contract mode in `dataset-save-draft-run` is deliberately action-scoped rather than report-directory-scoped. The immutable input binds each ordered row to an `action_id@desired_sha256`, expected insert/update operation, before hash, and earlier-only dependencies. The append-only ledger is rooted in stable platform user state and names one file per owner/project/action identity, so copying a contract or output directory cannot create a replay path. A durable attempt without an outcome is recovered by exact current-owner state-0 payload readback only; terminal and unknown actions are never dispatched again, while unrelated actions may continue. Issue #232 keeps the dependency prefix on its existing serial loop and delegates only unique-target suffix claims, exclusive keys, and fatal stop to `runBoundedBatch`; `executeAction` continues to own PREPARED/readback/no-replay and report ordering.
+
+For each eligible action in commit or dry-run mode, the executor obtains the current token through `getAccessToken`, checks its user id and email against the contract owner, and updates the command transport with that token. The existing session layer reuses a fresh bound session and refreshes within its expiry window under its session locks; the action boundary does not force a token rotation. An owner mismatch fails before the durable attempt and dispatch.
 
 The row-level maintenance family is deliberately split by responsibility:
 

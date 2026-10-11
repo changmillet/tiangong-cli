@@ -37,9 +37,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 010b35100919d8525af7c91d3cc8f197d890ba8d
-lastReviewedNote: 'Reviewed PR #413 public-command proof and existing-caller recovery guidance. Synthetic replay records actual launcher exits, gates and payload preservation; production behavior, dependencies and installed runtimes are unchanged, and maintainer compatibility acceptance is separate.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'Reviewed PR #413 conflict integration with canonical main 49c4ac5: explicit intended applications and canonical evidence binding, alias precedence, embedded payload path and public proof remain intact; upstream expiry-aware owner-token reuse and CLI 0.1.28 identity are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md

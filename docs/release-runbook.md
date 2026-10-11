@@ -25,15 +25,17 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: cf321a2c96a3e9c1ecac10d87b526eba0c1cafce
-lastReviewedNote: 'Reviewed intended-application generation: plan-only Process builds require an explicit purpose and its evidence binding; embedded canonical payloads retain their existing schema path. No keyword classifier, SDK/lock, release, installation or remote-write change.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
+lastReviewedNote: 'Reviewed PR #413 conflict integration with canonical main 49c4ac5: explicit intended applications and canonical evidence binding, alias precedence, embedded payload path and public proof remain intact; upstream expiry-aware owner-token reuse and CLI 0.1.28 identity are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
   - ./release-setup.md
   - ./agents/repo-validation.md
 ---
+
+Review note, 2026-10-09: CLI #416 prepares the separate version-only 0.1.28 release from owner-token repair #414 / PR #415 at main `dc3c87db715bed7965fc86ab1f6cea36c27c10a9`. The helper selected 0.1.28 from repository/npm 0.1.27 and verified the target unpublished with no `cli-v0.1.28` tag. Package identity alone produced 10 failures in the 136-test fixture suite; advancing eight bound fixture values restored 136/136 passing. Runtime, dependencies, frozen pnpm lock, exports and workflows remain byte-identical. The full release gate, exact-head four-platform CI, automatic merge tag, Trusted Publishing/provenance, installed-consumer verification and exact root integration remain pending. The final release gitlink must also prove inclusion of the original #414 source delivery.
 
 Review note, 2026-10-07: CLI #410 prepares0.1.27 from reviewed lifecyclemodel builder source PR409 at main `6d3515e7bc58b5e2fc2ff26344600e0d77c9037b`. The helper selected0.1.27 from repository/npm latest0.1.26 and proved exact npm/tag absence. Only package identity and eight bound fixture values advance; runtime, SDK0.5.1, dependencies, pnpm lock, exports, authorization and workflows remain unchanged. Exact-head four-platformCI, independent review, automatic merge tag, native Trusted Publishing/provenance, source-free installed public builder/validator checks and required root integration must precede final release acceptance. Foundry223 consumer adoption remains separately owned.
 

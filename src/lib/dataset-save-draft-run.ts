@@ -1571,9 +1571,8 @@ async function renewExecutionOwnerToken(options: {
   commandTransport: NonNullable<Awaited<ReturnType<typeof buildDatasetCommandTransport>>>;
   contract: DatasetSaveDraftExecutionContract;
 }): Promise<void> {
-  const accessToken = options.runtime.refreshAccessToken
-    ? await options.runtime.refreshAccessToken()
-    : await options.runtime.getAccessToken();
+  // The session layer owns expiry and refresh locking; a fresh owner needs no token rotation.
+  const accessToken = await options.runtime.getAccessToken();
   const actor = decodeExecutionActor(accessToken);
   if (
     actor.user_id !== options.contract.owner.user_id ||
