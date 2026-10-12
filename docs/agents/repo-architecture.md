@@ -55,7 +55,7 @@ Managed-host launch selection stays in the generic CLI manager. Dedicated protoc
 
 `dataset reconcile-draft` composes the original contract, ledger and #419 admission parsers in `dataset-save-draft-run.ts` with exact current-user RLS reads and the live identity receipt. `dataset-draft-reconciliation.ts` owns complete-row classification, file stability checks and private create-only evidence publication; `src/cli.ts` owns strict flags/help and exit mapping. Reconciliation keeps current observations and historical ledger facts separate and invokes no mutation transport or repair writer. See the [protocol](../IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft).
 
-Evidence file snapshots compare exact bigint device/inode identities and nanosecond modification times. Resolving a missing ledger suffix requires an existing physical directory ancestor; a platform's `ENOENT` for a child below a regular file cannot make that file an admissible registry ancestor.
+Evidence file snapshots compare exact bigint device/inode identities and nanosecond modification times. Resolving a missing ledger suffix requires an existing physical directory ancestor; a platform's `ENOENT` for a child below a regular file cannot make that file an admissible registry ancestor. Output exclusion reserves NFC-normalized case variants of the registry and its descendants on every platform, including case-sensitive volumes. Comparison normalization never changes the path used for I/O or reported evidence.
 
 ## Repo Shape
 

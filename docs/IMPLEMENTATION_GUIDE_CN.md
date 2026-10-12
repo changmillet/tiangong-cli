@@ -1443,7 +1443,7 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
 
 账本沿用原 project/owner/action 域，验证原 contract hash、action 内容绑定、事件链和原准入；读取前记录 input、contract、intent 和各 action ledger 的原字节事实，发布报告前重新核对这些文件，包括原先不存在的 ledger 仍须不存在。字节变化立即阻止报告发布。#419 Flow-only intent 继续使用原 consumer/occurrence/review parser 和 project/actor 绑定；consumed action 必须保留同一份原选择与准入，省略、改变或仅复制选择文件到其它路径都不能补入原 attempt。
 
-`--out-dir` 的父目录必须已存在，输出目录必须全新、位于 ledger 域外；成功发布创建权限 `0700` 的目录及 `0600` 的 `reconciliation.json`，携带完整正文的证据保留在私有目录。报告只建立新的当前观察，既有 attempt、event、outcome 和历史报告逐字节保留；没有任何 dataset mutation、事件追加、replay、自动授权或普通 `process save-draft` 修复 fallback。非空报告全部行 `equal_eligible` 才退出 0，其它状态退出 1；参数或证据绑定错误按 CLI 错误返回。
+`--out-dir` 的父目录必须已存在，输出目录必须全新、位于 ledger 域外。路径排除比较保守地保留 NFC 规范化后的大小写别名，即使卷区分大小写也不接受这些别名；此比较不改写真正的 I/O 或报告路径。成功发布创建权限 `0700` 的目录及 `0600` 的 `reconciliation.json`，携带完整正文的证据保留在私有目录。报告只建立新的当前观察，既有 attempt、event、outcome 和历史报告逐字节保留；没有任何 dataset mutation、事件追加、replay、自动授权或普通 `process save-draft` 修复 fallback。非空报告全部行 `equal_eligible` 才退出 0，其它状态退出 1；参数或证据绑定错误按 CLI 错误返回。
 
 当前 `equal_eligible` 可以与原 `UNKNOWN` 或 `history.attempt_consumed=false` 同时存在，它既不补写历史成功，也不证明之前发生了 dispatch。`absent` 仅说明本次 own0 查询没有可返回行，不能区分全局不存在与当前不准读取，也不能证明唯一性。服务端若返回不满足指定 owner/state/identity 的行，结果为 `indeterminate/protocol_scope_violation`，不保存正文或其摘要。所有分类都不证明部署、科学正确性、完整 finite 校验、publication readiness 或正式 DATA 接受；既有验证、写入授权和下游 Task 资格继续由各自 owner 处理。
 

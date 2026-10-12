@@ -131,7 +131,10 @@ export function reconciliationOutputDirectory(output: string, ledgerRoot: string
     }
   }
   // A read-only observation must never create anything inside the existing execution registry.
-  if (physical === physicalLedger || physical.startsWith(physicalLedger + path.sep))
+  // Reserve normalized case aliases even when the current volume distinguishes them.
+  const outputKey = physical.normalize('NFC').toUpperCase();
+  const ledgerKey = physicalLedger.normalize('NFC').toUpperCase();
+  if (outputKey === ledgerKey || outputKey.startsWith(ledgerKey + path.sep))
     reconciliationError('Reconciliation output must be outside the execution ledger.');
   if (existsSync(physical))
     reconciliationError('Reconciliation output already exists; select a new evidence directory.');

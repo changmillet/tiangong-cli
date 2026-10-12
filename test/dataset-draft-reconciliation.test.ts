@@ -432,6 +432,35 @@ test('missing ledger suffixes resolve through the existing physical ancestor wit
   }
 });
 
+test('case aliases of present or missing ledger roots stay reserved without changing output spelling', () => {
+  for (const [ledgerName, aliasName] of [
+    ['registry', 'REGISTRY'],
+    ['registré', 'REGISTRE\u0301'],
+  ] as const) {
+    const f = fixture();
+    try {
+      const ledger = path.join(f.root, ledgerName);
+      const alias = path.join(f.root, aliasName);
+      assert.throws(() => reconciliationOutputDirectory(alias, ledger), invalid);
+      assert.equal(fs.existsSync(alias), false);
+      assert.equal(fs.existsSync(ledger), false);
+      fs.mkdirSync(ledger);
+      if (!fs.existsSync(alias)) fs.mkdirSync(alias);
+      for (const output of [alias, path.join(alias, 'observation')]) {
+        assert.throws(() => reconciliationOutputDirectory(output, ledger), invalid);
+      }
+      const sibling = path.join(f.root, 'REGISTRY-SIBLING');
+      assert.equal(
+        reconciliationOutputDirectory(sibling, ledger),
+        path.join(fs.realpathSync(f.root), 'REGISTRY-SIBLING'),
+      );
+      assert.equal(fs.existsSync(sibling), false);
+    } finally {
+      f.close();
+    }
+  }
+});
+
 test('non-directory ledger ancestors fail rather than being treated as an absent registry', () => {
   const f = fixture();
   try {
