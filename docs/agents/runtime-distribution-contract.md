@@ -18,9 +18,9 @@ checkPaths:
   - scripts/bootstrap/**
   - test/runtime-*.test.ts
   - package.json
-lastReviewedAt: 2026-10-05
-lastReviewedCommit: 4fcbcebf2d18a08f201556db63e7faa7657ffac7
-lastReviewedNote: 'Reviewed CLI #401 separate PCR data cache and explicit installed-tool binding using existing download/CommandSpec boundaries; runtime trust anchors and managed Node authorization remain unchanged.'
+lastReviewedAt: 2026-10-13
+lastReviewedCommit: cfdea25e92919fa6c2be316136a7eb54b5c652fd
+lastReviewedNote: 'Reviewed CLI #295 Windows fixture cleanup: bounded retries and a separate test cleanup hook preserve assertion diagnostics. Managed Node context, child drain, leases and runtime production contracts remain unchanged.'
 related:
   - docs/agents/repo-architecture.md
   - docs/agents/repo-validation.md
