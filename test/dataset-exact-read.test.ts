@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -1169,6 +1170,68 @@ test('a real OAuth session switch after the Process read blocks the next Model r
     assert.equal(bodyAuthorization.includes(`Bearer ${foreign}`), false);
     assert.equal(fs.existsSync(f.options.outDir), false);
   } finally {
+    f.close();
+  }
+});
+
+test('restoring the actor after a detected mismatch cannot turn SDK retry into a completed all-found capture', async (t) => {
+  const f = fixture([PROCESS_SELECTION, MODEL_SELECTION]);
+  const read = fs.readFileSync;
+  const first = token();
+  f.options.env = buildSupabaseTestEnv({
+    TIANGONG_LCA_ACCESS_TOKEN: first,
+    XDG_STATE_HOME: path.join(f.root, 'state'),
+  });
+  const file = f.options.env.TIANGONG_LCA_SESSION_FILE!;
+  const original = read(file, 'utf8');
+  let pendingRestore = false;
+  let restored = 0;
+  const bodyAuthorization: string[] = [];
+  const fetch = f.options.fetchImpl;
+  f.options.fetchImpl = async (input, init) => {
+    if (new URL(input).pathname.startsWith('/rest/v1/'))
+      bodyAuthorization.push(new Headers(init?.headers).get('authorization')!);
+    return fetch(input, init);
+  };
+  f.setData((url) => {
+    if (url.pathname.endsWith('/lifecyclemodels')) return [modelRow()];
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        ...JSON.parse(original),
+        access_token: token({ sub: FOREIGN, email: 'user@example.com' }),
+      }),
+    );
+    pendingRestore = true;
+    return [processRow({ model_id: MODEL, model_version: VERSION })];
+  });
+  try {
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      const bytes = read(...args);
+      if (String(args[0]) === file && pendingRestore) {
+        pendingRestore = false;
+        restored += 1;
+        fs.writeFileSync(file, original);
+      }
+      return bytes;
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(runDatasetReadExact(f.options), safeError);
+    assert.equal(
+      restored,
+      1,
+      'the guard observed foreign bytes while the original actor was restored',
+    );
+    assert.deepEqual(
+      f.dataCalls.map((url) => url.pathname),
+      ['/rest/v1/processes'],
+    );
+    assert.deepEqual(bodyAuthorization, [`Bearer ${first}`]);
+    assert.equal(fs.existsSync(f.options.outDir), false);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
     f.close();
   }
 });

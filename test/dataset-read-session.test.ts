@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
 import {
@@ -188,6 +189,99 @@ test('a session switch after the Process response blocks the following Model req
     );
     assert.equal(f.bodies[0]?.authorization, `Bearer ${f.initial}`);
   } finally {
+    f.close();
+  }
+});
+
+test('an actor mismatch permanently invalidates one capture even after the cache is restored before SDK retry or final assertion', async (t) => {
+  const f = fixture();
+  const read = fs.readFileSync;
+  try {
+    const session = await createDatasetReadSession(f.options);
+    const identityBefore = structuredClone(session.identity);
+    const file = f.env.TIANGONG_LCA_SESSION_FILE!;
+    const originalRecord = read(file, 'utf8');
+    f.replaceSession(token({ sub: FOREIGN, email: EMAIL }));
+    let reads = 0;
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      const bytes = read(...args);
+      if (String(args[0]) === file) {
+        reads += 1;
+        // Return the already observed foreign snapshot while restoring the legit account.
+        fs.writeFileSync(file, originalRecord);
+      }
+      return bytes;
+    });
+    syncBuiltinESMExports();
+    const { client, restBaseUrl } = createSupabaseDataClient(
+      session.runtime,
+      f.options.fetchImpl,
+      10_000,
+    );
+    await assert.rejects(
+      runSupabaseQuery(client.from('processes').select('id'), restBaseUrl + '/processes'),
+    );
+    assert.equal(reads, 1, 'SDK retries must not obtain another auth snapshot after invalidation');
+    assert.equal(f.bodies.length, 0, 'restoring the actor must not admit a retry');
+    const requestsBefore = f.requests.length;
+    await assert.rejects(session.assertCurrentActor(), safe);
+    await assert.rejects(session.runtime.getAccessToken(), safe);
+    await assert.rejects(session.runtime.refreshAccessToken!(), safe);
+    assert.equal(reads, 1, 'later current/refresh checks must fail without reading auth again');
+    assert.equal(f.requests.length, requestsBefore);
+    assert.deepEqual(
+      session.identity,
+      identityBefore,
+      'initial valid identity evidence remains intact',
+    );
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    const freshCapture = await createDatasetReadSession(f.options);
+    await freshCapture.assertCurrentActor();
+    assert.equal(
+      await freshCapture.runtime.getAccessToken(),
+      f.initial,
+      'the failure does not invalidate the global session',
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    f.close();
+  }
+});
+
+test('a concurrent getter cannot return its valid token after another in-flight getter invalidates the capture', async (t) => {
+  const f = fixture();
+  const read = fs.readFileSync;
+  try {
+    const session = await createDatasetReadSession(f.options);
+    const file = f.env.TIANGONG_LCA_SESSION_FILE!;
+    const originalRecord = read(file, 'utf8');
+    let injected = false;
+    let concurrentFailure: Promise<unknown> | undefined;
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      const bytes = read(...args);
+      if (String(args[0]) === file && !injected) {
+        injected = true;
+        f.replaceSession(token({ sub: FOREIGN, email: EMAIL }));
+        // Both calls still use the real session getter. The second resolves its foreign
+        // snapshot before the first resumes from its valid snapshot.
+        concurrentFailure = session.runtime.getAccessToken().catch((error: unknown) => error);
+      }
+      return bytes;
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(session.runtime.getAccessToken(), safe);
+    assert.ok(concurrentFailure);
+    safe(await concurrentFailure);
+    assert.equal(f.bodies.length, 0);
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.writeFileSync(file, originalRecord);
+    await assert.rejects(session.assertCurrentActor(), safe);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
     f.close();
   }
 });

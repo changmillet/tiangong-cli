@@ -1451,7 +1451,7 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
 
 ### dataset read-exact
 
-两个只读命令共用 `dataset-read-session.ts`：首次异步身份核验前冻结 project 配置与预期 actor；每次实际正文 GET 和 401 刷新重试，都校验并返回同一个将用于 Authorization 的 token。用户或可选邮箱发生变化即阻断请求，不允许在核验后重新取一个未核验的 token。相同 actor 的正常刷新仍可重试。发布证据前再次检查当前 session；绑定失败只返回静态错误，不输出 token、其摘要或底层认证异常。
+两个只读命令共用 `dataset-read-session.ts`：首次异步身份核验前冻结 project 配置与预期 actor；每次实际正文 GET 和 401 刷新重试，都校验并返回同一个将用于 Authorization 的 token。用户或可选邮箱发生变化即阻断请求，不允许在核验后重新取一个未核验的 token。相同 actor 的正常刷新仍可重试。发布证据前再次检查当前 session；本次观察一旦检测到绑定或认证失败，后续 GET、刷新和最终检查持续失败，即使原账号随后恢复，也不能由 SDK 重试隐去失败并发布完整报告。此失效只属于本次观察，不修改全局登录会话。绑定失败只返回静态错误，不输出 token、其摘要或底层认证异常。
 
 `tiangong-lca dataset read-exact --scope-file <file> --scope-sha256 <raw SHA-256> --out-dir <NEW dir> --json` 为有限消费者读取显式 Process / LifecycleModel 来源行，不需要或制造写合同。scope 使用以下独立格式；示例均为合成占位，名单与来源文件必须由实际调用方选择：
 

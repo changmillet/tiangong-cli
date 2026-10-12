@@ -63,9 +63,12 @@ export async function createDatasetReadSession(
     });
     const verifiedUserId = identity.identity.user_id;
     const verifiedProjectBaseUrl = identity.project.project_base_url;
+    let invalidated = false;
     const guardedToken = async (obtain: () => Promise<string>): Promise<string> => {
+      if (invalidated) invalidSession();
       try {
         const token = await obtain();
+        if (invalidated) invalidSession();
         const claims: unknown = JSON.parse(
           Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'),
         );
@@ -85,6 +88,7 @@ export async function createDatasetReadSession(
           invalidSession();
         return token;
       } catch {
+        invalidated = true;
         // Tokens, credential-derived hashes and underlying auth/provider failures are never exposed.
         return invalidSession();
       }
