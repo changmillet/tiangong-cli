@@ -114,38 +114,35 @@ process.stdout.write(JSON.stringify({
 test(
   'actual managed Node host receives the complete verified context before application work',
   { timeout: 60000 },
-  async () => {
+  async (t) => {
     const f = managedHostFixture();
-    try {
-      const result = await executeRuntimeLaunch(f.trusted, {
-        cacheDir: f.cacheDir,
-        cwd: f.dir,
-        entry: 'tool',
-        argv: ['--manifest-sha256=ordinary-untrusted-text'],
-        env: { ...process.env, FOUNDRY_CLI_EXPECTATION: 'not-authority' },
-        fetchImpl: async () => new Response(f.archive),
-      });
+    t.after(f.close);
+    const result = await executeRuntimeLaunch(f.trusted, {
+      cacheDir: f.cacheDir,
+      cwd: f.dir,
+      entry: 'tool',
+      argv: ['--manifest-sha256=ordinary-untrusted-text'],
+      env: { ...process.env, FOUNDRY_CLI_EXPECTATION: 'not-authority' },
+      fetchImpl: async () => new Response(f.archive),
+    });
 
-      assert.ok(result.stdout.startsWith('host-started\n'), result.stderr);
-      assert.equal(result.status, 0, result.stderr);
-      assert.equal(result.stderr, '');
-      const output = JSON.parse(result.stdout.slice('host-started\n'.length));
-      assert.deepEqual(output, {
-        sha256: f.trusted.sha256,
-        original: f.bytes.toString('base64'),
-        product: f.trusted.manifest.product,
-        cwd: fs.realpathSync(f.dir),
-        cacheDir: fs.realpathSync(f.cacheDir),
-        entry: 'tool',
-        connected: false,
-        argv: ['--manifest-sha256=ordinary-untrusted-text'],
-        injected: null,
-        frozen: true,
-      });
-      assert.equal(leasedRuntimeKeys(f.cacheDir).size, 0);
-    } finally {
-      f.close();
-    }
+    assert.ok(result.stdout.startsWith('host-started\n'), result.stderr);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    const output = JSON.parse(result.stdout.slice('host-started\n'.length));
+    assert.deepEqual(output, {
+      sha256: f.trusted.sha256,
+      original: f.bytes.toString('base64'),
+      product: f.trusted.manifest.product,
+      cwd: fs.realpathSync(f.dir),
+      cacheDir: fs.realpathSync(f.cacheDir),
+      entry: 'tool',
+      connected: false,
+      argv: ['--manifest-sha256=ordinary-untrusted-text'],
+      injected: null,
+      frozen: true,
+    });
+    assert.equal(leasedRuntimeKeys(f.cacheDir).size, 0);
   },
 );
 

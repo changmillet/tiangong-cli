@@ -129,6 +129,7 @@ export function runtimeComponentFixture() {
     manifestPath,
     sha256: hash(manifestBytes),
     cacheDir: path.join(dir, 'cache'),
-    close: () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    // Extracted executables can remain briefly locked by Windows after their child exits.
+    close: () => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }),
   };
 }

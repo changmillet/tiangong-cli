@@ -170,6 +170,8 @@ Finite source-read tests exercise the real public command with synthetic exact R
 
 The packed-consumer gate runs both commands through the installed public launcher from an unrelated empty caller directory with synthetic GET-only transport. It checks actual identity receipt package version, full row results and unchanged original inputs/state. Source imports, help or `--version` alone do not cover the library-to-emitted-package location used by these commands.
 
+Evidence-file regressions must retain exact 64-bit device/inode differences beyond Number's safe integer range and reject replacement before reading bytes. Ledger-path tests must reject a regular-file ancestor even when the platform reports its missing child as `ENOENT`, while retaining valid missing-directory and symlink-parent behavior.
+
 Read-session tests must exercise the real Data API adapter with controlled OAuth-session changes before the first body request, between Process and Model or reconciliation rows, and during 401 refresh. Foreign tokens must never reach a body endpoint; same-actor refresh must use the newly validated token. Configuration or token-source changes between validation and transport must not substitute another request token. A detected session failure permanently invalidates that observation instance: restoring the original account before an SDK retry must not produce an all-found completed report. Concurrent token getters also withhold results after invalidation. Session failures publish no completed evidence and expose no authentication details.
 
 A good PR note for this repo should say:

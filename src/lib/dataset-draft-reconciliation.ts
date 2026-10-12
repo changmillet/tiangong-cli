@@ -10,7 +10,9 @@ import {
   openSync,
   readFileSync,
   realpathSync,
+  statSync,
   writeFileSync,
+  type BigIntStats,
 } from 'node:fs';
 import path from 'node:path';
 import { sha256Json } from './dataset-maintenance-contract.js';
@@ -58,9 +60,9 @@ export function reconciliationFileFact(
   maxBytes = 32 * 1024 * 1024,
 ): ReconciliationFileFact {
   let descriptor: number;
-  let entry: ReturnType<typeof lstatSync>;
+  let entry: BigIntStats;
   try {
-    entry = lstatSync(file);
+    entry = lstatSync(file, { bigint: true });
     if (!entry.isFile())
       reconciliationError('Reconciliation input must be a bounded regular file.');
     descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -70,11 +72,19 @@ export function reconciliationFileFact(
     throw error;
   }
   try {
-    const stat = fstatSync(descriptor);
-    if (!stat.isFile() || stat.dev !== entry.dev || stat.ino !== entry.ino || stat.size > maxBytes)
+    const stat = fstatSync(descriptor, { bigint: true });
+    if (
+      !stat.isFile() ||
+      stat.dev !== entry.dev ||
+      stat.ino !== entry.ino ||
+      stat.size > BigInt(maxBytes)
+    )
       reconciliationError('Reconciliation input must be a bounded regular file.');
     const bytes = readFileSync(descriptor);
-    if (bytes.length !== stat.size || fstatSync(descriptor).mtimeMs !== stat.mtimeMs)
+    if (
+      BigInt(bytes.length) !== stat.size ||
+      fstatSync(descriptor, { bigint: true }).mtimeNs !== stat.mtimeNs
+    )
       reconciliationError('Reconciliation input changed during observation.');
     return {
       path: file,
@@ -109,7 +119,10 @@ export function reconciliationOutputDirectory(output: string, ledgerRoot: string
   let physicalLedger: string;
   for (;;) {
     try {
-      physicalLedger = path.join(realpathSync(ancestor), ...missing.reverse());
+      const physicalAncestor = realpathSync(ancestor);
+      if (!statSync(physicalAncestor).isDirectory())
+        reconciliationError('Reconciliation ledger ancestor must be a directory.');
+      physicalLedger = path.join(physicalAncestor, ...missing.reverse());
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

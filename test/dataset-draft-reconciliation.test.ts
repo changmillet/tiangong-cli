@@ -238,10 +238,11 @@ test('changes during byte reads or metadata observation fail closed and release 
     for (const mode of ['short-read', 'changed-time', 'read-error']) {
       let descriptor = -1;
       let stats = 0;
-      t.mock.method(fs, 'fstatSync', (fd: number) => {
+      t.mock.method(fs, 'fstatSync', (fd: number, options?: { bigint?: boolean }) => {
+        assert.equal(options?.bigint, true);
         descriptor = fd;
-        const value = stat(fd);
-        if (mode === 'changed-time' && ++stats === 2) value.mtimeMs += 1;
+        const value = stat(fd, { bigint: true });
+        if (mode === 'changed-time' && ++stats === 2) value.mtimeNs += 1n;
         return value;
       });
       if (mode !== 'changed-time') {
@@ -251,7 +252,9 @@ test('changes during byte reads or metadata observation fail closed and release 
         });
       }
       syncBuiltinESMExports();
-      assert.throws(() => reconciliationFileFact(f.file));
+      if (mode === 'read-error')
+        assert.throws(() => reconciliationFileFact(f.file), /synthetic local I\/O failure/u);
+      else assert.throws(() => reconciliationFileFact(f.file), invalid);
       assert.throws(() => stat(descriptor), { code: 'EBADF' });
       t.mock.restoreAll();
       syncBuiltinESMExports();
@@ -271,12 +274,13 @@ test('replacement between path precheck and open fails before reading and closes
     for (const replacement of ['nonregular', 'different-device', 'different-inode']) {
       let descriptor = -1;
       let reads = 0;
-      t.mock.method(fs, 'fstatSync', (fd: number) => {
+      t.mock.method(fs, 'fstatSync', (fd: number, options?: { bigint?: boolean }) => {
+        assert.equal(options?.bigint, true);
         descriptor = fd;
-        const value = stat(fd);
+        const value = stat(fd, { bigint: true });
         if (replacement === 'nonregular') value.isFile = () => false;
-        if (replacement === 'different-device') value.dev += 1;
-        if (replacement === 'different-inode') value.ino += 1;
+        if (replacement === 'different-device') value.dev += 1n;
+        if (replacement === 'different-inode') value.ino += 1n;
         return value;
       });
       t.mock.method(fs, 'readFileSync', () => {
@@ -290,6 +294,42 @@ test('replacement between path precheck and open fails before reading and closes
       t.mock.restoreAll();
       syncBuiltinESMExports();
     }
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    f.close();
+  }
+});
+
+test('distinct 64-bit file IDs that collapse to the same number still reject replacement before reading', (t) => {
+  const f = fixture();
+  const lstat = fs.lstatSync;
+  const stat = fs.fstatSync;
+  const first = 2n ** 60n;
+  const second = first + 1n;
+  let descriptor = -1;
+  let reads = 0;
+  try {
+    fs.writeFileSync(f.file, 'synthetic');
+    assert.notEqual(first, second);
+    assert.equal(Number(first), Number(second), 'this is the numeric-ID RED condition');
+    t.mock.method(fs, 'lstatSync', (file: fs.PathLike, options?: { bigint?: boolean }) => {
+      assert.equal(options?.bigint, true);
+      return Object.assign(lstat(file, { bigint: true }), { ino: first });
+    });
+    t.mock.method(fs, 'fstatSync', (fd: number, options?: { bigint?: boolean }) => {
+      assert.equal(options?.bigint, true);
+      descriptor = fd;
+      return Object.assign(stat(fd, { bigint: true }), { ino: second });
+    });
+    t.mock.method(fs, 'readFileSync', () => {
+      reads += 1;
+      throw new Error('A replaced large-ID file must not be read.');
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => reconciliationFileFact(f.file), invalid);
+    assert.equal(reads, 0);
+    assert.throws(() => stat(descriptor), { code: 'EBADF' });
   } finally {
     t.mock.restoreAll();
     syncBuiltinESMExports();
@@ -398,10 +438,50 @@ test('non-directory ledger ancestors fail rather than being treated as an absent
     fs.writeFileSync(f.file, 'original evidence');
     assert.throws(
       () => reconciliationOutputDirectory(f.output, path.join(f.file, 'execution-registry')),
-      { code: 'ENOTDIR' },
+      (error: unknown) =>
+        error instanceof CliError
+          ? invalid(error)
+          : (error as NodeJS.ErrnoException).code === 'ENOTDIR',
     );
     assert.equal(fs.existsSync(f.output), false);
   } finally {
+    f.close();
+  }
+});
+
+test('a Windows ENOENT child beneath an existing regular file cannot be reconstructed as a missing ledger directory', (t) => {
+  const f = fixture();
+  const realpath = fs.realpathSync;
+  try {
+    fs.writeFileSync(f.file, 'synthetic');
+    const ledger = path.join(f.file, 'execution-registry');
+    t.mock.method(fs, 'realpathSync', (file: fs.PathLike) => {
+      if (String(file) === ledger)
+        throw Object.assign(new Error('synthetic Windows child-under-file ENOENT'), {
+          code: 'ENOENT',
+        });
+      return realpath(file);
+    });
+    syncBuiltinESMExports();
+    assert.throws(() => reconciliationOutputDirectory(f.output, ledger), invalid);
+    assert.throws(() => reconciliationOutputDirectory(f.output, f.file), invalid);
+    assert.equal(fs.existsSync(f.output), false);
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    const actualLedger = path.join(f.root, 'actual-registry');
+    fs.mkdirSync(actualLedger);
+    assert.equal(
+      reconciliationOutputDirectory(f.output, actualLedger),
+      path.join(realpath(f.root), 'observation'),
+    );
+    assert.equal(
+      reconciliationOutputDirectory(f.output, path.join(f.root, 'missing', 'registry')),
+      path.join(realpath(f.root), 'observation'),
+    );
+    assert.equal(fs.existsSync(path.join(f.root, 'missing')), false);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
     f.close();
   }
 });
