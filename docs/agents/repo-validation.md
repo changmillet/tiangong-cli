@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-12
-lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
-lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
+lastReviewedAt: 2026-10-13
+lastReviewedCommit: 3138f98bfa0c1dce1319397d68445856736068c0
+lastReviewedNote: 'Reviewed CLI #295 read-scope repair: server-side public100-199/own0 source reads and own0 reconciliation, safe protocol violations and no forbidden-body Model expansion. Runtime qualification and data acceptance remain separate.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -208,3 +208,5 @@ Use the actual pinned SDK, complete Process and Flow documents and the public ge
 Resulting-process proof must validate the emitted payload unchanged, assert the real report, preserve source-instance/exchange identity through renumbering, and prove weighted allocation conservation (10 at 60/40 plus 20 at 30/70 produces 30 at 40/60). Include source reorder, compatible target merges, multipliers, legacy whole-inventory shares, unrepresentable default-one legacy conversion, deterministic cancellation and ambiguous cancellation. Helper coverage supplements the public command evidence. Candidate-package qualification is distinct from released CLI/SDK and Foundry managed-runtime adoption; record the exact published dependency and runtime binding before claiming that acceptance.
 
 Allocation serialization follows the public three-decimal `Perc` boundary using deterministic largest remainder, tied by stable final target numbering. The sidecar reports actual percentage/amount error per target and bounds error below 0.001 percentage points, or inventory amount × 0.00001; conservation is qualified within this tolerance.
+
+Body-read permission regressions must inspect the actual SDK query and simulate server predicates before JSON serialization: source public100–199/own0 only, reconciliation own0 only, including state/owner changes before GET. Assert that forbidden Process/Model sentinel bodies never enter responses and that unadmitted Processes cannot trigger Model reads. A contrary server response must return only typed `protocol_scope_violation` evidence with no body or body hash; post-fetch consumer filtering is insufficient.

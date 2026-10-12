@@ -6,12 +6,16 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   runDatasetReadExact,
+  readExactRows,
+  isReadScopeViolation,
+  type DatasetBodyReadScope,
   type DatasetExactReadScope,
   type DatasetExactReadSelection,
   type RunDatasetReadExactOptions,
 } from '../src/lib/dataset-exact-read.js';
 import { sha256Json } from '../src/lib/dataset-maintenance-contract.js';
 import { CliError } from '../src/lib/errors.js';
+import { createSupabaseDataClient } from '../src/lib/supabase-client.js';
 import { buildSupabaseTestEnv } from './helpers/supabase-auth.js';
 
 const ACTOR = '11111111-1111-4111-8111-111111111111';
@@ -66,6 +70,34 @@ function modelRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function serverSelectedRows(url: URL, rows: unknown[]): unknown[] {
+  const publicPredicate = `(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.${ACTOR}))`;
+  const publicScope = url.searchParams.get('or') === publicPredicate;
+  const ownerScope =
+    url.searchParams.get('user_id') === `eq.${ACTOR}` &&
+    url.searchParams.get('state_code') === 'eq.0';
+  assert.ok(
+    publicScope || ownerScope,
+    'the server requires an explicit fixed read predicate before serializing bodies',
+  );
+  assert.equal(url.searchParams.get('limit'), '2');
+  return rows
+    .filter((value) => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+      const row = value as Record<string, unknown>;
+      return (
+        url.searchParams.get('id') === `eq.${String(row.id)}` &&
+        url.searchParams.get('version') === `eq.${String(row.version)}` &&
+        ((row.state_code === 0 && row.user_id === ACTOR) ||
+          (publicScope &&
+            typeof row.state_code === 'number' &&
+            row.state_code >= 100 &&
+            row.state_code < 200))
+      );
+    })
+    .slice(0, 2);
+}
+
 function fixture(rows: DatasetExactReadSelection[] = [PROCESS_SELECTION]) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-exact-read-'));
   const source = path.join(root, 'original-evidence.json');
@@ -81,6 +113,8 @@ function fixture(rows: DatasetExactReadSelection[] = [PROCESS_SELECTION]) {
   };
   const calls: Array<{ url: URL; method: string }> = [];
   const dataCalls: URL[] = [];
+  const transferredBodies: string[] = [];
+  let contraryServer = false;
   let data: (url: URL) => unknown | Promise<unknown> = () => [processRow()];
   let auth: () => unknown = () => ({ id: ACTOR, email: 'user@example.com', role: 'authenticated' });
   const options: RunDatasetReadExactOptions = {
@@ -106,7 +140,11 @@ function fixture(rows: DatasetExactReadSelection[] = [PROCESS_SELECTION]) {
       dataCalls.push(url);
       const body = await data(url);
       if (body instanceof Response) return body;
-      return new Response(JSON.stringify(body), {
+      const text = JSON.stringify(
+        Array.isArray(body) && !contraryServer ? serverSelectedRows(url, body) : body,
+      );
+      transferredBodies.push(text);
+      return new Response(text, {
         headers: { 'content-type': 'application/json' },
       });
     },
@@ -123,9 +161,13 @@ function fixture(rows: DatasetExactReadSelection[] = [PROCESS_SELECTION]) {
     options,
     calls,
     dataCalls,
+    transferredBodies,
     writeScope,
     setData: (next: typeof data) => {
       data = next;
+    },
+    setContraryServer: () => {
+      contraryServer = true;
     },
     setAuth: (next: typeof auth) => {
       auth = next;
@@ -161,6 +203,7 @@ test('exact read observes a public foreign Process unchanged with physical prove
     assert.equal(report.authorization_granted, false);
     assert.equal(report.adoption_performed, false);
     assert.equal(report.mode, 'read_only');
+    assert.equal(report.read_scope, 'public_100_199_or_current_owner_state_0');
     assert.equal(report.identity.assertions.mode, 'intent-bound');
     assert.equal(report.rows[0]?.status, 'found');
     assert.equal(report.rows[0]?.reason, 'exact_row');
@@ -183,6 +226,10 @@ test('exact read observes a public foreign Process unchanged with physical prove
     assert.equal(query.searchParams.get('version'), `eq.${VERSION}`);
     assert.equal(query.searchParams.get('limit'), '2');
     assert.equal(query.searchParams.has('order'), false);
+    assert.equal(
+      query.searchParams.get('or'),
+      `(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.${ACTOR}))`,
+    );
     assert.deepEqual(
       query.searchParams.get('select')?.split(',').sort(),
       [
@@ -252,6 +299,291 @@ test('Models read after all referencing Processes even when selections list the 
       resolved_version: VERSION,
       version_source: 'model_version',
     });
+  } finally {
+    f.close();
+  }
+});
+
+test('the fixed source boundary is asserted or defaulted and only public states 100 through 199 or actor state 0 transfer bodies', async () => {
+  for (const [owner, state, allowed] of [
+    [ACTOR, 0, true],
+    [FOREIGN, 0, false],
+    [ACTOR, 20, false],
+    [FOREIGN, 20, false],
+    [ACTOR, 99, false],
+    [FOREIGN, 100, true],
+    [FOREIGN, 199, true],
+    [ACTOR, 200, false],
+    [null, 101, true],
+  ] as const) {
+    const f = fixture();
+    f.scope.read_scope = 'public_100_199_or_current_owner_state_0';
+    f.writeScope();
+    const sentinel = `FORBIDDEN_BODY_${String(owner)}_${state}`;
+    f.setData(() => [
+      processRow({ user_id: owner, state_code: state, json_ordered: { sentinel } }),
+    ]);
+    try {
+      const report = await runDatasetReadExact(f.options);
+      assert.equal(report.rows[0]?.status, allowed ? 'found' : 'absent');
+      assert.equal(report.rows[0]?.reason, allowed ? 'exact_row' : 'not_visible');
+      assert.equal(
+        f.transferredBodies.some((body) => body.includes(sentinel)),
+        allowed,
+        'the server applies scope before response serialization',
+      );
+      assert.equal(JSON.stringify(report).includes(sentinel), allowed);
+      if (!allowed) {
+        assert.equal(report.rows[0]?.actual_row, null);
+        assert.equal(report.rows[0]?.actual_payload_sha256, null);
+      }
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('state and ownership drift before the actual Process GET prevents body transfer and dependent Model GET', async () => {
+  for (const planned of [
+    { user_id: FOREIGN, state_code: 100 },
+    { user_id: ACTOR, state_code: 0 },
+  ]) {
+    for (const current of [
+      { user_id: ACTOR, state_code: 20 },
+      { user_id: FOREIGN, state_code: 0 },
+    ]) {
+      const f = fixture([PROCESS_SELECTION, MODEL_SELECTION]);
+      const plannedRow = processRow({ ...planned, model_id: MODEL, model_version: VERSION });
+      const sentinel = 'FORBIDDEN_DRIFTED_PROCESS_BODY';
+      f.setData(() => [processRow({ ...plannedRow, ...current, json_ordered: { sentinel } })]);
+      try {
+        const report = await runDatasetReadExact(f.options);
+        assert.equal(report.rows[0]?.status, 'absent');
+        assert.equal(report.rows[1]?.reason, 'referenced_process_drift');
+        assert.equal(f.dataCalls.length, 1);
+        assert.equal(
+          f.transferredBodies.some((body) => body.includes(sentinel)),
+          false,
+        );
+        assert.equal(JSON.stringify(report).includes(sentinel), false);
+      } finally {
+        f.close();
+      }
+    }
+  }
+});
+
+test('matching readable Processes allow only explicitly selected Models within the same server read boundary', async () => {
+  for (const [owner, state, allowed] of [
+    [ACTOR, 0, true],
+    [FOREIGN, 199, true],
+    [ACTOR, 20, false],
+    [FOREIGN, 0, false],
+    [FOREIGN, 20, false],
+    [ACTOR, 200, false],
+  ] as const) {
+    const f = fixture([PROCESS_SELECTION, MODEL_SELECTION]);
+    const sentinel = `MODEL_BODY_${owner}_${state}`;
+    f.setData((url) =>
+      url.pathname.endsWith('/processes')
+        ? [processRow({ model_id: MODEL, model_version: VERSION })]
+        : [modelRow({ user_id: owner, state_code: state, json_ordered: { sentinel } })],
+    );
+    try {
+      const report = await runDatasetReadExact(f.options);
+      assert.equal(report.rows[0]?.status, 'found');
+      assert.equal(report.rows[1]?.status, allowed ? 'found' : 'absent');
+      assert.equal(f.dataCalls.length, 2);
+      assert.equal(
+        f.dataCalls[1]?.searchParams.get('or'),
+        `(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.${ACTOR}))`,
+      );
+      assert.equal(
+        f.transferredBodies.some((body) => body.includes(sentinel)),
+        allowed,
+      );
+      assert.equal(JSON.stringify(report).includes(sentinel), allowed);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('Model state or ownership drift before its actual GET never transfers a newly unreadable body', async () => {
+  for (const planned of [
+    { user_id: FOREIGN, state_code: 100 },
+    { user_id: ACTOR, state_code: 0 },
+  ]) {
+    for (const current of [
+      { user_id: ACTOR, state_code: 20 },
+      { user_id: FOREIGN, state_code: 0 },
+    ]) {
+      const f = fixture([PROCESS_SELECTION, MODEL_SELECTION]);
+      const plannedModel = modelRow(planned);
+      const sentinel = 'FORBIDDEN_DRIFTED_MODEL_BODY';
+      f.setData((url) =>
+        url.pathname.endsWith('/processes')
+          ? [processRow({ model_id: MODEL, model_version: VERSION })]
+          : [modelRow({ ...plannedModel, ...current, json_ordered: { sentinel } })],
+      );
+      try {
+        const report = await runDatasetReadExact(f.options);
+        assert.equal(report.rows[1]?.status, 'absent');
+        assert.equal(f.dataCalls.length, 2);
+        assert.equal(
+          f.transferredBodies.some((body) => body.includes(sentinel)),
+          false,
+        );
+        assert.equal(JSON.stringify(report).includes(sentinel), false);
+      } finally {
+        f.close();
+      }
+    }
+  }
+});
+
+test('contradictory server Process and Model responses retain only a static protocol scope violation', async () => {
+  for (const table of ['processes', 'lifecyclemodels']) {
+    for (const forbidden of [
+      { user_id: ACTOR, state_code: 20 },
+      { user_id: FOREIGN, state_code: 0 },
+      { user_id: FOREIGN, state_code: 200 },
+    ]) {
+      const f = fixture(
+        table === 'processes' ? [PROCESS_SELECTION] : [PROCESS_SELECTION, MODEL_SELECTION],
+      );
+      f.setContraryServer();
+      f.setData((url) =>
+        url.pathname.endsWith('/processes') && table === 'lifecyclemodels'
+          ? [processRow({ model_id: MODEL, model_version: VERSION })]
+          : [
+              table === 'processes'
+                ? processRow({ ...forbidden, json_ordered: { secret: CANARY } })
+                : modelRow({ ...forbidden, json_ordered: { secret: CANARY } }),
+            ],
+      );
+      try {
+        const report = await runDatasetReadExact(f.options);
+        const observed = report.rows.at(-1)!;
+        assert.equal(report.status, 'indeterminate');
+        assert.equal(observed.reason, 'protocol_scope_violation');
+        assert.equal(observed.actual_row, null);
+        assert.equal(observed.actual_row_sha256, null);
+        assert.equal(observed.actual_payload_sha256, null);
+        assert.equal(JSON.stringify(report).includes(CANARY), false);
+        assert.equal(
+          fs.readFileSync(path.join(f.options.outDir, 'read-exact.json'), 'utf8').includes(CANARY),
+          false,
+        );
+      } finally {
+        f.close();
+      }
+    }
+  }
+});
+
+test('the shared exact reader enforces owner-draft server filters and defends contradictory or malformed membership', async () => {
+  for (const [owner, state, allowed] of [
+    [ACTOR, 0, true],
+    [FOREIGN, 0, false],
+    [ACTOR, 20, false],
+    [FOREIGN, 100, false],
+  ] as const) {
+    const f = fixture();
+    const sentinel = `OWNER_SCOPE_BODY_${owner}_${state}`;
+    f.setData(() => [
+      processRow({ user_id: owner, state_code: state, json_ordered: { sentinel } }),
+    ]);
+    const { client, restBaseUrl } = createSupabaseDataClient(
+      {
+        apiBaseUrl: 'https://example.supabase.co',
+        publishableKey: 'synthetic-key',
+        getAccessToken: async () => token(),
+      },
+      f.options.fetchImpl,
+      10_000,
+    );
+    try {
+      const rows = await readExactRows({
+        client,
+        restBaseUrl,
+        table: 'processes',
+        id: PROCESS,
+        version: VERSION,
+        columns: Object.keys(processRow()).join(','),
+        readScope: { mode: 'owner_draft', actorUserId: ACTOR },
+      });
+      assert.equal(rows.length, allowed ? 1 : 0);
+      assert.equal(f.dataCalls[0]?.searchParams.get('user_id'), `eq.${ACTOR}`);
+      assert.equal(f.dataCalls[0]?.searchParams.get('state_code'), 'eq.0');
+      assert.equal(f.dataCalls[0]?.searchParams.has('or'), false);
+      assert.equal(
+        f.transferredBodies.some((body) => body.includes(sentinel)),
+        allowed,
+      );
+      if (!allowed) {
+        f.setContraryServer();
+        await assert.rejects(
+          readExactRows({
+            client,
+            restBaseUrl,
+            table: 'processes',
+            id: PROCESS,
+            version: VERSION,
+            columns: Object.keys(processRow()).join(','),
+            readScope: { mode: 'owner_draft', actorUserId: ACTOR },
+          }),
+          (error) => {
+            assert.ok(isReadScopeViolation(error));
+            safeError(error);
+            assert.equal((error as CliError).code, 'DATASET_READ_SCOPE_VIOLATION');
+            assert.equal((error as Error).message.includes(sentinel), false);
+            return true;
+          },
+        );
+      }
+    } finally {
+      f.close();
+    }
+  }
+  assert.equal(isReadScopeViolation(null), false);
+  assert.equal(isReadScopeViolation(new Error('ordinary error')), false);
+  assert.equal(isReadScopeViolation(new CliError('ordinary error', { code: 'OTHER' })), false);
+});
+
+test('a shared reader requires a canonical actor and fixed mode before creating any network request', async () => {
+  const f = fixture();
+  const { client, restBaseUrl } = createSupabaseDataClient(
+    {
+      apiBaseUrl: 'https://example.supabase.co',
+      publishableKey: 'synthetic-key',
+      getAccessToken: async () => token(),
+    },
+    f.options.fetchImpl,
+    10_000,
+  );
+  try {
+    for (const value of [
+      undefined,
+      { mode: 'all_visible', actorUserId: ACTOR },
+      { mode: 'owner_draft', actorUserId: `x),state_code.gte.0,(${CANARY}` },
+      { mode: 'owner_draft', actorUserId: ACTOR, exception: true },
+      { mode: 'owner_draft', actorUserId: 7 },
+    ]) {
+      await assert.rejects(
+        readExactRows({
+          client,
+          restBaseUrl,
+          table: 'processes',
+          id: PROCESS,
+          version: VERSION,
+          columns: Object.keys(processRow()).join(','),
+          readScope: value as DatasetBodyReadScope,
+        }),
+        safeError,
+      );
+    }
+    assert.equal(f.calls.length, 0);
   } finally {
     f.close();
   }
@@ -426,11 +758,26 @@ test('all selected fields must be present; missing null metadata never becomes a
     malformed.push(processRow(overrides));
   for (const row of malformed) {
     const f = fixture();
+    f.setContraryServer();
     f.setData(() => [row]);
     try {
       const report = await runDatasetReadExact(f.options);
       assert.equal(report.rows[0]?.status, 'indeterminate');
-      assert.equal(report.rows[0]?.reason, 'invalid_or_incomplete_row');
+      const facts =
+        row !== null && typeof row === 'object' && !Array.isArray(row)
+          ? (row as Record<string, unknown>)
+          : null;
+      const invalidScopeFacts =
+        !facts ||
+        facts.id !== PROCESS ||
+        facts.version !== VERSION ||
+        facts.user_id !== ACTOR ||
+        typeof facts.state_code !== 'number' ||
+        !Number.isSafeInteger(facts.state_code);
+      assert.equal(
+        report.rows[0]?.reason,
+        invalidScopeFacts ? 'protocol_scope_violation' : 'invalid_or_incomplete_row',
+      );
       assert.equal(report.rows[0]?.actual_row, null);
       assert.equal(JSON.stringify(report).includes(CANARY), false);
     } finally {
@@ -444,7 +791,7 @@ test('nullable permitted metadata is retained exactly and Model field validation
   f.setData((url) =>
     url.pathname.endsWith('/lifecyclemodels')
       ? [modelRow({ team_id: FOREIGN })]
-      : [processRow({ user_id: null, model_id: MODEL, model_version: VERSION })],
+      : [processRow({ user_id: null, state_code: 100, model_id: MODEL, model_version: VERSION })],
   );
   try {
     const report = await runDatasetReadExact(f.options);
@@ -478,6 +825,9 @@ test('strict scope rejects unsupported, duplicate and unbound selections before 
   const mutations: Array<(scope: Record<string, unknown>) => void> = [
     (s) => {
       s.extra = CANARY;
+    },
+    (s) => {
+      s.read_scope = 'all_rls_visible';
     },
     (s) => {
       delete s.schema_version;

@@ -1681,6 +1681,7 @@ Options:
 
 Contract:
   Read-only reconciliation of exact admitted rows only, bound to the original input and execution contract.
+  Body queries require the current verified owner and state 0 before transport; other rows are not read.
   Reports current owner, body and metadata observations; equality is not proof of historical execution.
   No writes, no replay, no historical outcome rewrite, and no automatic authorization for further writes.
   The original consumed attempt and ledger evidence remain authoritative for historical outcomes.
@@ -1702,6 +1703,8 @@ Options:
 
 Contract:
   Read-only exact current-user RLS observations bound to the original scope hash and source file facts.
+  Body queries permit only public states 100-199 or the verified actor's own state 0, before transport.
+  RLS visibility alone grants no read permission; the same filters apply to Models.
   Preserve the original finite list: no account census and no automatic graph expansion.
   Return full observed bodies and metadata; public/source reads require no owner write contract.
   Observation grants no mutation authority, owner-draft eligibility, scientific acceptance or adoption.

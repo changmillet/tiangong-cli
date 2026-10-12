@@ -1,8 +1,8 @@
 version: 1
 layout: repo
-lastReviewedAt: '2026-10-12'
-lastReviewedCommit: 'ffe2e5e46e5319b65d64fa2f4c10c927f0534170'
-lastReviewedNote: 'Reviewed CLI #295 read-only exact observation and retained-history reconciliation; original write/reference contracts, dependencies, package version and release controls remain unchanged. Consumer qualification is separate.'
+lastReviewedAt: '2026-10-13'
+lastReviewedCommit: '3138f98bfa0c1dce1319397d68445856736068c0'
+lastReviewedNote: 'Reviewed CLI #295 read-scope repair: server-side public100-199/own0 source reads and own0 reconciliation, safe protocol violations and no forbidden-body Model expansion. Runtime qualification and data acceptance remain separate.'
 
 catalog:
   repos:

@@ -37,9 +37,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-12
-lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
-lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
+lastReviewedAt: 2026-10-13
+lastReviewedCommit: 3138f98bfa0c1dce1319397d68445856736068c0
+lastReviewedNote: 'Reviewed CLI #295 read-scope repair: server-side public100-199/own0 source reads and own0 reconciliation, safe protocol violations and no forbidden-body Model expansion. Runtime qualification and data acceptance remain separate.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -67,7 +67,7 @@ Review note, 2026-09-24: CLI #368 synchronizes the 0.2.3 Process reference schem
 
 ## Specialized contracts
 
-Finite Process/Model source capture uses `dataset read-exact` and its explicit file-hash scope; see [the read-exact protocol](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-read-exact). Current source observations and owner-draft reconciliation have separate policies; neither authorizes adoption or a write.
+Finite Process/Model source capture uses `dataset read-exact` and its explicit file-hash scope; see [the read-exact protocol](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-read-exact). Body queries enforce public states 100–199 or the verified actor's own0 for source observation, and only that actor's own0 for reconciliation. Apply these predicates before transport; RLS visibility alone is not permission. Neither observation authorizes adoption or a write.
 
 Private live-account testing is maintainer-only and requires explicit account authorization. Follow [the live case guide](docs/agents/live-case-testing.md); public CLI authentication remains OAuth-only and personal credentials never enter public CI.
 

@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-12
-lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
-lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
+lastReviewedAt: 2026-10-13
+lastReviewedCommit: 3138f98bfa0c1dce1319397d68445856736068c0
+lastReviewedNote: 'Reviewed CLI #295 read-scope repair: server-side public100-199/own0 source reads and own0 reconciliation, safe protocol violations and no forbidden-body Model expansion. Runtime qualification and data acceptance remain separate.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1428,24 +1428,24 @@ Flow-only `dataset save-draft --execution-contract` 可在 dry-run／commit 中�
 
 公开入口为 `tiangong-lca dataset reconcile-draft --input <file> --execution-contract <file> --out-dir <NEW dir> [--type <type>] [--reference-intent-file <file>] --json`。原始 input 和原始 `dataset-save-draft-execution-contract.v1` 均必需，仍按有序 action 的 table/id/version、desired/before hash、operation 和依赖绑定；最多 64 个显式 action，不能替换 execution id 或用新请求覆盖原账本绑定。值参数只接受一次；`--commit`、`--dry-run`、`--max-parallel` 和其它未支持参数被拒绝。`--help` 免除必需路径检查。
 
-CLI 通过现有认证层取得绑定 contract project/user 的 live identity receipt，并在目标读取前后核对当前 token 的 owner user/email。目标只按精确 id/version 经当前用户 RLS 读取，保留完整 `json_ordered`；Process 另读取 `model_id`、`model_version`、`team_id`、`review_id`。四项必须实际返回，显式 `null` 才表示无对应归属；缺列、无效形状、重复可见行或读取失败均为 `indeterminate`，不会把缺失值补成 `null`。当前 owner、state 0、目标正文相等，且 Process 四项全部为 `null` 时才是 `equal_eligible`；合法非空 Model/team/review 归属保守归为 `ineligible`。
+CLI 通过现有认证层取得绑定 contract project/user 的 live identity receipt，并在目标读取前后核对当前 token 的 owner user/email。目标只按精确 id/version、`user_id=当前验证 owner` 和 `state_code=0` 一起构造远端 GET，条件在取得正文前执行；不会先读取其它 owner 或 state 的正文再排除。保留准入行完整 `json_ordered`；Process 另读取 `model_id`、`model_version`、`team_id`、`review_id`。四项必须实际返回，显式 `null` 才表示无对应归属；缺列、无效形状、重复可见行或读取失败均为 `indeterminate`，不会把缺失值补成 `null`。当前 owner、state 0、目标正文相等，且 Process 四项全部为 `null` 时才是 `equal_eligible`；合法非空 Model/team/review 归属保守归为 `ineligible`。
 
-报告 schema 为 `dataset-draft-reconciliation.v1`，`mode=read_only`。它带 live identity、原 input/contract/可选 intent 文件的路径与字节摘要、contract 规范摘要、每个原 action、观察时间、当前完整行与正文摘要，以及 `history` 中的 ledger 文件事实、attempt 是否 consumed、原 outcome、事件数、事件链 tip 和原 `reference_intent_admission`。顶层 `status` 为 `observed` 或 `indeterminate`，逐行分类如下：
+报告 schema 为 `dataset-draft-reconciliation.v1`，`mode=read_only`、`read_scope=current_owner_state_0`。它带 live identity、原 input/contract/可选 intent 文件的路径与字节摘要、contract 规范摘要、每个原 action、观察时间、当前完整行与正文摘要，以及 `history` 中的 ledger 文件事实、attempt 是否 consumed、原 outcome、事件数、事件链 tip 和原 `reference_intent_admission`。顶层 `status` 为 `observed` 或 `indeterminate`，逐行分类如下：
 
 | 行状态           | 当前观察的含义                                              |
 | ---------------- | ----------------------------------------------------------- |
 | `equal_eligible` | 符合本命令的当前 owner/state/body/Process metadata 观察策略 |
 | `different`      | 可见 owner draft 的正文摘要与原 desired 不同                |
-| `foreign`        | 完整可见行属于其它 owner                                    |
-| `ineligible`     | owner 行的 state 或 Process 归属不符合该观察策略            |
-| `absent`         | 本次当前用户 RLS 精确查询未返回行                           |
+| `foreign`        | 历史报告兼容分类；新查询不读取其它 owner 正文               |
+| `ineligible`     | 当前 own0 的 Process 归属不符合采用观察策略                 |
+| `absent`         | 本次准入读取范围内没有可返回的精确行（可能不在读取范围）    |
 | `indeterminate`  | 读取失败、行形状缺失/非法或多行歧义，不能形成确定观察       |
 
 账本沿用原 project/owner/action 域，验证原 contract hash、action 内容绑定、事件链和原准入；读取前记录 input、contract、intent 和各 action ledger 的原字节事实，发布报告前重新核对这些文件，包括原先不存在的 ledger 仍须不存在。字节变化立即阻止报告发布。#419 Flow-only intent 继续使用原 consumer/occurrence/review parser 和 project/actor 绑定；consumed action 必须保留同一份原选择与准入，省略、改变或仅复制选择文件到其它路径都不能补入原 attempt。
 
 `--out-dir` 的父目录必须已存在，输出目录必须全新、位于 ledger 域外；成功发布创建权限 `0700` 的目录及 `0600` 的 `reconciliation.json`，携带完整正文的证据保留在私有目录。报告只建立新的当前观察，既有 attempt、event、outcome 和历史报告逐字节保留；没有任何 dataset mutation、事件追加、replay、自动授权或普通 `process save-draft` 修复 fallback。非空报告全部行 `equal_eligible` 才退出 0，其它状态退出 1；参数或证据绑定错误按 CLI 错误返回。
 
-当前 `equal_eligible` 可以与原 `UNKNOWN` 或 `history.attempt_consumed=false` 同时存在，它既不补写历史成功，也不证明之前发生了 dispatch。`absent` 仅说明本次 RLS 可见结果，不能证明全局不存在或唯一性。所有分类都不证明部署、科学正确性、完整 finite 校验、publication readiness 或正式 DATA 接受；既有验证、写入授权和下游 Task 资格继续由各自 owner 处理。
+当前 `equal_eligible` 可以与原 `UNKNOWN` 或 `history.attempt_consumed=false` 同时存在，它既不补写历史成功，也不证明之前发生了 dispatch。`absent` 仅说明本次 own0 查询没有可返回行，不能区分全局不存在与当前不准读取，也不能证明唯一性。服务端若返回不满足指定 owner/state/identity 的行，结果为 `indeterminate/protocol_scope_violation`，不保存正文或其摘要。所有分类都不证明部署、科学正确性、完整 finite 校验、publication readiness 或正式 DATA 接受；既有验证、写入授权和下游 Task 资格继续由各自 owner 处理。
 
 本改动保持 package 0.1.28、Node 24.19.0 / pnpm 11.24.0，不新增依赖、公开包导出或 release。合成测试与完整代码门禁分开记录；发行、installed/managed-runtime adoption 和原 DATA native retest 的资格仍待单独证明。
 
@@ -1458,6 +1458,7 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
   "schema_version": "dataset-exact-read-scope.v1",
   "project_ref": "example",
   "actor": { "user_id": "11111111-1111-4111-8111-111111111111" },
+  "read_scope": "public_100_199_or_current_owner_state_0",
   "sources": [{ "path": "/absolute/finite-selection.json", "sha256": "<raw SHA-256>" }],
   "rows": [
     {
@@ -1476,12 +1477,12 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
 }
 ```
 
-`actor.email` 可省略；若提供，只能是实际已知的精确 lowercase email。绑定的 live identity receipt 使用当前 project/user UUID，公开 email 保持现有 masked 形式。scope 及 provenance 文件在读取前后核验原字节；sources 为 1–16 个绝对路径/原始 SHA 文件，各不超过 64 MiB。scope 最多包含 256 个不重复 exact table/id/version。名单、source provenance 与其科学合理性由调用方负责，CLI 不从数量、旧缓存、latest 查询或完整目录推导对象，不解析输入材料以制造资格或轴。
+`actor.email` 可省略；若提供，只能是实际已知的精确 lowercase email。绑定的 live identity receipt 使用当前 project/user UUID，公开 email 保持现有 masked 形式。scope 及 provenance 文件在读取前后核验原字节；sources 为 1–16 个绝对路径/原始 SHA 文件，各不超过 64 MiB。scope 最多包含 256 个不重复 exact table/id/version。可选 `read_scope` 只能断言固定的 `public_100_199_or_current_owner_state_0`；省略仍采用同一限制，不能声明更宽或私有例外。调用方仍须在选入 exact 对象前按任务排除私有和已删除 typed identities；此范围文件不自行授予对象读取权限。名单、source provenance 与其科学合理性由调用方负责，CLI 不从数量、旧缓存、latest 查询或完整目录推导对象，不解析输入材料以制造资格或轴。
 
-每个 Process 读取完整 `json_ordered`、id/version、实际 user/state/`modified_at`，以及四个实际关系列。公共、其它 owner 或 Model 关联行可正常作为 `found` 观察，不能套用 `reconcile-draft` 的 owner-draft 采用策略。缺列/非法值/多行/读取失败是 `indeterminate`；显式 nullable 值原样保留。LifecycleModel 仅取其真实表字段（包括 team_id），不填造该表没有的 model_id/model_version/review_id。
+每个 Process 读取完整 `json_ordered`、id/version、实际 user/state/`modified_at`，以及四个实际关系列。远端 GET 在取得正文前同时约束 exact id/version 和 `or(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.<当前 actor UUID>))`。因此公共 100–199（包括其它 owner）与当前 actor own0 才能作为 `found` 观察；own20、foreign0/20 及其它范围外状态不传回正文，不能把 RLS 可见误当作任务许可。Model 关联不扩大读取权限，也不能套用 owner-draft 的采用策略。数值消费者要求 state100 的规则另由消费者判断，读取 101–199 不代表数值准入。缺列/非法值/多行/读取失败是 `indeterminate`；显式 nullable 值原样保留。LifecycleModel 仅取其真实表字段（包括 team_id），不填造该表没有的 model_id/model_version/review_id。
 
 Process 先读，报告仍按原 scope 排列。`expected_model` 省略表示无旧关联断言；显式 null 或 exact {id,version} 才进行关联 drift 比较。若实际 model_id 非空、model_version 明确为 null，按现行消费者约定以 Process.version 解析关联；原行的 null 不改写，另附 `model_association.resolved_version` 和 `version_source=process_version_fallback`。真实非空 model_version 则标为 `version_source=model_version`。这只用于限定显式 Model 读取，不实施科学计算。
 
-Model 必须显式列在 scope，且 `referenced_by` 非空并全部指向同 scope 的 Process。只有每个引用 Process 本轮为 found 且实际解析关联恰为该 Model exact id/version，才读取 Model；不符则该项报告 `drift/referenced_process_drift`，不跟随新关联、不递归扩图或修复来源。
+Model 使用相同远端 state/owner 过滤。Model 必须显式列在 scope，且 `referenced_by` 非空并全部指向同 scope 的 Process。只有每个引用 Process 本轮为 found 且实际解析关联恰为该 Model exact id/version，才读取 Model；不符则该项报告 `drift/referenced_process_drift`，不跟随新关联、不递归扩图或修复来源。
 
-输出为新私有目录中的 create-only `read-exact.json`，schema `dataset-exact-read-report.v1`；逐项仅有 found/absent/indeterminate/drift，保留完整实际行、行及正文 canonical SHA、scope/source 字节事实、当前身份和观察时间。显式 provenance 不是写入授权。无 write contract、attempt、ledger、adoption、eligible 或 executed 结果。非空结果全为 found 才退出 0，其余退出 1并保留观察；错误参数/变化的输入不发布完成报告。`absent` 仅为本轮 RLS 可见空集；部分 absent 或 drift 应由消费者按实际层级处理，不隐含阻止另一个独立 scope 的操作，也不把不存在的行制造为有效输入。
+输出为新私有目录中的 create-only `read-exact.json`，schema `dataset-exact-read-report.v1`，固定回报 `read_scope=public_100_199_or_current_owner_state_0`；逐项仅有 found/absent/indeterminate/drift，保留完整实际行、行及正文 canonical SHA、scope/source 字节事实、当前身份和观察时间。显式 provenance 不是写入授权。无 write contract、attempt、ledger、adoption、eligible 或 executed 结果。非空结果全为 found 才退出 0，其余退出 1并保留观察；错误参数/变化的输入不发布完成报告。`absent` 仅为本轮许可过滤后的可见空集，可能表示不准读取而非全局不存在。服务端违约返回范围外 owner/state/identity 时只保留 `indeterminate/protocol_scope_violation`，不保留正文、正文摘要或派生 Model 关系；部分 absent 或 drift 应由消费者按实际层级处理，不隐含阻止另一个独立 scope 的操作，也不把不存在的行制造为有效输入。

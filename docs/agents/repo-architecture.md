@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-12
-lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
-lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
+lastReviewedAt: 2026-10-13
+lastReviewedCommit: 3138f98bfa0c1dce1319397d68445856736068c0
+lastReviewedNote: 'Reviewed CLI #295 read-scope repair: server-side public100-199/own0 source reads and own0 reconciliation, safe protocol violations and no forbidden-body Model expansion. Runtime qualification and data acceptance remain separate.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -57,7 +57,7 @@ Managed-host launch selection stays in the generic CLI manager. Dedicated protoc
 
 ## Repo Shape
 
-`dataset-exact-read.ts` owns explicit finite source selection, fresh authenticated exact reads and Process-to-Model observation. Its shared exact-array reader also serves draft reconciliation; eligibility and historical execution interpretation stay with their separate callers. Source observation never follows an unselected Model or scans a catalog.
+`dataset-exact-read.ts` owns explicit finite source selection, fresh authenticated exact reads and Process-to-Model observation. Its shared exact-array reader enforces the caller's fixed owner/state predicate before transport, validates returned scope, and also serves draft reconciliation; eligibility and historical execution interpretation stay with their separate callers. Source observation never follows an unselected Model or scans a catalog.
 
 This repo is organized around one stable launcher plus a library-style `src/lib/**` tree that implements command families and shared helpers.
 

@@ -76,7 +76,7 @@ function setup() {
   };
   const calls: string[] = [];
   const fetch =
-    (read: () => unknown): FetchLike =>
+    (read: (url: URL) => unknown): FetchLike =>
     async (url, init) => {
       const parsed = new URL(String(url));
       assert.equal(init?.method ?? 'GET', 'GET', 'reconciliation performs no mutation or RPC');
@@ -91,7 +91,7 @@ function setup() {
         parsed.searchParams.get('select'),
         'id,version,user_id,state_code,json_ordered,model_id,model_version,team_id,review_id',
       );
-      return response(read());
+      return response(read(parsed));
     };
   const options = {
     inputPath,
@@ -164,8 +164,12 @@ test('public reconciliation exposes exact complete Process and eligibility metad
 test('public read-only classification retains discrepancy and distinguishes absence from unavailable reads', async () => {
   const variants: Array<[string, (row: Json) => unknown, string]> = [
     ['different', (row) => [{ ...row, json_ordered: { changed: true } }], 'different'],
-    ['foreign', (row) => [{ ...row, user_id: '22222222-2222-4222-8222-222222222222' }], 'foreign'],
-    ['state', (row) => [{ ...row, state_code: 100 }], 'ineligible'],
+    [
+      'foreign',
+      (row) => [{ ...row, user_id: '22222222-2222-4222-8222-222222222222' }],
+      'indeterminate',
+    ],
+    ['state', (row) => [{ ...row, state_code: 100 }], 'indeterminate'],
     ['linked', (row) => [{ ...row, model_id: owner }], 'ineligible'],
     ['absent', () => [], 'absent'],
     ['null-result', () => null, 'indeterminate'],
@@ -309,6 +313,80 @@ test('reconciliation rejects missing arguments, changed desired input and unboun
     fs.writeFileSync(s.options.executionContractPath, JSON.stringify(s.contract));
     await assert.rejects(runDatasetDraftReconciliation(s.options), /limited to 64/u);
     assert.equal(s.calls.length, 0);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('reconciliation restricts the server query to current-owner state 0 before any body transfer', async () => {
+  for (const [state, actor] of [
+    [0, owner],
+    [20, owner],
+    [100, owner],
+    [199, owner],
+    [0, '22222222-2222-4222-8222-222222222222'],
+    [20, '22222222-2222-4222-8222-222222222222'],
+    [100, '22222222-2222-4222-8222-222222222222'],
+  ] as const) {
+    const s = setup();
+    let bodyTransfers = 0;
+    let query: URL | undefined;
+    const actual = {
+      ...s.row,
+      state_code: state,
+      user_id: actor,
+      ...(state !== 0 || actor !== owner
+        ? { json_ordered: { forbidden: 'FORBIDDEN_BODY_SENTINEL' } }
+        : {}),
+    };
+    try {
+      const report = await runDatasetDraftReconciliation({
+        ...s.options,
+        fetchImpl: s.fetch((url) => {
+          query = url;
+          // Model the server applying predicates before serializing its JSON response.
+          const userFilter = url.searchParams.get('user_id');
+          const stateFilter = url.searchParams.get('state_code');
+          const selected =
+            (!userFilter || userFilter === 'eq.' + actual.user_id) &&
+            (!stateFilter || stateFilter === 'eq.' + actual.state_code);
+          if (selected) bodyTransfers += 1;
+          return selected ? [actual] : [];
+        }),
+      });
+      assert.equal(query?.searchParams.get('user_id'), 'eq.' + owner);
+      assert.equal(query?.searchParams.get('state_code'), 'eq.0');
+      assert.equal(query?.searchParams.has('or'), false);
+      assert.equal(report.read_scope, 'current_owner_state_0');
+      const allowed = state === 0 && actor === owner;
+      assert.equal(bodyTransfers, allowed ? 1 : 0);
+      assert.equal(report.rows[0]?.status, allowed ? 'equal_eligible' : 'absent');
+      assert.equal(JSON.stringify(report).includes('FORBIDDEN_BODY_SENTINEL'), false);
+      assert.equal(report.rows[0]?.history.attempt_consumed, false);
+      assert.equal(fs.existsSync(s.options.env.XDG_STATE_HOME), false);
+    } finally {
+      s.cleanup();
+    }
+  }
+});
+
+test('reconciliation never publishes a body when a server violates the requested read scope', async () => {
+  const s = setup();
+  try {
+    const report = await runDatasetDraftReconciliation({
+      ...s.options,
+      fetchImpl: s.fetch((url) => {
+        assert.equal(url.searchParams.get('state_code'), 'eq.0');
+        return [
+          { ...s.row, state_code: 20, json_ordered: { forbidden: 'FORBIDDEN_BODY_SENTINEL' } },
+        ];
+      }),
+    });
+    assert.equal(report.rows[0]?.status, 'indeterminate');
+    assert.equal(report.rows[0]?.reason, 'protocol_scope_violation');
+    assert.equal(report.rows[0]?.actual_row, null);
+    assert.equal(report.rows[0]?.actual_payload_sha256, null);
+    assert.equal(JSON.stringify(report).includes('FORBIDDEN_BODY_SENTINEL'), false);
   } finally {
     s.cleanup();
   }

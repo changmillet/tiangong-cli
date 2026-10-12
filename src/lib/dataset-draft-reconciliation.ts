@@ -39,6 +39,7 @@ export type DraftObservation = {
     | 'ineligible_state_or_metadata'
     | 'not_visible'
     | 'read_failed'
+    | 'protocol_scope_violation'
     | 'invalid_or_incomplete_row'
     | 'ambiguous_rows';
   actual_row: DraftObservedRow | null;

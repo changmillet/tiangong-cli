@@ -34,6 +34,7 @@ export type DatasetExactReadScope = {
   actor: { user_id: string; email?: string };
   sources: Array<{ path: string; sha256: string }>;
   rows: DatasetExactReadSelection[];
+  read_scope?: 'public_100_199_or_current_owner_state_0';
 };
 export type DatasetExactReadRow = {
   selection: DatasetExactReadSelection;
@@ -42,6 +43,7 @@ export type DatasetExactReadRow = {
     | 'exact_row'
     | 'not_visible'
     | 'read_failed'
+    | 'protocol_scope_violation'
     | 'ambiguous_rows'
     | 'invalid_or_incomplete_row'
     | 'model_association_changed'
@@ -62,6 +64,7 @@ export type DatasetReadExactReport = {
   status: 'observed' | 'indeterminate' | 'drift';
   authorization_granted: false;
   adoption_performed: false;
+  read_scope: 'public_100_199_or_current_owner_state_0';
   identity: AuthIdentityReceipt;
   scope: ReconciliationFileFact;
   sources: ReconciliationFileFact[];
@@ -77,6 +80,10 @@ export type RunDatasetReadExactOptions = {
   now?: Date;
 };
 export type SupabaseDataClient = ReturnType<typeof createSupabaseDataClient>['client'];
+export type DatasetBodyReadScope = {
+  mode: 'owner_draft' | 'public_or_owner_draft';
+  actorUserId: string;
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const VERSION = /^\d{2}\.\d{2}\.\d{3}$/u;
@@ -118,7 +125,12 @@ function identityKey(value: ExactIdentity): string {
   return `${value.id}@${value.version}`;
 }
 function parseScope(value: unknown): DatasetExactReadScope {
-  keys(value, ['schema_version', 'project_ref', 'actor', 'sources', 'rows']);
+  keys(value, ['schema_version', 'project_ref', 'actor', 'sources', 'rows'], ['read_scope']);
+  if (
+    Object.hasOwn(value, 'read_scope') &&
+    value.read_scope !== 'public_100_199_or_current_owner_state_0'
+  )
+    fail('Exact-read scope cannot broaden the fixed read boundary.');
   if (
     value.schema_version !== 'dataset-exact-read-scope.v1' ||
     typeof value.project_ref !== 'string' ||
@@ -211,7 +223,14 @@ function parseScope(value: unknown): DatasetExactReadScope {
     },
     sources,
     rows,
+    ...(Object.hasOwn(value, 'read_scope')
+      ? { read_scope: 'public_100_199_or_current_owner_state_0' as const }
+      : {}),
   };
+}
+
+export function isReadScopeViolation(error: unknown): boolean {
+  return error instanceof CliError && error.code === 'DATASET_READ_SCOPE_VIOLATION';
 }
 
 export async function readExactRows(options: {
@@ -221,22 +240,59 @@ export async function readExactRows(options: {
   id: string;
   version: string;
   columns: string;
+  readScope: DatasetBodyReadScope;
 }): Promise<unknown[]> {
+  keys(options.readScope, ['mode', 'actorUserId']);
+  if (
+    (options.readScope.mode !== 'owner_draft' &&
+      options.readScope.mode !== 'public_or_owner_draft') ||
+    typeof options.readScope.actorUserId !== 'string' ||
+    !UUID.test(options.readScope.actorUserId)
+  )
+    fail('Exact body reads require a fixed scope and canonical verified actor.');
   const url = new URL(`${options.restBaseUrl.replace(/\/+$/u, '')}/${options.table}`);
   url.searchParams.set('select', options.columns);
   url.searchParams.set('id', `eq.${options.id}`);
   url.searchParams.set('version', `eq.${options.version}`);
   url.searchParams.set('limit', '2');
-  const rows = await runSupabaseQuery(
-    options.client
-      .from(options.table)
-      .select(options.columns)
-      .eq('id', options.id)
-      .eq('version', options.version)
-      .limit(2),
-    url.toString(),
-  );
+  let query = options.client
+    .from(options.table)
+    .select(options.columns)
+    .eq('id', options.id)
+    .eq('version', options.version)
+    .limit(2);
+  if (options.readScope.mode === 'owner_draft') {
+    url.searchParams.set('user_id', `eq.${options.readScope.actorUserId}`);
+    url.searchParams.set('state_code', 'eq.0');
+    query = query.eq('user_id', options.readScope.actorUserId).eq('state_code', 0);
+  } else {
+    const predicate = `and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.${options.readScope.actorUserId})`;
+    url.searchParams.set('or', `(${predicate})`);
+    query = query.or(predicate);
+  }
+  const rows = await runSupabaseQuery(query, url.toString());
   if (!Array.isArray(rows)) fail('Exact read did not return a row array.');
+  for (const row of rows) {
+    if (
+      !isObject(row) ||
+      row.id !== options.id ||
+      row.version !== options.version ||
+      !Object.hasOwn(row, 'user_id') ||
+      !nullable(row.user_id, UUID) ||
+      typeof row.state_code !== 'number' ||
+      !Number.isSafeInteger(row.state_code) ||
+      !(
+        (row.state_code === 0 && row.user_id === options.readScope.actorUserId) ||
+        (options.readScope.mode === 'public_or_owner_draft' &&
+          row.state_code >= 100 &&
+          row.state_code < 200)
+      )
+    )
+      throw new CliError('Exact body read returned a row outside the permitted read scope.', {
+        code: 'DATASET_READ_SCOPE_VIOLATION',
+        exitCode: 1,
+      });
+  }
   return rows;
 }
 
@@ -409,12 +465,18 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
               id: selection.id,
               version: selection.version,
               columns: selection.table === 'processes' ? PROCESS_COLUMNS : COMMON_COLUMNS,
+              readScope: { mode: 'public_or_owner_draft', actorUserId: scope.actor.user_id },
             }),
             selection,
             timestamp(),
           );
-        } catch {
-          observation = empty(selection, 'indeterminate', 'read_failed', timestamp());
+        } catch (error) {
+          observation = empty(
+            selection,
+            'indeterminate',
+            isReadScopeViolation(error) ? 'protocol_scope_violation' : 'read_failed',
+            timestamp(),
+          );
         }
       }
       observations.set(`${selection.table}:${identityKey(selection)}`, observation);
@@ -435,6 +497,7 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
         : 'observed',
     authorization_granted: false,
     adoption_performed: false,
+    read_scope: 'public_100_199_or_current_owner_state_0',
     identity: receipt,
     scope: scopePhysical,
     sources,

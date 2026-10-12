@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HELPER = fileURLToPath(import.meta.url);
 const ACTOR = '11111111-1111-4111-8111-111111111111';
@@ -66,6 +66,17 @@ if (process.env[STUB_ENV]) {
       assert.equal(url.searchParams.get('version'), `eq.${config.row.version}`);
       assert.equal(url.searchParams.get('limit'), '2');
       assert.equal(url.searchParams.has('order'), false, 'an exact read cannot request latest');
+      if (config.command === 'reconcile') {
+        assert.equal(url.searchParams.get('user_id'), 'eq.' + ACTOR);
+        assert.equal(url.searchParams.get('state_code'), 'eq.0');
+      } else {
+        assert.equal(
+          url.searchParams.get('or'),
+          '(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.' +
+            ACTOR +
+            '))',
+        );
+      }
       body = [config.row];
     }
     return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
@@ -91,13 +102,17 @@ function cleanEnvironment() {
 }
 
 function runCommand(nodePath, cliLauncher, cwd, env, argv, requestsFile) {
-  const result = spawnSync(nodePath, ['--import', HELPER, cliLauncher, ...argv], {
-    cwd,
-    env,
-    encoding: 'utf8',
-    timeout: 30_000,
-    maxBuffer: 4 * 1024 * 1024,
-  });
+  const result = spawnSync(
+    nodePath,
+    ['--import', pathToFileURL(HELPER).href, cliLauncher, ...argv],
+    {
+      cwd,
+      env,
+      encoding: 'utf8',
+      timeout: 30_000,
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  );
   let report = null;
   try {
     report = JSON.parse(result.stdout);
@@ -260,7 +275,10 @@ export function runDatasetReadPackedSmoke({
       const requestsFile = join(root, `${name}-requests.jsonl`);
       const configFile = join(root, `${name}-fetch.json`);
       writeFileSync(requestsFile, '');
-      writeFileSync(configFile, JSON.stringify({ row, requests_file: requestsFile }));
+      writeFileSync(
+        configFile,
+        JSON.stringify({ row, requests_file: requestsFile, command: name }),
+      );
       return runCommand(
         nodePath,
         cliLauncher,

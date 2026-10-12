@@ -49,6 +49,7 @@ function report(
   return {
     schema_version: 'dataset-draft-reconciliation.v1',
     mode: 'read_only',
+    read_scope: 'current_owner_state_0',
     status,
     generated_at_utc: generatedAt,
     authorization_granted: false,

@@ -7,7 +7,7 @@ import {
 import { closeSync, chmodSync, fsyncSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { runAuthIdentityReceipt, type AuthIdentityReceipt } from './auth-identity-receipt.js';
 import { loadCliPackageVersion } from './package-version.js';
-import { readExactRows } from './dataset-exact-read.js';
+import { isReadScopeViolation, readExactRows } from './dataset-exact-read.js';
 import {
   assertReconciliationFiles,
   reconciliationError,
@@ -2362,6 +2362,7 @@ export type RunDatasetDraftReconciliationOptions = {
 export type DatasetDraftReconciliationReport = {
   schema_version: 'dataset-draft-reconciliation.v1';
   mode: 'read_only';
+  read_scope: 'current_owner_state_0';
   status: 'observed' | 'indeterminate';
   generated_at_utc: string;
   authorization_granted: false;
@@ -2497,6 +2498,7 @@ export async function runDatasetDraftReconciliation(
         id: action.id,
         version: action.version,
         columns,
+        readScope: { mode: 'owner_draft', actorUserId: contract.owner.user_id },
       });
       observation = observeDraftRows(actual, {
         id: action.id,
@@ -2505,11 +2507,11 @@ export async function runDatasetDraftReconciliation(
         desired_sha256: action.desired_sha256,
         process: action.table === 'processes',
       });
-    } catch {
+    } catch (error) {
       // Transport bodies, exception text and credentials never enter observation artifacts.
       observation = {
         status: 'indeterminate',
-        reason: 'read_failed',
+        reason: isReadScopeViolation(error) ? 'protocol_scope_violation' : 'read_failed',
         actual_row: null,
         actual_row_sha256: null,
         actual_payload_sha256: null,
@@ -2541,6 +2543,7 @@ export async function runDatasetDraftReconciliation(
   const report: DatasetDraftReconciliationReport = {
     schema_version: 'dataset-draft-reconciliation.v1',
     mode: 'read_only',
+    read_scope: 'current_owner_state_0',
     status: rows.some((row) => row.status === 'indeterminate') ? 'indeterminate' : 'observed',
     generated_at_utc: (options.now ?? new Date()).toISOString(),
     authorization_granted: false,

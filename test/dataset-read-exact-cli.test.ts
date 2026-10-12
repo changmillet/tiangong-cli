@@ -63,6 +63,7 @@ function report(
   return {
     schema_version: 'dataset-exact-read-report.v1',
     mode: 'read_only',
+    read_scope: 'public_100_199_or_current_owner_state_0',
     status,
     authorization_granted: false,
     adoption_performed: false,
