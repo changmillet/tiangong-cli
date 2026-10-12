@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -264,6 +264,7 @@ tiangong-lca
 | `tiangong-lca dataset import-lca convert` | 外部 LCA 包导入入口；只调用统一 Rust `tidas import`，先验证 `tidas.operation-report.v1` 与稳定 `0.2.x` 版本，再消费 `tidas.import-execution-report.v1`。格式检测、转换、validation、bounded spool、cancellation 与 atomic publish 均属于 Rust；TypeScript 只做 binary/config 发现、参数翻译和稳定 exit/report 适配 |
 | `tiangong-lca dataset references rewrite` | 本地 process / lifecyclemodel rows 的 flow reference rewrite、patch evidence 输出，并可选走 state-aware save-draft commit |
 | `tiangong-lca dataset save-draft` | 通用 canonical dataset dry-run/save-draft 入口；可选 `--execution-contract` 将 project/owner/state 0、输入顺序、before/desired hashes、预期 insert/update 与依赖绑定到稳定 action ledger，并以 exact owner readback 收口模糊响应且不重放 |
+| `tiangong-lca dataset reconcile-draft` | 原 input/execution contract 的当前 owner-draft 精确只读观察；协议见 [draft reconciliation](#dataset-reconcile-draft) |
 | `tiangong-lca dataset maintenance clear-account` | 已实现的当前账号 draft 清理入口；先生成当前用户 RLS 可见 snapshot，默认 dry-run，只有显式 `--commit --confirm <当前账号邮箱>` 才按 `lifecyclemodels -> processes -> flows -> sources -> contacts` 顺序执行。普通 dataset rows 通过 `app_dataset_delete` / `cmd_dataset_delete` 删除，读回验证剩余行数；`unitgroups` / `flowproperties` 默认保护不删 |
 | `tiangong-lca dataset maintenance plan/apply/freeze-protected/seal-protected-approval/run-protected/verify` | 已实现的 row-level 维护入口；版本化（v2）Time alias 选择由 `plan --alias-v2-input`（`dataset-alias-plan.v2` plan/batch）、v2 plan 必备的 `freeze-protected --derivative-baselines`、离线 `seal-protected-approval` 与按 seal schema 分派的 `run-protected` 组成，其 `expected` 为真 v1 十个 flat count 加 `text_action_count`，无调用方声明 closure，且 derivative target 必须恰好是 plan 改动的行身份。普通 V1 维护通过当前账号 RLS 冻结 exact draft rows 并走平台 `save_draft` / `delete`；固定 BAFU protected profile 先由 `freeze-protected` 直接读取 production owner-draft 状态并生成未批准请求，再由完全离线的 `seal-protected-approval` 记录人类逐字节批准，最后只能由服务器调度的 `run-protected` 以唯一 durable attempt/admission identity 执行和恢复。写入以 actor/user_id/state_code=0 与精确 plan/closure 栅栏保护，RLS 用于公开入口和独立读回；`rebuild-derivatives` V1 仍只允许一个 owner-draft process。所有路径共享不可变 plan、显式审批、durable proof 与独立 readback，且不发布 FP/UG |
 | `tiangong-lca lifecyclemodel auto-build` | 本地 lifecyclemodel local-run intake、graph 推断、reference process 选择、`json_ordered` artifact 输出 |
@@ -1214,6 +1215,7 @@ TIANGONG_LCA_COVERAGE=0
 | `admin embedding-run` | 远程认证环境（region 可选） |
 | `process get` | 远程认证环境 |
 | `dataset save-draft` | dry-run 无；`--commit` 需要远程认证环境，ledger 位置不变 |
+| `dataset reconcile-draft` | 远程认证环境；从原 contract 绑定 expected project/user，GET 观察与原 ledger 只读核对 |
 | `process identity-preflight` | 默认无；remote candidates 需要远程认证环境 |
 | `process build-plan` | 无 |
 | `process auto-build \| resume-build \| publish-build \| batch-build` | 无 |
@@ -1421,3 +1423,65 @@ Model activity multiplier 要求显式 finite nonnegative numeric scalar，缺�
 Flow-only `dataset save-draft --execution-contract` 可在 dry-run／commit 中显式传入一个 `--reference-intent-file`，沿用 #289 的完整 consumer、每个引用 occurrence、selected/latest 正文与 review 文件绑定。CLI 在前检和真正 dispatch 前重新检查认证账号、引用正文、before image 和本地字节；异步 gate 完成后才写 attempt 并发请求。原 v1 execution contract 无新增字段，普通路径保持默认规则。
 
 `reference_intent_admission` 随 prepared/executed 行与原 action ledger 保存；consumed 恢复必须匹配原选择，缺失或变更只能报告 consumed 阻断／UNKNOWN，不能新建 ledger 或重放。字段、哈希域和 caller snapshot 约束见 [exact-reference contract](agents/exact-reference-intent-contract.md#guarded-flow-owner-drafts)。Foundry 的原 Task 状态、授权和候选准入须由其自己的公开接口证明。
+
+### dataset reconcile-draft
+
+公开入口为 `tiangong-lca dataset reconcile-draft --input <file> --execution-contract <file> --out-dir <NEW dir> [--type <type>] [--reference-intent-file <file>] --json`。原始 input 和原始 `dataset-save-draft-execution-contract.v1` 均必需，仍按有序 action 的 table/id/version、desired/before hash、operation 和依赖绑定；最多 64 个显式 action，不能替换 execution id 或用新请求覆盖原账本绑定。值参数只接受一次；`--commit`、`--dry-run`、`--max-parallel` 和其它未支持参数被拒绝。`--help` 免除必需路径检查。
+
+CLI 通过现有认证层取得绑定 contract project/user 的 live identity receipt，并在目标读取前后核对当前 token 的 owner user/email。目标只按精确 id/version 经当前用户 RLS 读取，保留完整 `json_ordered`；Process 另读取 `model_id`、`model_version`、`team_id`、`review_id`。四项必须实际返回，显式 `null` 才表示无对应归属；缺列、无效形状、重复可见行或读取失败均为 `indeterminate`，不会把缺失值补成 `null`。当前 owner、state 0、目标正文相等，且 Process 四项全部为 `null` 时才是 `equal_eligible`；合法非空 Model/team/review 归属保守归为 `ineligible`。
+
+报告 schema 为 `dataset-draft-reconciliation.v1`，`mode=read_only`。它带 live identity、原 input/contract/可选 intent 文件的路径与字节摘要、contract 规范摘要、每个原 action、观察时间、当前完整行与正文摘要，以及 `history` 中的 ledger 文件事实、attempt 是否 consumed、原 outcome、事件数、事件链 tip 和原 `reference_intent_admission`。顶层 `status` 为 `observed` 或 `indeterminate`，逐行分类如下：
+
+| 行状态           | 当前观察的含义                                              |
+| ---------------- | ----------------------------------------------------------- |
+| `equal_eligible` | 符合本命令的当前 owner/state/body/Process metadata 观察策略 |
+| `different`      | 可见 owner draft 的正文摘要与原 desired 不同                |
+| `foreign`        | 完整可见行属于其它 owner                                    |
+| `ineligible`     | owner 行的 state 或 Process 归属不符合该观察策略            |
+| `absent`         | 本次当前用户 RLS 精确查询未返回行                           |
+| `indeterminate`  | 读取失败、行形状缺失/非法或多行歧义，不能形成确定观察       |
+
+账本沿用原 project/owner/action 域，验证原 contract hash、action 内容绑定、事件链和原准入；读取前记录 input、contract、intent 和各 action ledger 的原字节事实，发布报告前重新核对这些文件，包括原先不存在的 ledger 仍须不存在。字节变化立即阻止报告发布。#419 Flow-only intent 继续使用原 consumer/occurrence/review parser 和 project/actor 绑定；consumed action 必须保留同一份原选择与准入，省略、改变或仅复制选择文件到其它路径都不能补入原 attempt。
+
+`--out-dir` 的父目录必须已存在，输出目录必须全新、位于 ledger 域外；成功发布创建权限 `0700` 的目录及 `0600` 的 `reconciliation.json`，携带完整正文的证据保留在私有目录。报告只建立新的当前观察，既有 attempt、event、outcome 和历史报告逐字节保留；没有任何 dataset mutation、事件追加、replay、自动授权或普通 `process save-draft` 修复 fallback。非空报告全部行 `equal_eligible` 才退出 0，其它状态退出 1；参数或证据绑定错误按 CLI 错误返回。
+
+当前 `equal_eligible` 可以与原 `UNKNOWN` 或 `history.attempt_consumed=false` 同时存在，它既不补写历史成功，也不证明之前发生了 dispatch。`absent` 仅说明本次 RLS 可见结果，不能证明全局不存在或唯一性。所有分类都不证明部署、科学正确性、完整 finite 校验、publication readiness 或正式 DATA 接受；既有验证、写入授权和下游 Task 资格继续由各自 owner 处理。
+
+本改动保持 package 0.1.28、Node 24.19.0 / pnpm 11.24.0，不新增依赖、公开包导出或 release。合成测试与完整代码门禁分开记录；发行、installed/managed-runtime adoption 和原 DATA native retest 的资格仍待单独证明。
+
+### dataset read-exact
+
+`tiangong-lca dataset read-exact --scope-file <file> --scope-sha256 <raw SHA-256> --out-dir <NEW dir> --json` 为有限消费者读取显式 Process / LifecycleModel 来源行，不需要或制造写合同。scope 使用以下独立格式；示例均为合成占位，名单与来源文件必须由实际调用方选择：
+
+```json
+{
+  "schema_version": "dataset-exact-read-scope.v1",
+  "project_ref": "example",
+  "actor": { "user_id": "11111111-1111-4111-8111-111111111111" },
+  "sources": [{ "path": "/absolute/finite-selection.json", "sha256": "<raw SHA-256>" }],
+  "rows": [
+    {
+      "table": "processes",
+      "id": "22222222-2222-4222-8222-222222222222",
+      "version": "01.00.000",
+      "expected_model": { "id": "33333333-3333-4333-8333-333333333333", "version": "01.00.000" }
+    },
+    {
+      "table": "lifecyclemodels",
+      "id": "33333333-3333-4333-8333-333333333333",
+      "version": "01.00.000",
+      "referenced_by": [{ "id": "22222222-2222-4222-8222-222222222222", "version": "01.00.000" }]
+    }
+  ]
+}
+```
+
+`actor.email` 可省略；若提供，只能是实际已知的精确 lowercase email。绑定的 live identity receipt 使用当前 project/user UUID，公开 email 保持现有 masked 形式。scope 及 provenance 文件在读取前后核验原字节；sources 为 1–16 个绝对路径/原始 SHA 文件，各不超过 64 MiB。scope 最多包含 256 个不重复 exact table/id/version。名单、source provenance 与其科学合理性由调用方负责，CLI 不从数量、旧缓存、latest 查询或完整目录推导对象，不解析输入材料以制造资格或轴。
+
+每个 Process 读取完整 `json_ordered`、id/version、实际 user/state/`modified_at`，以及四个实际关系列。公共、其它 owner 或 Model 关联行可正常作为 `found` 观察，不能套用 `reconcile-draft` 的 owner-draft 采用策略。缺列/非法值/多行/读取失败是 `indeterminate`；显式 nullable 值原样保留。LifecycleModel 仅取其真实表字段（包括 team_id），不填造该表没有的 model_id/model_version/review_id。
+
+Process 先读，报告仍按原 scope 排列。`expected_model` 省略表示无旧关联断言；显式 null 或 exact {id,version} 才进行关联 drift 比较。若实际 model_id 非空、model_version 明确为 null，按现行消费者约定以 Process.version 解析关联；原行的 null 不改写，另附 `model_association.resolved_version` 和 `version_source=process_version_fallback`。真实非空 model_version 则标为 `version_source=model_version`。这只用于限定显式 Model 读取，不实施科学计算。
+
+Model 必须显式列在 scope，且 `referenced_by` 非空并全部指向同 scope 的 Process。只有每个引用 Process 本轮为 found 且实际解析关联恰为该 Model exact id/version，才读取 Model；不符则该项报告 `drift/referenced_process_drift`，不跟随新关联、不递归扩图或修复来源。
+
+输出为新私有目录中的 create-only `read-exact.json`，schema `dataset-exact-read-report.v1`；逐项仅有 found/absent/indeterminate/drift，保留完整实际行、行及正文 canonical SHA、scope/source 字节事实、当前身份和观察时间。显式 provenance 不是写入授权。无 write contract、attempt、ledger、adoption、eligible 或 executed 结果。非空结果全为 found 才退出 0，其余退出 1并保留观察；错误参数/变化的输入不发布完成报告。`absent` 仅为本轮 RLS 可见空集；部分 absent 或 drift 应由消费者按实际层级处理，不隐含阻止另一个独立 scope 的操作，也不把不存在的行制造为有效输入。

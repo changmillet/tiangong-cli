@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -51,6 +51,12 @@ Review note, 2026-10-02: CLI #398 prepares the separate version-only 0.1.24 rele
 Review note, 2026-09-24: CLI #370 has a version-fixture RED at package 0.1.22 with stale 0.1.21 expectations and a GREEN after eight bound fixtures advance. Full package, exact-100% coverage, Docpact and four-platform gates remain the release criteria; no data write is in scope.
 
 Review note, 2026-09-24: CLI #368 checks a real SDK 0.4.1 Process fixture through `dataset validate`: bilingual non-flow basis succeeds unchanged; missing basis or Flow ID is rejected. The read-only data #33 case still reports unrelated annual-volume and import-trace blockers. The canonical exact-coverage, package, Docpact and four-platform gates remain required.
+
+## Draft reconciliation proof
+
+For `dataset reconcile-draft`, run the focused `test/dataset-draft-reconciliation.test.ts`, `test/dataset-reconcile-draft-cli.test.ts`, `test/dataset-reconcile-draft-run.test.ts` and existing `test/dataset-save-draft-exact-reference.test.ts` / `test/dataset-save-draft-execution-contract.test.ts`. Preserve #419 consumer/actor/project and consumed-admission assertions. Prove all six current observation classes, full bodies and explicit nullable Process metadata, retained UNKNOWN/no-attempt history, original contract/action/event bindings, GET-only target transport, unchanged ledger bytes, file-change rejection before publication, private create-only output and strict CLI arguments/exit codes. The [protocol](../IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft) defines acceptance and evidence limits.
+
+Package 0.1.28 and exact Node 24.19.0 / pnpm 11.24.0 remain unchanged. Focused synthetic proof supplements the required full `pnpm prepush:gate` and exact-head delivery checks; it does not qualify deployment, an installed or managed runtime, or real DATA acceptance. Those qualifications remain pending until separately verified.
 
 ## Branch-deletion-only hook exception
 
@@ -159,6 +165,8 @@ Exact-reference tests must cover default latest behavior, explicit older/public/
 Guarded exact-reference Flow tests must exercise public save-draft dry-run/commit on the same full payloads accepted by verify-remote. Cover every repeated occurrence, undeclared/default policy, malformed and changed selections, fresh actor/project and complete selected/latest body proof, asynchronous predispatch rejection, before-image drift, immutable admission, consumed selection omission/change, lost-response exact readback and terminal UNKNOWN without replay. Fixtures use guarded synthetic transport; they do not replace the original caller/runtime qualification.
 
 ## Minimum PR Note Quality
+
+Finite source-read tests exercise the real public command with synthetic exact RLS transports. Cover public/foreign/Model-associated source rows without owner-adoption classification; strict hash-bound finite selections and source files; missing versus explicit-null metadata; malformed successful responses; original-order reports with Process-first capture; explicit Model relation drift and raw-null Process-version fallback; zero mutation and no unselected graph reads. Current source observation and owner-draft reconciliation must both retain their independent contracts.
 
 A good PR note for this repo should say:
 

@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -53,7 +53,11 @@ Managed-host launch selection stays in the generic CLI manager. Dedicated protoc
 
 `dataset-save-draft-reference-intent.ts` composes the shared #289 strict selection/evaluator and complete-body observation with the owner execution contract. `dataset-save-draft-run.ts` owns fresh preflight/predispatch, action ledger and recovery; `dataset-command.ts` awaits admission before POST. Default gates and the original ledger domain remain unchanged. [The exact-reference contract](exact-reference-intent-contract.md#guarded-flow-owner-drafts) defines caller snapshots and admission fields.
 
+`dataset reconcile-draft` composes the original contract, ledger and #419 admission parsers in `dataset-save-draft-run.ts` with exact current-user RLS reads and the live identity receipt. `dataset-draft-reconciliation.ts` owns complete-row classification, file stability checks and private create-only evidence publication; `src/cli.ts` owns strict flags/help and exit mapping. Reconciliation keeps current observations and historical ledger facts separate and invokes no mutation transport or repair writer. See the [protocol](../IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft).
+
 ## Repo Shape
+
+`dataset-exact-read.ts` owns explicit finite source selection, fresh authenticated exact reads and Process-to-Model observation. Its shared exact-array reader also serves draft reconciliation; eligibility and historical execution interpretation stay with their separate callers. Source observation never follows an unselected Model or scans a catalog.
 
 This repo is organized around one stable launcher plus a library-style `src/lib/**` tree that implements command families and shared helpers.
 

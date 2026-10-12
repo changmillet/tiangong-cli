@@ -37,9 +37,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -67,11 +67,15 @@ Review note, 2026-09-24: CLI #368 synchronizes the 0.2.3 Process reference schem
 
 ## Specialized contracts
 
+Finite Process/Model source capture uses `dataset read-exact` and its explicit file-hash scope; see [the read-exact protocol](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-read-exact). Current source observations and owner-draft reconciliation have separate policies; neither authorizes adoption or a write.
+
 Private live-account testing is maintainer-only and requires explicit account authorization. Follow [the live case guide](docs/agents/live-case-testing.md); public CLI authentication remains OAuth-only and personal credentials never enter public CI.
 
 Process QA consumes explicitly selected exact Flow/Flow Property/Unit Group evidence through `process-mass-balance.ts`; `process-qa.ts` owns report/finding projection. Exact `kg*km` and `t*km` are transport work, excluded from material mass sums; unit tags must preserve the selected reference-unit scale. Keep nonmass or unresolved applicability separate from a physical mass result, retain null unavailable values and hash-bound evidence, and never infer arbitrary composite units or use a version label to restore mixed-dimension arithmetic. Foundry #122 owns downstream evidence selection and transport.
 
 Guarded Flow-only `dataset save-draft --execution-contract --reference-intent-file` also follows the exact-reference contract: reuse its parser/evaluator, reobserve immediately before dispatch, await the transport gate, and retain per-action admission in the original consumed ledger. Foundry owns selection/snapshots and runtime continuation, not CLI eligibility.
+
+When changing `dataset reconcile-draft`, read the [draft reconciliation protocol](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft) for original contract/ledger binding, current observation classes and evidence publication. Keep the original #419 admission and history intact; current equality grants neither historical success nor write authority. Reconciliation stays within the CLI read/observation owners and never falls back to an ordinary Process writer.
 
 Explicit exact-reference verification follows `docs/agents/exact-reference-intent-contract.md`. Keep strict consumer/actor/reference/review binding and current input rechecks in the CLI owner; preserve default latest/root policy and current-user RLS. Foundry transports the evidence without implementing eligibility or treating a review file as write authority.
 

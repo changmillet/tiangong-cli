@@ -5,6 +5,19 @@ import {
 // data-api-relations: contacts, flowproperties, flows, processes, sources, unitgroups
 // data-api-dynamic-relation-expression: options.table
 import { closeSync, chmodSync, fsyncSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
+import { runAuthIdentityReceipt, type AuthIdentityReceipt } from './auth-identity-receipt.js';
+import { loadCliPackageVersion } from './package-version.js';
+import { readExactRows } from './dataset-exact-read.js';
+import {
+  assertReconciliationFiles,
+  reconciliationError,
+  reconciliationFileFact,
+  reconciliationOutputDirectory,
+  observeDraftRows,
+  writeDraftReconciliation,
+  type DraftObservation,
+  type ReconciliationFileFact,
+} from './dataset-draft-reconciliation.js';
 import path from 'node:path';
 import * as tidasSdk from '@tiangong-lca/tidas-sdk';
 import { withOptionalReviewReportReference } from './tidas-review-report-optionality.js';
@@ -1168,6 +1181,7 @@ function prepareRows(
   inputPath: string,
   rawInput: unknown | undefined,
   requestedType: DatasetSaveDraftType,
+  validate = true,
 ): PreparedDatasetRow[] {
   const rows = readDatasetRowsInput(inputPath, rawInput);
   return rows.map((row, index) => {
@@ -1184,7 +1198,7 @@ function prepareRows(
       id: identity.id,
       version: identity.version,
       validation:
-        config && type
+        validate && config && type
           ? validatePayload(payload, type, config, semanticContextFromInput(row))
           : null,
     };
@@ -2330,6 +2344,222 @@ async function runExecutionContractBatch(options: {
     },
   };
   writeJsonArtifact(options.files.summary_json, report);
+  return report;
+}
+
+export type RunDatasetDraftReconciliationOptions = {
+  inputPath: string;
+  executionContractPath: string;
+  outDir: string;
+  type?: string;
+  referenceIntentFile?: string;
+  env: NodeJS.ProcessEnv;
+  fetchImpl: FetchLike;
+  timeoutMs?: number;
+  now?: Date;
+};
+
+export type DatasetDraftReconciliationReport = {
+  schema_version: 'dataset-draft-reconciliation.v1';
+  mode: 'read_only';
+  status: 'observed' | 'indeterminate';
+  generated_at_utc: string;
+  authorization_granted: false;
+  historical_execution_changed: false;
+  eligibility_policy: 'current-owner-state-0-standalone-unreviewed-process';
+  identity: AuthIdentityReceipt;
+  execution_contract: {
+    path: string;
+    file_sha256: string;
+    sha256: string;
+    execution_id: string;
+    project_ref: string;
+    owner: DatasetSaveDraftExecutionContract['owner'];
+  };
+  input: ReconciliationFileFact;
+  reference_intent: ReconciliationFileFact | null;
+  rows: Array<
+    DraftObservation & {
+      action: DatasetSaveDraftExecutionAction;
+      observed_at_utc: string;
+      history: {
+        ledger: ReconciliationFileFact;
+        attempt_consumed: boolean;
+        outcome: 'executed' | 'unknown' | null;
+        event_count: number;
+        event_tip_sha256: string | null;
+        reference_intent_admission: SaveDraftReferenceAdmission | null;
+      };
+    }
+  >;
+};
+
+/** Fresh exact observation, independent of whether the original attempt ever completed. */
+export async function runDatasetDraftReconciliation(
+  options: RunDatasetDraftReconciliationOptions,
+): Promise<DatasetDraftReconciliationReport> {
+  if (!options.inputPath || !options.executionContractPath || !options.outDir)
+    reconciliationError(
+      'Reconciliation requires input, original execution contract and new output directory.',
+    );
+  const inputPath = path.resolve(options.inputPath);
+  const contractPath = path.resolve(options.executionContractPath);
+  const input = reconciliationFileFact(inputPath);
+  const contractFile = reconciliationFileFact(contractPath);
+  const referenceIntentFile =
+    options.referenceIntentFile === undefined
+      ? null
+      : reconciliationFileFact(path.resolve(options.referenceIntentFile));
+  const contract = parseExecutionContract(readJsonFile(contractPath, 'Execution contract'));
+  if (contract.actions.length > 64)
+    reconciliationError('Reconciliation is limited to 64 explicitly contracted actions.');
+  // Observation binds original identities and bytes; today's validator cannot revise old science
+  // or become a prerequisite for reading the result of an already consumed contract.
+  const preparedRows = prepareRows(inputPath, undefined, normalizeType(options.type, true), false);
+  bindExecutionContractRows(contract, preparedRows);
+  const intent = referenceIntentFile
+    ? loadExactReferenceIntent({
+        file: referenceIntentFile.path,
+        consumers: exactReferenceConsumers(preparedRows.map((row) => row.row)),
+        references: collectRemoteReferences(preparedRows.map((row) => row.row)),
+      })
+    : null;
+  if (
+    intent &&
+    (!preparedRows.every((row) => row.type === 'flow') ||
+      intent.actor_user_id !== contract.owner.user_id ||
+      intent.project_ref !== contract.project_ref)
+  )
+    reconciliationError('Reference intent must bind the original Flow-only owner contract.');
+  const ledgerRoot = executionLedgerRoot(options.env, contract);
+  const output = reconciliationOutputDirectory(options.outDir, ledgerRoot);
+  const ledgerFiles = contract.actions.map((action) =>
+    reconciliationFileFact(executionLedgerPath(ledgerRoot, action), true),
+  );
+  const ledger = loadExecutionLedger(ledgerRoot, contract);
+  const contractSha = sha256Json(contract);
+  for (const [index, action] of contract.actions.entries()) {
+    const events = ledger.events.get(action.action_id)!;
+    if (events.some((event) => event.contract_sha256 !== contractSha))
+      reconciliationError(
+        'Reconciliation requires the original execution contract, not a replacement request.',
+      );
+    const attempt = ledger.attempts.get(action.action_id);
+    if (
+      attempt &&
+      sha256Json(attempt.reference_intent_admission ?? null) !==
+        sha256Json(intent ? saveDraftReferenceAdmission(intent, index) : null)
+    )
+      reconciliationError('Reconciliation requires the original consumed reference selection.');
+  }
+  const facts = [
+    input,
+    contractFile,
+    ...ledgerFiles,
+    ...(referenceIntentFile ? [referenceIntentFile] : []),
+  ];
+  const identity = await runAuthIdentityReceipt({
+    env: options.env,
+    fetchImpl: options.fetchImpl,
+    cliVersion: loadCliPackageVersion(),
+    expectedProjectRef: contract.project_ref,
+    expectedUserId: contract.owner.user_id,
+    timeoutMs: options.timeoutMs,
+    now: options.now,
+  });
+  const runtime = createSupabaseDataRuntime({
+    runtime: requireSupabaseRestRuntime(options.env),
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.timeoutMs,
+  });
+  const assertActor = async () => {
+    const actor = decodeExecutionActor(await runtime.getAccessToken());
+    if (actor.user_id !== contract.owner.user_id || actor.email !== contract.owner.email)
+      reconciliationError('Current owner changed during read-only reconciliation.');
+  };
+  await assertActor();
+  const { client, restBaseUrl } = createSupabaseDataClient(
+    runtime,
+    options.fetchImpl,
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
+  const rows: DatasetDraftReconciliationReport['rows'] = [];
+  for (const [index, action] of contract.actions.entries()) {
+    let observation: DraftObservation;
+    try {
+      const columns =
+        'id,version,user_id,state_code,json_ordered' +
+        (action.table === 'processes' ? ',model_id,model_version,team_id,review_id' : '');
+      const actual = await readExactRows({
+        client,
+        restBaseUrl,
+        table: action.table,
+        id: action.id,
+        version: action.version,
+        columns,
+      });
+      observation = observeDraftRows(actual, {
+        id: action.id,
+        version: action.version,
+        user_id: contract.owner.user_id,
+        desired_sha256: action.desired_sha256,
+        process: action.table === 'processes',
+      });
+    } catch {
+      // Transport bodies, exception text and credentials never enter observation artifacts.
+      observation = {
+        status: 'indeterminate',
+        reason: 'read_failed',
+        actual_row: null,
+        actual_row_sha256: null,
+        actual_payload_sha256: null,
+      };
+    }
+    const events = ledger.events.get(action.action_id)!;
+    rows.push({
+      ...observation,
+      action,
+      observed_at_utc: (options.now ?? new Date()).toISOString(),
+      history: {
+        ledger: ledgerFiles[index]!,
+        attempt_consumed: ledger.attempts.has(action.action_id),
+        outcome: ledger.outcomes.get(action.action_id)?.outcome ?? null,
+        event_count: events.length,
+        event_tip_sha256: events.at(-1)?.event_sha256 ?? null,
+        reference_intent_admission:
+          ledger.attempts.get(action.action_id)?.reference_intent_admission ?? null,
+      },
+    });
+  }
+  await assertActor();
+  assertReconciliationFiles(facts);
+  if (intent)
+    assertExactReferenceInputsCurrent(
+      intent,
+      exactReferenceConsumers(preparedRows.map((row) => row.row)),
+    );
+  const report: DatasetDraftReconciliationReport = {
+    schema_version: 'dataset-draft-reconciliation.v1',
+    mode: 'read_only',
+    status: rows.some((row) => row.status === 'indeterminate') ? 'indeterminate' : 'observed',
+    generated_at_utc: (options.now ?? new Date()).toISOString(),
+    authorization_granted: false,
+    historical_execution_changed: false,
+    eligibility_policy: 'current-owner-state-0-standalone-unreviewed-process',
+    identity,
+    execution_contract: {
+      path: contractPath,
+      file_sha256: contractFile.sha256!,
+      sha256: contractSha,
+      execution_id: contract.execution_id,
+      project_ref: contract.project_ref,
+      owner: contract.owner,
+    },
+    input,
+    reference_intent: referenceIntentFile,
+    rows,
+  };
+  writeDraftReconciliation(output, report);
   return report;
 }
 

@@ -20,9 +20,9 @@ checkPaths:
   - src/cli.ts
   - test/dataset-exact-reference-intent.test.ts
   - test/dataset-save-draft-exact-reference.test.ts
-lastReviewedAt: 2026-09-11
-lastReviewedCommit: 577d6fdf6ffb9de594b098a166c6b1f2ac3657f1
-lastReviewedNote: 'Reviewed for CLI #289: explicit consumer/reference/review binding, fresh actor identity, current latest payload observations and unchanged root/default policies.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'Reviewed CLI #295 read-only exact observation and retained-history reconciliation; original write/reference contracts, dependencies, package version and release controls remain unchanged. Consumer qualification is separate.'
 related:
   - ../../AGENTS.md
   - ./repo-validation.md
@@ -150,3 +150,5 @@ The per-row admission is a content-bound record of a passed check, not a grant. 
 A consumed action requires the same explicit normalized selection. Omitting or changing it, or trying to add evidence to a historical attempt without it, returns a consumed binding failure (`DATASET_SAVE_DRAFT_REFERENCE_RECOVERY_MISMATCH`): `unknown` for commit, `blocked` for dry-run, with the original admission retained and no new request. Restore the original files/selection to use the ordinary readback-only recovery. Malformed or unavailable selected files fail parsing; they cannot grant a new attempt. Matching recovery returns the original admission without re-evaluating or replacing historical observations. An unresolved attempt can resolve by independent exact owner/state/body readback; terminal UNKNOWN stays terminal and never replays. A previous success whose desired body no longer reads back exactly is reported unknown.
 
 Callers must snapshot and bind the complete rows, execution contract, intent and every selected review in their existing command artifact protocol, and pass the explicit selection to both owner preflight and commit. If locators change before the first attempt, derive and reverify the staged intent; do not relabel prior reports or move a consumed selection. Native owner finalization, grant/attempt state and runtime candidate adoption remain caller-owned contracts. A successful read-only `verify-remote` report alone cannot authorize or close a write.
+
+`dataset reconcile-draft` accepts the same original selection for a fresh, separate exact root observation. It verifies the retained admission and rechecks input, intent and review bytes before publishing. Its current equality result can coexist with a historical UNKNOWN or unfinished attempt; the original event chain and outcome remain unchanged. See the [reconciliation protocol](../IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft) for the distinct report and read-only boundary.

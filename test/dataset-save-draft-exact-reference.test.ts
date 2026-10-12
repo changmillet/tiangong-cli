@@ -5,7 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { executeCli } from '../src/cli.js';
-import { collectRemoteReferences } from '../src/lib/dataset-remote-verify.js';
+import {
+  collectRemoteReferences,
+  exactReferenceConsumers,
+} from '../src/lib/dataset-remote-verify.js';
+import {
+  runDatasetDraftReconciliation,
+  type DatasetSaveDraftReport,
+  type RunDatasetDraftReconciliationOptions,
+} from '../src/lib/dataset-save-draft-run.js';
 import { sha256Json } from '../src/lib/dataset-maintenance-contract.js';
 import type { FetchLike } from '../src/lib/http.js';
 import { buildSupabaseTestEnv } from './helpers/supabase-auth.js';
@@ -869,4 +877,239 @@ test('an outcome cannot drop the admission bound by its original attempt', async
   const result = await f.invoke('save-draft', ownerFlags(f, true));
   assert.notEqual(result.exitCode, 0);
   assert.equal(f.writes.length, 2);
+});
+
+async function consumeExactReferenceFixture(f: ReturnType<typeof fixture>) {
+  const first = await f.invoke('save-draft', ownerFlags(f, true));
+  assert.equal(first.exitCode, 0, first.stderr || first.stdout);
+  const report: DatasetSaveDraftReport = JSON.parse(first.stdout);
+  assert.equal(f.writes.length, 2);
+  const directory = report.files.execution_ledger!;
+  const entries = fs.readdirSync(directory).sort();
+  const bytes = entries.map((entry) => fs.readFileSync(path.join(directory, entry)));
+  f.calls.length = 0;
+  return {
+    report,
+    files: entries.map((entry) => path.join(directory, entry)),
+    assertRetained: () => {
+      assert.deepEqual(fs.readdirSync(directory).sort(), entries);
+      assert.deepEqual(
+        entries.map((entry) => fs.readFileSync(path.join(directory, entry))),
+        bytes,
+      );
+      assert.equal(f.writes.length, 2);
+      assert.ok(f.calls.every((url) => !new URL(url).pathname.startsWith('/functions/')));
+    },
+  };
+}
+
+function reconcileExactReferenceFixture(
+  f: ReturnType<typeof fixture>,
+  outDir: string,
+  overrides: Partial<RunDatasetDraftReconciliationOptions> = {},
+) {
+  return runDatasetDraftReconciliation({
+    inputPath: f.input,
+    executionContractPath: f.contractFile,
+    outDir,
+    type: 'flow',
+    referenceIntentFile: f.intentFile,
+    env: f.env,
+    fetchImpl: async (input, init) => {
+      assert.equal(init?.method ?? 'GET', 'GET', 'reconciliation must use read-only transport');
+      return f.fetchImpl(input, init);
+    },
+    now: new Date('2026-10-12T00:00:00.000Z'),
+    ...overrides,
+  });
+}
+
+test('reconciliation retains consumed original exact-reference admission and historical evidence', async (t) => {
+  const f = fixture(t);
+  const retained = await consumeExactReferenceFixture(f);
+  const originalInputs = [f.input, f.intentFile, f.reviewFile, f.contractFile].map(fileHash);
+  const outDir = path.join(f.root, 'reconciliation');
+  const report = await reconcileExactReferenceFixture(f, outDir);
+  assert.equal(report.status, 'observed');
+  assert.equal(report.authorization_granted, false);
+  assert.equal(report.historical_execution_changed, false);
+  assert.equal(report.execution_contract.sha256, sha256Json(f.contract));
+  assert.equal(report.execution_contract.file_sha256, fileHash(f.contractFile));
+  assert.equal(report.reference_intent?.sha256, fileHash(f.intentFile));
+  assert.deepEqual(
+    report.rows.map((row) => row.status),
+    ['equal_eligible', 'equal_eligible'],
+  );
+  assert.deepEqual(
+    report.rows.map((row) => row.history.reference_intent_admission),
+    retained.report.rows.map((row) => row.reference_intent_admission),
+  );
+  for (const row of report.rows) {
+    assert.equal(row.history.attempt_consumed, true);
+    assert.equal(row.history.outcome, 'executed');
+    assert.equal(row.history.event_count, 2);
+    assert.equal(row.history.ledger.sha256, fileHash(row.history.ledger.path));
+    const events = fs.readFileSync(row.history.ledger.path, 'utf8').trim().split('\n');
+    assert.equal(row.history.event_tip_sha256, JSON.parse(events.at(-1)!).event_sha256);
+    assert.deepEqual(row.actual_row?.json_ordered, f.state.get(row.action.id));
+  }
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(outDir, 'reconciliation.json'), 'utf8')),
+    report,
+  );
+  assert.deepEqual(
+    [f.input, f.intentFile, f.reviewFile, f.contractFile].map(fileHash),
+    originalInputs,
+  );
+  assert.equal(f.calls.filter((url) => new URL(url).pathname.endsWith('/flows')).length, 2);
+  retained.assertRetained();
+});
+
+for (const selection of ['omitted', 'changed', 'copied'] as const)
+  test(`reconciliation rejects ${selection} consumed exact-reference selection without replay`, async (t) => {
+    const f = fixture(t);
+    const retained = await consumeExactReferenceFixture(f);
+    let referenceIntentFile: string | undefined = f.intentFile;
+    if (selection === 'omitted') referenceIntentFile = undefined;
+    if (selection === 'changed') {
+      f.review.reason = 'A different review cannot replace the consumed original selection.';
+      rewriteReview(f);
+    }
+    if (selection === 'copied') {
+      referenceIntentFile = path.join(f.root, 'copied-intent.json');
+      fs.copyFileSync(f.intentFile, referenceIntentFile);
+    }
+    const outDir = path.join(f.root, `reconciliation-${selection}`);
+    await assert.rejects(
+      reconcileExactReferenceFixture(f, outDir, { referenceIntentFile }),
+      /original consumed reference selection/u,
+    );
+    assert.equal(fs.existsSync(outDir), false);
+    assert.deepEqual(f.calls, []);
+    retained.assertRetained();
+  });
+
+for (const identity of ['actor', 'project'] as const)
+  test(`reconciliation rejects an exact-reference intent with a wrong ${identity}`, async (t) => {
+    const f = fixture(t);
+    const retained = await consumeExactReferenceFixture(f);
+    if (identity === 'actor') f.intent.actor_user_id = owner;
+    else f.intent.project_ref = 'zzzzzzzzzzzzzzzzzzzz';
+    rewriteIntent(f);
+    const outDir = path.join(f.root, `reconciliation-wrong-${identity}`);
+    await assert.rejects(
+      reconcileExactReferenceFixture(f, outDir),
+      /original Flow-only owner contract/u,
+    );
+    assert.equal(fs.existsSync(outDir), false);
+    assert.deepEqual(f.calls, []);
+    retained.assertRetained();
+  });
+
+test('reconciliation rejects an otherwise bound exact-reference intent for a non-Flow contract', async (t) => {
+  const f = fixture(t);
+  const row = {
+    ...contact(version),
+    selectedContact: reference('contact data set', contactId, version),
+  };
+  const consumers = exactReferenceConsumers([row]);
+  const refs = collectRemoteReferences([row]).filter((ref) => ref.role === 'reference');
+  assert.equal(refs.length, 1);
+  write(f.input, [row]);
+  write(f.contractFile, {
+    ...f.contract,
+    actions: [
+      {
+        ...f.contract.actions[0],
+        table: 'contacts',
+        id: contactId,
+        desired_sha256: sha256Json(row),
+      },
+    ],
+  });
+  write(f.intentFile, {
+    ...f.intent,
+    consumers,
+    references: refs.map((ref) => ({
+      row_index: ref.row_index,
+      path: ref.path,
+      selected: f.review.selected,
+      review: { file: f.reviewFile, sha256: fileHash(f.reviewFile) },
+    })),
+  });
+  const outDir = path.join(f.root, 'reconciliation-non-flow');
+  await assert.rejects(
+    reconcileExactReferenceFixture(f, outDir, { type: 'contact' }),
+    /original Flow-only owner contract/u,
+  );
+  assert.equal(fs.existsSync(outDir), false);
+  assert.equal(fs.existsSync(path.join(f.root, 'state')), false);
+  assert.equal(f.writes.length, 0);
+  assert.deepEqual(f.calls, []);
+});
+
+for (const selection of ['input', 'intent', 'review'] as const)
+  test(`reconciliation cannot publish after original ${selection} bytes change during readback`, async (t) => {
+    const f = fixture(t);
+    const retained = await consumeExactReferenceFixture(f);
+    let changed = false;
+    f.controls.onRequest = (url) => {
+      if (url.pathname.endsWith('/flows') && !changed) {
+        changed = true;
+        fs.appendFileSync(
+          selection === 'input' ? f.input : selection === 'intent' ? f.intentFile : f.reviewFile,
+          ' ',
+        );
+      }
+    };
+    const outDir = path.join(f.root, `reconciliation-changed-${selection}`);
+    await assert.rejects(reconcileExactReferenceFixture(f, outDir), /changed/u);
+    assert.equal(changed, true);
+    assert.equal(fs.existsSync(outDir), false);
+    retained.assertRetained();
+  });
+
+test('reconciliation rejects a replacement contract even when action identity and consumed selection match', async (t) => {
+  const f = fixture(t);
+  const retained = await consumeExactReferenceFixture(f);
+  f.contract.execution_id = 'replacement-execution-request';
+  write(f.contractFile, f.contract);
+  const outDir = path.join(f.root, 'reconciliation-replacement-contract');
+  await assert.rejects(
+    reconcileExactReferenceFixture(f, outDir),
+    /original execution contract, not a replacement request/u,
+  );
+  assert.equal(fs.existsSync(outDir), false);
+  assert.deepEqual(f.calls, []);
+  retained.assertRetained();
+});
+
+test('reconciliation rejects tampered retained exact-reference admission with recomputed ledger hashes', async (t) => {
+  const f = fixture(t);
+  const retained = await consumeExactReferenceFixture(f);
+  const file = retained.files[0]!;
+  const events: JsonObject[] = fs
+    .readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  let previous: string | null = null;
+  for (const event of events) {
+    (event.reference_intent_admission as JsonObject).selection_sha256 = 'f'.repeat(64);
+    event.previous_event_sha256 = previous;
+    delete event.event_sha256;
+    event.event_sha256 = sha256Json(event);
+    previous = event.event_sha256 as string;
+  }
+  fs.writeFileSync(file, events.map((event) => JSON.stringify(event)).join('\n') + '\n');
+  const bytes = retained.files.map((ledger) => fs.readFileSync(ledger));
+  const outDir = path.join(f.root, 'reconciliation-tampered-ledger');
+  await assert.rejects(reconcileExactReferenceFixture(f, outDir));
+  assert.equal(fs.existsSync(outDir), false);
+  assert.deepEqual(
+    retained.files.map((ledger) => fs.readFileSync(ledger)),
+    bytes,
+  );
+  assert.equal(f.writes.length, 2);
+  assert.deepEqual(f.calls, []);
 });

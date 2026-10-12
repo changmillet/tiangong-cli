@@ -1,8 +1,8 @@
 version: 1
 layout: repo
-lastReviewedAt: '2026-10-09'
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: '2026-10-12'
+lastReviewedCommit: 'ffe2e5e46e5319b65d64fa2f4c10c927f0534170'
+lastReviewedNote: 'Reviewed CLI #295 read-only exact observation and retained-history reconciliation; original write/reference contracts, dependencies, package version and release controls remain unchanged. Consumer qualification is separate.'
 
 catalog:
   repos:

@@ -22,9 +22,9 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'CLI #295 read-only draft reconciliation: original contract/ledger and #419 admission remain bound; current observations confer no historical success or write authority. Package 0.1.28 unchanged; release, managed-runtime and DATA qualification remain pending.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -149,6 +149,7 @@ Review note, 2026-07-17: Issue #157 COMMON 收紧要求两个 Issue #29 derivati
 - `tiangong-lca process publish-build`
 - `tiangong-lca process batch-build`
 - `tiangong-lca dataset validate`
+- `tiangong-lca dataset reconcile-draft`
 - `tiangong-lca dataset classification children/path/audit/apply`
 - `tiangong-lca dataset curation-queue build`
 - `tiangong-lca dataset references rewrite`
@@ -321,6 +322,7 @@ Data API schema 不依赖 PostgREST 的默认 `public`。默认且唯一支持�
 | `dataset curation-queue build` | 无 |
 | `dataset references rewrite` | 本地 rewrite 默认无；`--commit` 需要远程认证环境 |
 | `dataset save-draft` | 本地 dry-run 默认无；`--commit`（包括 execution contract）需要远程认证环境；ledger 仍在平台用户状态目录 |
+| `dataset reconcile-draft` | 远程认证环境；从原 contract 绑定 live project/user，目标与原账本只读 |
 | `dataset maintenance plan/apply/freeze-protected/run-protected/verify` | 需要远程认证环境；既有 plan/approval/production/status-only 护栏不变 |
 | `dataset maintenance seal-protected-approval` | 无；完全离线，只读取 canonical freeze/request 与人类返回的原始 UTF-8 文本，并要求显式 freeze-file/request/text/account/timestamp 绑定 |
 | `lifecyclemodel auto-build \| validate-build \| publish-build \| graph \| orchestrate` | 无 |
@@ -390,6 +392,7 @@ node ./bin/tiangong-lca.js lifecyclemodel validate-build --run-dir /abs/path/to/
 node ./bin/tiangong-lca.js lifecyclemodel publish-build --run-dir /abs/path/to/lifecyclemodel-run --json
 node ./bin/tiangong-lca.js lifecyclemodel save-draft --input ./lifecyclemodels.jsonl --out-dir ./lifecyclemodel-save-draft --dry-run --json
 node ./bin/tiangong-lca.js dataset save-draft --input ./rows.jsonl --type auto --execution-contract ./execution-contract.json --max-parallel 8 --out-dir ./dataset-save-draft --commit --json
+node ./bin/tiangong-lca.js dataset reconcile-draft --input ./original-rows.jsonl --execution-contract ./original-execution-contract.json --out-dir ./new-private-reconciliation --json
 node ./bin/tiangong-lca.js lifecyclemodel graph --input ./lifecyclemodels.jsonl --out-dir ./lifecyclemodel-graph --format all --json
 node ./bin/tiangong-lca.js lifecyclemodel orchestrate plan --input ./lifecyclemodel-orchestrate.request.json --out-dir /abs/path/to/lifecyclemodel-recursive-run --json
 node ./bin/tiangong-lca.js lifecyclemodel build-resulting-process --input ./request.json --json
@@ -494,6 +497,8 @@ Derivative rebuild 的 apply 成功只表示 guarded RPC 已返回 `accepted`/`q
 这个命令当前只负责 current-user draft 的 save-draft/update 语义；`--target-user-id` 是批量导入时的账号/写入 guard，不能替代写后 readback verify，也不会替代 public `state_code=100` 的版本修订 publish 路径。
 
 `tiangong-lca dataset save-draft --execution-contract` 是另一条显式 opt-in 的通用批处理契约。`dataset-save-draft-execution-contract.v1` 必须给出 project、精确 owner（含 `state_code=0`）和有序 actions；每个 action 绑定 `action_id@desired_sha256`、table/id/version、expected operation、before hash 与只指向更早 action 的依赖。`--max-parallel` 默认 1、上限 8；调度器把所有被 dependency 引用的 action 收进一个完整串行前缀，只有其后 table/id/version 唯一的 suffix 可以并发。每次 DML 前都会从既有 session runtime 取得当前 token 并再次核对 exact user/email。CLI 在调用受保护平台写入前把 attempt 持久化到稳定的 per-owner/project action ledger，随后只以精确 owner/state/payload readback 判定成功；transport 模糊、进程中断或既有 attempt 都不会自动重投。依赖失败只阻断其后继，无依赖 action 继续；任一 failed/unknown/blocked 都返回非零退出码。Unit Group / Flow Property 仍需额外显式 `--allow-account-local-support`，该模式不新增 direct-table、service-role、publication、delete 或 state/schema mutation 路径。
+
+`dataset reconcile-draft` 使用原 input/contract 与新私有 create-only 输出目录，只观察当前 exact owner-draft 并保留原 ledger/#419 admission；当前相等不能消除历史 UNKNOWN，也不能给原先无 attempt 的 action 补写执行证据。完整字段、Process metadata、文件漂移与退出语义见 [reconciliation 协议](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-reconcile-draft)。package 保持 0.1.28，Node 24.19.0 / pnpm 11.24.0 不变；代码测试、发行/managed runtime 与原 DATA 回验分别记录，后两项资格尚待证明。
 
 `tiangong-lca process auto-build` 现在已经承担 `process_from_flow` 主链的第一个 CLI 切片，负责：
 
@@ -932,3 +937,5 @@ Review note, 2026-09-21: independently reviewed CLI #283 annual-volume commit d4
 ### Guarded Flow exact-reference 开发验证
 
 `dataset save-draft --execution-contract --reference-intent-file` 仅在 Flow-only 合约中消费 #289 的显式选择。前检与 dispatch 前鲜检由 CLI 承担；Foundry 只绑定并传递 snapshot，不复制 eligibility。新增用例位于 `test/dataset-save-draft-exact-reference.test.ts`，覆盖同一完整 consumer 的 public dry-run／commit、正文和账号漂移、async gate、原 admission ledger 与 UNKNOWN 不重放。执行 `pnpm prepush:gate` 的全量证明后，仍须由原调用方资格通路完成实际 Task 回验；合成 transport 成功不代表生产或正式 runtime 采用。字段定义见 [exact-reference contract](docs/agents/exact-reference-intent-contract.md#guarded-flow-owner-drafts)。
+
+有限 Process/Model 来源读取使用 [`dataset read-exact`](docs/IMPLEMENTATION_GUIDE_CN.md#dataset-read-exact) 的独立 hash scope；复用现有当前用户认证与 RLS，只发布实际行观察，不生成写合同或采用资格。

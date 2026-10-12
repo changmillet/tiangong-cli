@@ -3,7 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { runDatasetSaveDraft, __testInternals } from '../src/lib/dataset-save-draft-run.js';
+import {
+  runDatasetSaveDraft,
+  runDatasetDraftReconciliation,
+  __testInternals,
+} from '../src/lib/dataset-save-draft-run.js';
 import { sha256Json, stableJsonText } from '../src/lib/dataset-maintenance-contract.js';
 import type { FetchLike } from '../src/lib/http.js';
 import {
@@ -2278,6 +2282,151 @@ test('execution contract never masks a consumed attempt behind a validation fail
     assert.equal(freshReport.rows[0]?.status, 'failed');
     assert.equal(freshReport.rows[0]?.operation, 'skipped_invalid');
     assert.equal(freshReport.rows[0]?.attempt_consumed, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('fresh reconciliation appends late exact visibility without rewriting the real terminal UNKNOWN', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-reconcile-late-'));
+  const desired = flow('11111111-1111-1111-1111-111111111111', 'Late exact visibility');
+  const id = identity(desired).id;
+  const state = new Map<string, JsonObject>();
+  const writes: string[] = [];
+  const baseFetch = executionFetch({
+    state,
+    writes,
+    behavior: new Map([[id, 'throw_without_mutation']]),
+  });
+  const fetchImpl: FetchLike = async (url, init) =>
+    String(url).endsWith('/auth/v1/user')
+      ? response({ id: OWNER_USER_ID, email: 'user@example.com', role: 'authenticated' })
+      : baseFetch(url, init);
+  const contractPath = writeContract(dir, contract({ desired: [desired] }));
+  const inputPath = path.join(dir, 'rows.json');
+  writeFileSync(inputPath, JSON.stringify([desired]));
+  const env = executionEnv(dir, 'reconcile-late');
+  try {
+    const first = await runDatasetSaveDraft({
+      inputPath,
+      type: 'flow',
+      executionContractPath: contractPath,
+      env,
+      fetchImpl,
+      outDir: path.join(dir, 'original'),
+      commit: true,
+    });
+    assert.equal(first.rows[0]?.status, 'unknown');
+    assert.deepEqual(writes, [id]);
+    const parsed = __testInternals.parseExecutionContract(
+      JSON.parse(readFileSync(contractPath, 'utf8')),
+    );
+    const ledgerFile = __testInternals.executionLedgerPath(
+      __testInternals.executionLedgerRoot(env, parsed),
+      parsed.actions[0]!,
+    );
+    const oldLedger = readFileSync(ledgerFile);
+    const oldContract = readFileSync(contractPath);
+    const oldSummary = readFileSync(first.files.summary_json);
+    for (const [name, visible] of [
+      ['absent', false],
+      ['equal_eligible', true],
+    ] as const) {
+      if (visible) state.set(id, desired);
+      const report = await runDatasetDraftReconciliation({
+        inputPath,
+        executionContractPath: contractPath,
+        outDir: path.join(dir, name),
+        env,
+        fetchImpl,
+        type: 'flow',
+        now: new Date('2026-10-12T15:00:00Z'),
+      });
+      assert.equal(report.rows[0]?.status, name);
+      assert.equal(report.rows[0]?.history.outcome, 'unknown');
+      assert.equal(report.rows[0]?.history.attempt_consumed, true);
+      assert.equal(report.rows[0]?.history.event_count, 2);
+      assert.equal(report.historical_execution_changed, false);
+      assert.equal(report.authorization_granted, false);
+      assert.deepEqual(writes, [id]);
+      assert.deepEqual(readFileSync(ledgerFile), oldLedger);
+      assert.deepEqual(readFileSync(contractPath), oldContract);
+      assert.deepEqual(readFileSync(first.files.summary_json), oldSummary);
+    }
+    const repeated = await runDatasetDraftReconciliation({
+      inputPath,
+      executionContractPath: contractPath,
+      outDir: path.join(dir, 'repeat'),
+      env,
+      fetchImpl,
+    });
+    assert.equal(repeated.rows[0]?.status, 'equal_eligible');
+    assert.equal(repeated.rows[0]?.history.outcome, 'unknown');
+    assert.deepEqual(writes, [id]);
+    assert.deepEqual(readFileSync(ledgerFile), oldLedger);
+    // A different request cannot inherit the original attempt merely by reusing its action identity.
+    const changed = { ...parsed, execution_id: 'replacement-request' };
+    const changedPath = path.join(dir, 'replacement.json');
+    writeFileSync(changedPath, JSON.stringify(changed));
+    await assert.rejects(
+      runDatasetDraftReconciliation({
+        inputPath,
+        executionContractPath: changedPath,
+        outDir: path.join(dir, 'forbidden'),
+        env,
+        fetchImpl,
+      }),
+      /original execution contract/u,
+    );
+    assert.equal(existsSync(path.join(dir, 'forbidden')), false);
+    assert.deepEqual(readFileSync(ledgerFile), oldLedger);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('read-only reconciliation observes an orphan attempt without inventing an outcome', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-reconcile-orphan-'));
+  const desired = flow('11111111-1111-1111-1111-111111111111', 'Orphan readback');
+  const rawContract = contract({ desired: [desired] });
+  const contractPath = writeContract(dir, rawContract);
+  const inputPath = path.join(dir, 'rows.json');
+  writeFileSync(inputPath, JSON.stringify([desired]));
+  const parsed = __testInternals.parseExecutionContract(rawContract);
+  const env = executionEnv(dir, 'reconcile-orphan');
+  const ledgerFile = __testInternals.executionLedgerPath(
+    __testInternals.executionLedgerRoot(env, parsed),
+    parsed.actions[0]!,
+  );
+  const event = ledgerEvent({
+    contractSha256: sha256Json(parsed),
+    action: parsed.actions[0] as unknown as JsonObject,
+    sequence: 1,
+    eventType: 'attempt_emitted',
+    outcome: null,
+  });
+  writeLedgerEvents(ledgerFile, [event]);
+  const original = readFileSync(ledgerFile);
+  const writes: string[] = [];
+  const baseFetch = executionFetch({ state: new Map([[identity(desired).id, desired]]), writes });
+  const fetchImpl: FetchLike = async (url, init) =>
+    String(url).endsWith('/auth/v1/user')
+      ? response({ id: OWNER_USER_ID, email: 'user@example.com', role: 'authenticated' })
+      : baseFetch(url, init);
+  try {
+    const report = await runDatasetDraftReconciliation({
+      inputPath,
+      executionContractPath: contractPath,
+      outDir: path.join(dir, 'observation'),
+      env,
+      fetchImpl,
+    });
+    assert.equal(report.rows[0]?.status, 'equal_eligible');
+    assert.equal(report.rows[0]?.history.attempt_consumed, true);
+    assert.equal(report.rows[0]?.history.outcome, null);
+    assert.equal(report.rows[0]?.history.event_count, 1);
+    assert.deepEqual(writes, []);
+    assert.deepEqual(readFileSync(ledgerFile), original);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

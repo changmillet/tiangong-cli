@@ -286,9 +286,17 @@ import {
 } from './lib/dataset-patch.js';
 import {
   runDatasetSaveDraft,
+  runDatasetDraftReconciliation,
   type DatasetSaveDraftReport,
+  type DatasetDraftReconciliationReport,
   type RunDatasetSaveDraftOptions,
+  type RunDatasetDraftReconciliationOptions,
 } from './lib/dataset-save-draft-run.js';
+import {
+  runDatasetReadExact,
+  type RunDatasetReadExactOptions,
+  type DatasetReadExactReport,
+} from './lib/dataset-exact-read.js';
 import {
   runDatasetClassificationApply,
   runDatasetClassificationAudit,
@@ -512,6 +520,12 @@ export type CliDeps = {
   runDatasetSaveDraftImpl?: (
     options: RunDatasetSaveDraftOptions,
   ) => Promise<DatasetSaveDraftReport>;
+  runDatasetDraftReconciliationImpl?: (
+    options: RunDatasetDraftReconciliationOptions,
+  ) => Promise<DatasetDraftReconciliationReport>;
+  runDatasetReadExactImpl?: (
+    options: RunDatasetReadExactOptions,
+  ) => Promise<DatasetReadExactReport>;
   runDatasetClassificationChildrenImpl?: (
     options: RunDatasetClassificationChildrenOptions,
   ) => Promise<DatasetClassificationChildrenReport>;
@@ -581,7 +595,7 @@ Implemented Commands:
   auth       login | status | whoami | doctor-auth | logout | identity-receipt
   search     flow | process | lifecyclemodel
   process    get | list | identity-preflight | build-plan | scope-statistics | dedup-review | auto-build | resume-build | publish-build | complete-required-fields | save-draft | batch-build | refresh-references | verify-rows
-  dataset    support-cache export | contract get | context-pack | classification children/path/audit/apply | curation-queue build/next/verify | import-lca convert | author | patch apply | save-draft | source upload-attachments | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote | maintenance clear-account/plan/apply/verify/flow-identity
+  dataset    support-cache export | contract get | context-pack | classification children/path/audit/apply | curation-queue build/next/verify | import-lca convert | author | patch apply | save-draft | reconcile-draft | read-exact | source upload-attachments | validate | verify-remote | bilingual extract/apply/validate | evidence-search plan/run | references rewrite/refresh-remote | maintenance clear-account/plan/apply/verify/flow-identity
   flow       get | list | identity-preflight | build-plan | fetch-rows | materialize-decisions | remediate | publish-version | publish-reviewed-data | build-alias-map | scan-process-flow-refs | plan-process-flow-repairs | apply-process-flow-repairs | regen-product | validate-processes
   lifecyclemodel auto-build | validate-build | publish-build | save-draft | graph | build-resulting-process | publish-resulting-process | orchestrate
   qa         process | flow | lifecyclemodel
@@ -619,6 +633,8 @@ Examples:
   tiangong-lca process batch-build --input ./batch-request.json --out-dir /abs/path/to/process-batch
   tiangong-lca process refresh-references --out-dir /abs/path/to/process-refresh --dry-run
   tiangong-lca process verify-rows --rows-file ./process-list-report.json --out-dir /abs/path/to/process-verify
+  tiangong-lca dataset reconcile-draft --input ./rows.jsonl --execution-contract ./original-contract.json --out-dir ./fresh-reconciliation --json --help
+  tiangong-lca dataset read-exact --scope-file ./original-scope.json --scope-sha256 <sha256> --out-dir ./fresh-exact-read --json --help
   tiangong-lca dataset validate --input ./rows.jsonl --type auto --out-dir /abs/path/to/dataset-validate
   tiangong-lca dataset contract get --type process --include schema,methodology,ruleset --out-dir ./contract
   tiangong-lca dataset context-pack --type process --profile ai-import --out-dir ./context-pack
@@ -963,6 +979,8 @@ Implemented Subcommands:
   author              Extract source evidence and prepare TIDAS context packs for AI authoring
   patch apply          Apply AI-authored structured dataset patches deterministically
   save-draft           Save contact/source/support or other canonical dataset rows through the platform dataset command path
+  reconcile-draft      Observe exact admitted owner-draft rows from the original execution contract without writes
+  read-exact           Observe a hash-bound finite selection of exact Process and linked Model rows through current-user RLS
   source upload-attachments Upload source referenceToDigitalFile binaries to storage and rewrite their @uri
   validate             Validate local flow / process / lifecyclemodel rows with the TIDAS SDK
   verify-remote        Verify dataset roots and TIDAS references against remote published versions
@@ -1644,6 +1662,51 @@ Contract:
   This generic dataset path writes only mutable rows such as contact/source/flow/process. Unit group and flow property rows are reference-only; select existing database rows and rewrite references instead of creating My Data support rows.
   Process and lifecyclemodel imports may still use their dedicated save-draft commands when the workflow needs their specialized reports.
   With an execution contract, each save_draft action sends the complete before image read fresh in this run; a bounded existing-Process owner draft whose only authoring gap is the unknown annual volume may repair the reviewed reference short descriptions with ruleVerification=false and a recorded draft_repair_admission (bound into the first attempt event, so recovery returns the original admission), never reporting the row as ready; the platform rejects a stale or changed before content and the CLI never falls back to an unguarded save or retries it. A contract dry-run reports preflight evidence only, treats an action prepared earlier in the same preflight as a satisfied dependency, reports an already consumed attempt as retained, and can never close an import.
+`.trim();
+}
+
+function renderDatasetDraftReconciliationHelp(): string {
+  return `Usage:
+  tiangong-lca dataset reconcile-draft --input <file> --execution-contract <file> --out-dir <NEW dir> [--type <type>] [--reference-intent-file <file>] --json
+
+Options:
+  --input <file>              Original canonical TIDAS rows JSON/JSONL
+  --execution-contract <file> Original content-bound execution contract (mandatory)
+  --out-dir <NEW dir>         Create-only output directory; an existing directory is rejected
+  --type <type>              Optional dataset type selection
+  --reference-intent-file <file>
+                             Original exact-reference intent when the admitted action requires it
+  --json                      Print compact JSON
+  -h, --help
+
+Contract:
+  Read-only reconciliation of exact admitted rows only, bound to the original input and execution contract.
+  Reports current owner, body and metadata observations; equality is not proof of historical execution.
+  No writes, no replay, no historical outcome rewrite, and no automatic authorization for further writes.
+  The original consumed attempt and ledger evidence remain authoritative for historical outcomes.
+  Exit 0 requires every admitted row to be equal_eligible; different, foreign, ineligible, absent or
+  indeterminate observations exit 1.
+`.trim();
+}
+
+function renderDatasetReadExactHelp(): string {
+  return `Usage:
+  tiangong-lca dataset read-exact --scope-file <file> --scope-sha256 <sha256> --out-dir <NEW dir> --json
+
+Options:
+  --scope-file <file>     Original finite selection of exact Process and explicitly linked Model rows
+  --scope-sha256 <sha256> Required expected SHA256 of the original scope file bytes
+  --out-dir <NEW dir>    Create-only private evidence directory; an existing directory is rejected
+  --json                 Print compact JSON
+  -h, --help
+
+Contract:
+  Read-only exact current-user RLS observations bound to the original scope hash and source file facts.
+  Preserve the original finite list: no account census and no automatic graph expansion.
+  Return full observed bodies and metadata; public/source reads require no owner write contract.
+  Observation grants no mutation authority, owner-draft eligibility, scientific acceptance or adoption.
+  Exit 0 requires a nonempty observed report with every selected row found; absent, indeterminate
+  or drift observations exit 1.
 `.trim();
 }
 
@@ -3550,6 +3613,144 @@ function parseDatasetSaveDraftFlags(args: string[]): {
         ? values['reference-intent-file']
         : undefined,
     maxParallel,
+  };
+}
+
+function parseDatasetDraftReconciliationFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  inputPath: string;
+  executionContractPath: string;
+  outDir: string;
+  type: string | undefined;
+  referenceIntentFile: string | undefined;
+} {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      tokens: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'execution-contract': { type: 'string' },
+        'out-dir': { type: 'string' },
+        type: { type: 'string' },
+        'reference-intent-file': { type: 'string' },
+      },
+    });
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  for (const optionName of [
+    'input',
+    'execution-contract',
+    'out-dir',
+    'type',
+    'reference-intent-file',
+  ] as const) {
+    if (
+      parsed.tokens!.filter((entry) => entry.kind === 'option' && entry.name === optionName)
+        .length > 1
+    ) {
+      throw new CliError(`Option --${optionName} may be provided only once.`, {
+        code: 'INVALID_ARGS',
+        exitCode: 2,
+      });
+    }
+  }
+
+  if (!parsed.values.help) {
+    for (const optionName of ['input', 'execution-contract', 'out-dir'] as const) {
+      const value = parsed.values[optionName];
+      if (typeof value !== 'string' || value.trim() === '') {
+        throw new CliError(`dataset reconcile-draft requires --${optionName}.`, {
+          code: 'INVALID_ARGS',
+          exitCode: 2,
+        });
+      }
+    }
+  }
+
+  return {
+    help: Boolean(parsed.values.help),
+    json: Boolean(parsed.values.json),
+    inputPath: typeof parsed.values.input === 'string' ? parsed.values.input : '',
+    executionContractPath:
+      typeof parsed.values['execution-contract'] === 'string'
+        ? parsed.values['execution-contract']
+        : '',
+    outDir: typeof parsed.values['out-dir'] === 'string' ? parsed.values['out-dir'] : '',
+    type: typeof parsed.values.type === 'string' ? parsed.values.type : undefined,
+    referenceIntentFile:
+      typeof parsed.values['reference-intent-file'] === 'string'
+        ? parsed.values['reference-intent-file']
+        : undefined,
+  };
+}
+
+function parseDatasetReadExactFlags(args: string[]): {
+  help: boolean;
+  json: boolean;
+  scopeFile: string;
+  scopeSha256: string;
+  outDir: string;
+} {
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      tokens: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        'scope-file': { type: 'string' },
+        'scope-sha256': { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    });
+  } catch (error) {
+    throw new CliError(String(error), {
+      code: 'INVALID_ARGS',
+      exitCode: 2,
+    });
+  }
+
+  for (const optionName of ['scope-file', 'scope-sha256', 'out-dir'] as const) {
+    if (
+      parsed.tokens!.filter((entry) => entry.kind === 'option' && entry.name === optionName)
+        .length > 1
+    ) {
+      throw new CliError(`Option --${optionName} may be provided only once.`, {
+        code: 'INVALID_ARGS',
+        exitCode: 2,
+      });
+    }
+    const value = parsed.values[optionName];
+    if (!parsed.values.help && (typeof value !== 'string' || value.trim() === '')) {
+      throw new CliError(`dataset read-exact requires --${optionName}.`, {
+        code: 'INVALID_ARGS',
+        exitCode: 2,
+      });
+    }
+  }
+
+  return {
+    help: Boolean(parsed.values.help),
+    json: Boolean(parsed.values.json),
+    scopeFile: typeof parsed.values['scope-file'] === 'string' ? parsed.values['scope-file'] : '',
+    scopeSha256:
+      typeof parsed.values['scope-sha256'] === 'string' ? parsed.values['scope-sha256'] : '',
+    outDir: typeof parsed.values['out-dir'] === 'string' ? parsed.values['out-dir'] : '',
   };
 }
 
@@ -7425,6 +7626,9 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
     const datasetAuthorImpl = deps.runDatasetAuthorImpl ?? runDatasetAuthor;
     const datasetPatchApplyImpl = deps.runDatasetPatchApplyImpl ?? runDatasetPatchApply;
     const datasetSaveDraftImpl = deps.runDatasetSaveDraftImpl ?? runDatasetSaveDraft;
+    const datasetDraftReconciliationImpl =
+      deps.runDatasetDraftReconciliationImpl ?? runDatasetDraftReconciliation;
+    const datasetReadExactImpl = deps.runDatasetReadExactImpl ?? runDatasetReadExact;
     const datasetClassificationChildrenImpl =
       deps.runDatasetClassificationChildrenImpl ?? runDatasetClassificationChildren;
     const datasetClassificationPathImpl =
@@ -8016,6 +8220,62 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
 
       return {
         exitCode: report.status === 'completed' ? 0 : 1,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'dataset' && subcommand === 'reconcile-draft') {
+      const datasetFlags = parseDatasetDraftReconciliationFlags(commandArgs);
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetDraftReconciliationHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetDraftReconciliationImpl({
+        inputPath: datasetFlags.inputPath,
+        executionContractPath: datasetFlags.executionContractPath,
+        outDir: datasetFlags.outDir,
+        ...(datasetFlags.type !== undefined ? { type: datasetFlags.type } : {}),
+        ...(datasetFlags.referenceIntentFile !== undefined
+          ? { referenceIntentFile: datasetFlags.referenceIntentFile }
+          : {}),
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode:
+          report.status === 'observed' &&
+          report.rows.length > 0 &&
+          report.rows.every((row) => row.status === 'equal_eligible')
+            ? 0
+            : 1,
+        stdout: stringifyJson(report, datasetFlags.json),
+        stderr: '',
+      };
+    }
+
+    if (command === 'dataset' && subcommand === 'read-exact') {
+      const datasetFlags = parseDatasetReadExactFlags(commandArgs);
+      if (datasetFlags.help) {
+        return { exitCode: 0, stdout: `${renderDatasetReadExactHelp()}\n`, stderr: '' };
+      }
+
+      const report = await datasetReadExactImpl({
+        scopeFile: datasetFlags.scopeFile,
+        scopeSha256: datasetFlags.scopeSha256,
+        outDir: datasetFlags.outDir,
+        env: deps.env,
+        fetchImpl: deps.fetchImpl,
+      });
+
+      return {
+        exitCode:
+          report.status === 'observed' &&
+          report.rows.length > 0 &&
+          report.rows.every((row) => row.status === 'found')
+            ? 0
+            : 1,
         stdout: stringifyJson(report, datasetFlags.json),
         stderr: '',
       };

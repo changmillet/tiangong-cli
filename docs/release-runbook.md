@@ -25,9 +25,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-10
-lastReviewedCommit: c19e65c61bb7eb81f743e4a57cb90711d1847998
-lastReviewedNote: 'Reviewed CLI #419 at c19e65c: explicit Flow exact-reference admission adds no package version, dependency, lock, public package export, release workflow or credential changes. Full local prepush gate passed with exact 100% source coverage; original caller qualification and any later PR/release remain separate.'
+lastReviewedAt: 2026-10-12
+lastReviewedCommit: ffe2e5e46e5319b65d64fa2f4c10c927f0534170
+lastReviewedNote: 'Reviewed CLI #295 read-only exact observation and retained-history reconciliation; original write/reference contracts, dependencies, package version and release controls remain unchanged. Consumer qualification is separate.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
