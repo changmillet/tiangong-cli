@@ -255,6 +255,7 @@ test('original owner and project bindings fail closed before row evidence', asyn
             TIANGONG_LCA_ACCESS_TOKEN: token(),
             XDG_STATE_HOME: s.options.env.XDG_STATE_HOME,
           }),
+          { TIANGONG_LCA_DISABLE_SESSION_CACHE: 'false' },
         );
       if (drift === 'project') {
         s.contract.project_ref = 'other';
@@ -279,6 +280,10 @@ test('original owner and project bindings fail closed before row evidence', asyn
             return [s.row];
           }),
         }),
+      );
+      assert.equal(
+        s.calls.filter((call) => call === '/rest/v1/processes').length,
+        drift === 'actor-after-read' ? 1 : 0,
       );
       assert.equal(fs.existsSync(s.options.outDir), false);
     } finally {
@@ -387,6 +392,102 @@ test('reconciliation never publishes a body when a server violates the requested
     assert.equal(report.rows[0]?.actual_row, null);
     assert.equal(report.rows[0]?.actual_payload_sha256, null);
     assert.equal(JSON.stringify(report).includes('FORBIDDEN_BODY_SENTINEL'), false);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('multi-row reconciliation cannot send a foreign token after the first body response changes the session', async () => {
+  const s = setup();
+  const foreign = '22222222-2222-4222-8222-222222222222';
+  const secondId = '33333333-3333-4333-8333-333333333333';
+  const secondPayload = structuredClone(s.payload);
+  const root = secondPayload.processDataSet as Json;
+  ((root.processInformation as Json).dataSetInformation as Json)['common:UUID'] = secondId;
+  const second = { ...s.row, id: secondId, json_ordered: secondPayload };
+  const env = buildSupabaseTestEnv({
+    TIANGONG_LCA_ACCESS_TOKEN: token(),
+    XDG_STATE_HOME: path.join(s.dir, 'state'),
+  });
+  const sentSubjects: string[] = [];
+  const readIds: string[] = [];
+  fs.writeFileSync(s.options.inputPath, JSON.stringify([s.payload, secondPayload]));
+  s.contract.actions.push({
+    ...s.action,
+    action_id: 'second-row',
+    id: secondId,
+    desired_sha256: sha256Json(secondPayload),
+  });
+  fs.writeFileSync(s.options.executionContractPath, JSON.stringify(s.contract));
+  const sessionPath = env.TIANGONG_LCA_SESSION_FILE!;
+  const switchSession = () => {
+    const current = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+    fs.writeFileSync(
+      sessionPath,
+      JSON.stringify({
+        ...current,
+        user_email: 'foreign@example.com',
+        access_token: token('foreign@example.com', foreign),
+      }),
+    );
+  };
+  const fetchImpl: FetchLike = async (url, init) => {
+    const u = new URL(String(url));
+    if (u.pathname === '/auth/v1/user')
+      return response({ id: owner, email: 'user@example.com', role: 'authenticated' });
+    assert.equal(u.pathname, '/rest/v1/processes');
+    assert.equal(init?.method ?? 'GET', 'GET');
+    const bearer = new Headers(init?.headers).get('authorization')!.slice('Bearer '.length);
+    sentSubjects.push(JSON.parse(Buffer.from(bearer.split('.')[1]!, 'base64url').toString()).sub);
+    const id = u.searchParams.get('id')!.slice(3);
+    readIds.push(id);
+    assert.equal(u.searchParams.get('user_id'), 'eq.' + owner);
+    assert.equal(u.searchParams.get('state_code'), 'eq.0');
+    if (readIds.length === 1) {
+      switchSession();
+      return response([s.row]);
+    }
+    return response([second]);
+  };
+  try {
+    await assert.rejects(runDatasetDraftReconciliation({ ...s.options, env, fetchImpl }));
+    assert.deepEqual(sentSubjects, [owner]);
+    assert.deepEqual(readIds, [s.row.id]);
+    assert.equal(fs.existsSync(s.options.outDir), false);
+    assert.equal(fs.existsSync(path.join(s.dir, 'state')), false);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('reconciliation rejects a replaced session before its first body query', async () => {
+  const s = setup();
+  const env = buildSupabaseTestEnv({
+    TIANGONG_LCA_ACCESS_TOKEN: token(),
+    XDG_STATE_HOME: path.join(s.dir, 'state'),
+  });
+  let bodyQueries = 0;
+  const fetchImpl: FetchLike = async (url) => {
+    if (new URL(String(url)).pathname === '/auth/v1/user') {
+      const sessionPath = env.TIANGONG_LCA_SESSION_FILE!;
+      const current = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+      fs.writeFileSync(
+        sessionPath,
+        JSON.stringify({
+          ...current,
+          user_email: 'foreign@example.com',
+          access_token: token('foreign@example.com', '22222222-2222-4222-8222-222222222222'),
+        }),
+      );
+      return response({ id: owner, email: 'user@example.com', role: 'authenticated' });
+    }
+    bodyQueries += 1;
+    return response([s.row]);
+  };
+  try {
+    await assert.rejects(runDatasetDraftReconciliation({ ...s.options, env, fetchImpl }));
+    assert.equal(bodyQueries, 0);
+    assert.equal(fs.existsSync(s.options.outDir), false);
   } finally {
     s.cleanup();
   }

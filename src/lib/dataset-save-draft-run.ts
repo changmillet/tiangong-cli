@@ -5,7 +5,8 @@ import {
 // data-api-relations: contacts, flowproperties, flows, processes, sources, unitgroups
 // data-api-dynamic-relation-expression: options.table
 import { closeSync, chmodSync, fsyncSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
-import { runAuthIdentityReceipt, type AuthIdentityReceipt } from './auth-identity-receipt.js';
+import type { AuthIdentityReceipt } from './auth-identity-receipt.js';
+import { createDatasetReadSession } from './dataset-read-session.js';
 import { loadCliPackageVersion } from './package-version.js';
 import { isReadScopeViolation, readExactRows } from './dataset-exact-read.js';
 import {
@@ -2459,26 +2460,17 @@ export async function runDatasetDraftReconciliation(
     ...ledgerFiles,
     ...(referenceIntentFile ? [referenceIntentFile] : []),
   ];
-  const identity = await runAuthIdentityReceipt({
+  const { identity, runtime, assertCurrentActor } = await createDatasetReadSession({
     env: options.env,
     fetchImpl: options.fetchImpl,
     cliVersion: loadCliPackageVersion(new URL('../cli.js', import.meta.url).href),
     expectedProjectRef: contract.project_ref,
     expectedUserId: contract.owner.user_id,
+    expectedEmail: contract.owner.email,
     timeoutMs: options.timeoutMs,
     now: options.now,
   });
-  const runtime = createSupabaseDataRuntime({
-    runtime: requireSupabaseRestRuntime(options.env),
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.timeoutMs,
-  });
-  const assertActor = async () => {
-    const actor = decodeExecutionActor(await runtime.getAccessToken());
-    if (actor.user_id !== contract.owner.user_id || actor.email !== contract.owner.email)
-      reconciliationError('Current owner changed during read-only reconciliation.');
-  };
-  await assertActor();
+  await assertCurrentActor();
   const { client, restBaseUrl } = createSupabaseDataClient(
     runtime,
     options.fetchImpl,
@@ -2533,7 +2525,7 @@ export async function runDatasetDraftReconciliation(
       },
     });
   }
-  await assertActor();
+  await assertCurrentActor();
   assertReconciliationFiles(facts);
   if (intent)
     assertExactReferenceInputsCurrent(

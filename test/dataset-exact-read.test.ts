@@ -1133,6 +1133,46 @@ test('late session change rejects publication of otherwise matching reads', asyn
   }
 });
 
+test('a real OAuth session switch after the Process read blocks the next Model request before foreign Authorization is sent', async () => {
+  const f = fixture([PROCESS_SELECTION, MODEL_SELECTION]);
+  const first = token();
+  const foreign = token({ sub: FOREIGN, email: 'user@example.com' });
+  f.options.env = buildSupabaseTestEnv({
+    TIANGONG_LCA_ACCESS_TOKEN: first,
+    XDG_STATE_HOME: path.join(f.root, 'state'),
+  });
+  const sessionFile = f.options.env.TIANGONG_LCA_SESSION_FILE!;
+  const bodyAuthorization: string[] = [];
+  const fetch = f.options.fetchImpl;
+  f.options.fetchImpl = async (input, init) => {
+    if (new URL(input).pathname.startsWith('/rest/v1/'))
+      bodyAuthorization.push(new Headers(init?.headers).get('authorization')!);
+    return fetch(input, init);
+  };
+  f.setData((url) => {
+    assert.equal(
+      url.pathname,
+      '/rest/v1/processes',
+      'the unverified Model actor must never reach fetch',
+    );
+    const record = JSON.parse(fs.readFileSync(sessionFile, 'utf8')) as Record<string, unknown>;
+    fs.writeFileSync(sessionFile, JSON.stringify({ ...record, access_token: foreign }));
+    return [processRow({ model_id: MODEL, model_version: VERSION })];
+  });
+  try {
+    await assert.rejects(runDatasetReadExact(f.options), safeError);
+    assert.deepEqual(
+      f.dataCalls.map((url) => url.pathname),
+      ['/rest/v1/processes'],
+    );
+    assert.deepEqual(bodyAuthorization, [`Bearer ${first}`]);
+    assert.equal(bodyAuthorization.includes(`Bearer ${foreign}`), false);
+    assert.equal(fs.existsSync(f.options.outDir), false);
+  } finally {
+    f.close();
+  }
+});
+
 test('invalid timing, preexisting output and output inside the CLI state registry fail before requests', async () => {
   for (const mode of [
     'timeout-zero',

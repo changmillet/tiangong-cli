@@ -59,6 +59,8 @@ Managed-host launch selection stays in the generic CLI manager. Dedicated protoc
 
 `dataset-exact-read.ts` owns explicit finite source selection, fresh authenticated exact reads and Process-to-Model observation. Its shared exact-array reader enforces the caller's fixed owner/state predicate before transport, validates returned scope, and also serves draft reconciliation; eligibility and historical execution interpretation stay with their separate callers. Source observation never follows an unselected Model or scans a catalog.
 
+`dataset-read-session.ts` binds both observation commands to a configuration snapshot and initial live actor receipt. Its runtime wrapper validates the exact token returned to the existing Data API adapter for each request and authenticated retry. It preserves same-actor refresh and rejects changed subjects or optional email bindings without exposing underlying authentication errors.
+
 This repo is organized around one stable launcher plus a library-style `src/lib/**` tree that implements command families and shared helpers.
 
 ## Stable Path Map

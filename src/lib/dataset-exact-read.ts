@@ -2,7 +2,7 @@
 // data-api-dynamic-relation-expression: options.table
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import { runAuthIdentityReceipt, type AuthIdentityReceipt } from './auth-identity-receipt.js';
+import type { AuthIdentityReceipt } from './auth-identity-receipt.js';
 import type { DatasetCommandTable } from './dataset-command.js';
 import {
   assertReconciliationFiles,
@@ -16,12 +16,8 @@ import { resolveFlowIdentityApprovalClaimRoot } from './dataset-maintenance-flow
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
 import { loadCliPackageVersion } from './package-version.js';
-import {
-  createSupabaseDataClient,
-  requireSupabaseRestRuntime,
-  runSupabaseQuery,
-} from './supabase-client.js';
-import { createSupabaseDataRuntime } from './supabase-session.js';
+import { createDatasetReadSession } from './dataset-read-session.js';
+import { createSupabaseDataClient, runSupabaseQuery } from './supabase-client.js';
 
 type JsonObject = Record<string, unknown>;
 type ExactIdentity = { id: string; version: string };
@@ -402,41 +398,21 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
     options.outDir,
     resolveFlowIdentityApprovalClaimRoot({ env: options.env }),
   );
-  const receipt = await runAuthIdentityReceipt({
+  const {
+    identity: receipt,
+    runtime,
+    assertCurrentActor,
+  } = await createDatasetReadSession({
     env: options.env,
     fetchImpl: options.fetchImpl,
     cliVersion: loadCliPackageVersion(new URL('../cli.js', import.meta.url).href),
     expectedProjectRef: scope.project_ref,
     expectedUserId: scope.actor.user_id,
+    ...(scope.actor.email !== undefined ? { expectedEmail: scope.actor.email } : {}),
     timeoutMs: timeout,
     now: options.now,
   });
-  const runtime = createSupabaseDataRuntime({
-    runtime: requireSupabaseRestRuntime(options.env),
-    fetchImpl: options.fetchImpl,
-    timeoutMs: timeout,
-    now: options.now,
-  });
-  const assertActor = async () => {
-    let token: unknown;
-    try {
-      token = JSON.parse(
-        Buffer.from((await runtime.getAccessToken()).split('.')[1] ?? '', 'base64url').toString(
-          'utf8',
-        ),
-      );
-    } catch {
-      fail('Current session identity is unavailable during exact read.');
-    }
-    if (
-      !isObject(token) ||
-      token.sub !== scope.actor.user_id ||
-      (scope.actor.email !== undefined &&
-        (typeof token.email !== 'string' || token.email.toLowerCase() !== scope.actor.email))
-    )
-      fail('Current session identity changed during exact read.');
-  };
-  await assertActor();
+  await assertCurrentActor();
   const { client, restBaseUrl } = createSupabaseDataClient(runtime, options.fetchImpl, timeout);
   const observations = new Map<string, DatasetExactReadRow>();
   const timestamp = () => (options.now ?? new Date()).toISOString();
@@ -482,7 +458,7 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
       observations.set(`${selection.table}:${identityKey(selection)}`, observation);
     }
   }
-  await assertActor();
+  await assertCurrentActor();
   assertReconciliationFiles(facts, SOURCE_MAX_BYTES);
   const rows = scope.rows.map((selection) =>
     observations.get(`${selection.table}:${identityKey(selection)}`)!,
