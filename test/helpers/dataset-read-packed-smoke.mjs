@@ -335,7 +335,12 @@ export function runDatasetReadPackedSmoke({
   }
 }
 
-if (!process.env[STUB_ENV] && process.argv[1] && resolve(process.argv[1]) === HELPER) {
+if (
+  !process.env[STUB_ENV] &&
+  process.argv.includes('--cli') &&
+  process.argv[1] &&
+  resolve(process.argv[1]) === HELPER
+) {
   const argv = process.argv.slice(2);
   const value = (flag) => argv[argv.indexOf(flag) + 1];
   const result = runDatasetReadPackedSmoke({
