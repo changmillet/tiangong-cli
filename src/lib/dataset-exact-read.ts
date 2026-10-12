@@ -349,7 +349,7 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
   const receipt = await runAuthIdentityReceipt({
     env: options.env,
     fetchImpl: options.fetchImpl,
-    cliVersion: loadCliPackageVersion(),
+    cliVersion: loadCliPackageVersion(new URL('../cli.js', import.meta.url).href),
     expectedProjectRef: scope.project_ref,
     expectedUserId: scope.actor.user_id,
     timeoutMs: timeout,

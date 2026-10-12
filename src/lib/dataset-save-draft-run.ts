@@ -2461,7 +2461,7 @@ export async function runDatasetDraftReconciliation(
   const identity = await runAuthIdentityReceipt({
     env: options.env,
     fetchImpl: options.fetchImpl,
-    cliVersion: loadCliPackageVersion(),
+    cliVersion: loadCliPackageVersion(new URL('../cli.js', import.meta.url).href),
     expectedProjectRef: contract.project_ref,
     expectedUserId: contract.owner.user_id,
     timeoutMs: options.timeoutMs,

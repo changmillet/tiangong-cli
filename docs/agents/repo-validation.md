@@ -168,6 +168,8 @@ Guarded exact-reference Flow tests must exercise public save-draft dry-run/commi
 
 Finite source-read tests exercise the real public command with synthetic exact RLS transports. Cover public/foreign/Model-associated source rows without owner-adoption classification; strict hash-bound finite selections and source files; missing versus explicit-null metadata; malformed successful responses; original-order reports with Process-first capture; explicit Model relation drift and raw-null Process-version fallback; zero mutation and no unselected graph reads. Current source observation and owner-draft reconciliation must both retain their independent contracts.
 
+The packed-consumer gate runs both commands through the installed public launcher from an unrelated empty caller directory with synthetic GET-only transport. It checks actual identity receipt package version, full row results and unchanged original inputs/state. Source imports, help or `--version` alone do not cover the library-to-emitted-package location used by these commands.
+
 A good PR note for this repo should say:
 
 1. which commands ran

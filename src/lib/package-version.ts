@@ -16,7 +16,8 @@ function parsePackageVersion(candidate: URL, readText: PackageVersionReader): st
 }
 
 export function loadCliPackageVersion(
-  importMetaUrl: string = import.meta.url,
+  // Bind the launcher-side module location explicitly; this helper is one directory deeper.
+  importMetaUrl: string,
   readText: PackageVersionReader = (url) => readFileSync(url, 'utf8'),
 ): string {
   for (const relativePath of PACKAGE_JSON_CANDIDATES) {

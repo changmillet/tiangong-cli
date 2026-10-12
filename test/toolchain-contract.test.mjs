@@ -14,6 +14,7 @@ import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
+import { runDatasetReadPackedSmoke } from './helpers/dataset-read-packed-smoke.mjs';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = dirname(TEST_DIR);
@@ -727,6 +728,12 @@ maybePackTest(
       assertRootBinBehavior(installedBinPath, consumerRoot, installedManifest.version);
       assertProductionBootstrap(installedBinPath, consumerRoot);
       assertModuleHostBehavior(consumerRoot, cleanRepository, installedManifest.version);
+      runDatasetReadPackedSmoke({
+        nodePath: process.execPath,
+        cliLauncher: join(installedPackageRoot, 'bin', 'tiangong-lca.js'),
+        expectedVersion: installedManifest.version,
+        workRoot: fixtureRoot,
+      });
 
       const consumerTree = pnpmList(consumerRoot, 'typescript');
       assert.deepEqual(
