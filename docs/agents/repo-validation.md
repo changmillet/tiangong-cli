@@ -110,6 +110,12 @@ First-install proof uses an isolated packed CLI without local public configurati
 
 LifecycleModel save-draft regressions must preserve sanitized structured application `code` and `details` without exposing raw HTTP bodies. Private Production qualification requires explicit authorization, disposable fixtures, exact owner/state/payload readback, and actor-bound cleanup. Ambiguous mutation or cleanup blocks acceptance.
 
+### Source classification public-command proof
+
+Run `node scripts/ci/prove-source-classification.mjs --out-dir /new/evidence/directory` after building. The canonical test suite runs the same public-launcher regression with a complete synthetic Source fixture and real SDK validation. It checks object and single-entry array containers, metadata preservation, apply/reapply validity, multi-container and invalid-decision blockers without content loss, and unchanged Process array serialization. Multi-container selection is intentionally unsupported.
+
+The proof retains actual argv, native reports, output hashes, checkout/build identity and the exact SDK/Node fingerprints. These local receipts contain host paths; publish only a sanitized projection. `--cli-bin` selects an isolated comparison build; `--expect legacy` characterizes the original invalid output. Passing this synthetic proof does not replace the original data-workflow candidate retest or authorize remote writes.
+
 ## Private real-account qualification
 
 [The live case guide](live-case-testing.md) owns the explicit, private OAuth case driver. Public gates run deterministic safety tests without account credentials or browser downloads. Record source OAuth and installed-package proof separately; environment failures are not product RED evidence.

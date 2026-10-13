@@ -753,7 +753,11 @@ function prepareRows(inputPath: string, rawInput?: unknown): PreparedClassificat
 function classificationContainer(
   row: PreparedClassificationRow,
   type: DatasetClassificationType,
-): JsonObject | null {
+): {
+  container: JsonObject;
+  valueKey: 'common:class' | 'common:category';
+  singleton: boolean;
+} | null {
   if (CATEGORY_CONFIGS[type].target === 'location') return null;
   if (!row.rootKey || !row.informationKey) return null;
   const root = row.payload[row.rootKey];
@@ -771,23 +775,35 @@ function classificationContainer(
     if (!isRecord(classificationInformation['common:elementaryFlowCategorization'])) {
       classificationInformation['common:elementaryFlowCategorization'] = {};
     }
-    return classificationInformation['common:elementaryFlowCategorization'] as JsonObject;
+    return {
+      container: classificationInformation['common:elementaryFlowCategorization'] as JsonObject,
+      valueKey: 'common:category',
+      singleton: false,
+    };
   }
-  if (!isRecord(classificationInformation['common:classification'])) {
+  const classification = classificationInformation['common:classification'];
+  if (type === 'source' && Array.isArray(classification)) {
+    // The SDK's named-array form has array-valued classes. No selector exists
+    // for multiple classification systems, so never discard or guess an entry.
+    if (classification.length !== 1 || !isRecord(classification[0])) return null;
+    return { container: classification[0], valueKey: 'common:class', singleton: false };
+  }
+  if (!isRecord(classification)) {
     classificationInformation['common:classification'] = {};
   }
-  return classificationInformation['common:classification'] as JsonObject;
+  return {
+    container: classificationInformation['common:classification'] as JsonObject,
+    valueKey: 'common:class',
+    singleton: type === 'source',
+  };
 }
 
 function currentClassification(
   row: PreparedClassificationRow,
   type: DatasetClassificationType,
 ): unknown {
-  const container = classificationContainer(row, type);
-  if (!container) return null;
-  return CATEGORY_CONFIGS[type].target === 'common:category'
-    ? container['common:category']
-    : container['common:class'];
+  const target = classificationContainer(row, type);
+  return target ? target.container[target.valueKey] : null;
 }
 
 function setClassification(
@@ -795,13 +811,11 @@ function setClassification(
   type: DatasetClassificationType,
   classificationPath: ClassificationPathEntry[],
 ): boolean {
-  const container = classificationContainer(row, type);
-  if (!container) return false;
-  if (CATEGORY_CONFIGS[type].target === 'common:category') {
-    container['common:category'] = cloneJson(classificationPath);
-  } else {
-    container['common:class'] = cloneJson(classificationPath);
-  }
+  const target = classificationContainer(row, type);
+  if (!target) return false;
+  target.container[target.valueKey] = cloneJson(
+    target.singleton ? classificationPath[0] : classificationPath,
+  );
   return true;
 }
 
@@ -1261,7 +1275,10 @@ export async function runDatasetClassificationApply(
     if (!setClassification(row, decision.categoryType, decision.path)) {
       blockers.push({
         code: 'classification_container_missing',
-        message: 'Input row does not contain a supported classification container for this type.',
+        message:
+          decision.categoryType === 'source'
+            ? 'Source classification requires an object or a single-entry array container; multiple named classifications are not selected automatically.'
+            : 'Input row does not contain a supported classification container for this type.',
         decision_index: decision.decisionIndex,
         row_index: row.index,
         dataset_id: row.id,
