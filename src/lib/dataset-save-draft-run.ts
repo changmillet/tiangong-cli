@@ -12,7 +12,7 @@ import { isReadScopeViolation, readExactRows } from './dataset-exact-read.js';
 import {
   assertReconciliationFiles,
   reconciliationError,
-  reconciliationFileFact,
+  readReconciliationSnapshot,
   reconciliationOutputDirectory,
   observeDraftRows,
   writeDraftReconciliation,
@@ -623,13 +623,14 @@ function parseLedgerEvent(value: unknown, index: number): DatasetSaveDraftLedger
 function loadExecutionLedger(
   ledgerRoot: string,
   contract: DatasetSaveDraftExecutionContract,
+  readEvents: (file: string) => unknown[] = readJsonLinesIfPresent,
 ): ExecutionLedgerState {
   const events = new Map<string, DatasetSaveDraftLedgerEvent[]>();
   const attempts = new Map<string, DatasetSaveDraftLedgerEvent>();
   const outcomes = new Map<string, DatasetSaveDraftLedgerEvent>();
   for (const action of contract.actions) {
     const actionEvents: DatasetSaveDraftLedgerEvent[] = [];
-    const rawEvents = readJsonLinesIfPresent(executionLedgerPath(ledgerRoot, action));
+    const rawEvents = readEvents(executionLedgerPath(ledgerRoot, action));
     for (const [index, value] of rawEvents.entries()) {
       const event = parseLedgerEvent(value, index);
       const previous = actionEvents.at(-1) ?? null;
@@ -2396,6 +2397,21 @@ export type DatasetDraftReconciliationReport = {
   >;
 };
 
+function parseReconciliationBytes(bytes: Buffer, jsonl = false): unknown {
+  try {
+    const text = bytes.toString('utf8');
+    return jsonl
+      ? text
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as unknown)
+      : JSON.parse(text);
+  } catch {
+    reconciliationError('Reconciliation evidence must contain valid JSON or JSONL.');
+  }
+}
+
 /** Fresh exact observation, independent of whether the original attempt ever completed. */
 export async function runDatasetDraftReconciliation(
   options: RunDatasetDraftReconciliationOptions,
@@ -2406,26 +2422,32 @@ export async function runDatasetDraftReconciliation(
     );
   const inputPath = path.resolve(options.inputPath);
   const contractPath = path.resolve(options.executionContractPath);
-  const input = reconciliationFileFact(inputPath);
-  const contractFile = reconciliationFileFact(contractPath);
-  const referenceIntentFile =
-    options.referenceIntentFile === undefined
-      ? null
-      : reconciliationFileFact(path.resolve(options.referenceIntentFile));
-  const contract = parseExecutionContract(readJsonFile(contractPath, 'Execution contract'));
+  const inputSnapshot = readReconciliationSnapshot(inputPath);
+  const contractSnapshot = readReconciliationSnapshot(contractPath);
+  const input = inputSnapshot.fact;
+  const contractFile = contractSnapshot.fact;
+  const contract = parseExecutionContract(parseReconciliationBytes(contractSnapshot.bytes!));
   if (contract.actions.length > 64)
     reconciliationError('Reconciliation is limited to 64 explicitly contracted actions.');
   // Observation binds original identities and bytes; today's validator cannot revise old science
   // or become a prerequisite for reading the result of an already consumed contract.
-  const preparedRows = prepareRows(inputPath, undefined, normalizeType(options.type, true), false);
+  const preparedRows = prepareRows(
+    inputPath,
+    parseReconciliationBytes(inputSnapshot.bytes!, inputPath.toLowerCase().endsWith('.jsonl')),
+    normalizeType(options.type, true),
+    false,
+  );
   bindExecutionContractRows(contract, preparedRows);
-  const intent = referenceIntentFile
-    ? loadExactReferenceIntent({
-        file: referenceIntentFile.path,
-        consumers: exactReferenceConsumers(preparedRows.map((row) => row.row)),
-        references: collectRemoteReferences(preparedRows.map((row) => row.row)),
-      })
-    : null;
+  const intent =
+    options.referenceIntentFile === undefined
+      ? null
+      : loadExactReferenceIntent({
+          file: path.resolve(options.referenceIntentFile),
+          consumers: exactReferenceConsumers(preparedRows.map((row) => row.row)),
+          references: collectRemoteReferences(preparedRows.map((row) => row.row)),
+        });
+  // This existing owner already binds parsed intent/review values to the same bytes it hashes.
+  const referenceIntentFile = intent?.file ?? null;
   if (
     intent &&
     (!preparedRows.every((row) => row.type === 'flow') ||
@@ -2435,10 +2457,14 @@ export async function runDatasetDraftReconciliation(
     reconciliationError('Reference intent must bind the original Flow-only owner contract.');
   const ledgerRoot = executionLedgerRoot(options.env, contract);
   const output = reconciliationOutputDirectory(options.outDir, ledgerRoot);
-  const ledgerFiles = contract.actions.map((action) =>
-    reconciliationFileFact(executionLedgerPath(ledgerRoot, action), true),
-  );
-  const ledger = loadExecutionLedger(ledgerRoot, contract);
+  const ledgerFiles: ReconciliationFileFact[] = [];
+  const ledger = loadExecutionLedger(ledgerRoot, contract, (file) => {
+    const snapshot = readReconciliationSnapshot(file, true);
+    ledgerFiles.push(snapshot.fact);
+    return snapshot.bytes === null
+      ? []
+      : (parseReconciliationBytes(snapshot.bytes, true) as unknown[]);
+  });
   const contractSha = sha256Json(contract);
   for (const [index, action] of contract.actions.entries()) {
     const events = ledger.events.get(action.action_id)!;

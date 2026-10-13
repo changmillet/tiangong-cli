@@ -1441,7 +1441,7 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
 | `absent`         | 本次准入读取范围内没有可返回的精确行（可能不在读取范围）    |
 | `indeterminate`  | 读取失败、行形状缺失/非法或多行歧义，不能形成确定观察       |
 
-账本沿用原 project/owner/action 域，验证原 contract hash、action 内容绑定、事件链和原准入；读取前记录 input、contract、intent 和各 action ledger 的原字节事实，发布报告前重新核对这些文件，包括原先不存在的 ledger 仍须不存在。字节变化立即阻止报告发布。#419 Flow-only intent 继续使用原 consumer/occurrence/review parser 和 project/actor 绑定；consumed action 必须保留同一份原选择与准入，省略、改变或仅复制选择文件到其它路径都不能补入原 attempt。
+账本沿用原 project/owner/action 域，验证原 contract hash、action 内容绑定、事件链和原准入； input、contract 与 action ledger 从同一次有界文件描述符读取中同时取得原字节和摘要，并只解析该字节快照；不能在哈希后按路径另读一份内容。JSON/JSONL 行规范化与事件校验复用既有逻辑，reference-intent 则沿用其已有同字节 fact/value 结果。读取前记录 input、contract、intent 和各 action ledger 的原字节事实，发布报告前重新核对这些文件，包括原先不存在的 ledger 仍须不存在。字节变化立即阻止报告发布。#419 Flow-only intent 继续使用原 consumer/occurrence/review parser 和 project/actor 绑定；consumed action 必须保留同一份原选择与准入，省略、改变或仅复制选择文件到其它路径都不能补入原 attempt。
 
 `--out-dir` 的父目录必须已存在，输出目录必须全新、位于 ledger 域外。路径排除比较保守地保留 NFC 规范化后的大小写别名，即使卷区分大小写也不接受这些别名；此比较不改写真正的 I/O 或报告路径。成功发布创建权限 `0700` 的目录及 `0600` 的 `reconciliation.json`，携带完整正文的证据保留在私有目录。报告只建立新的当前观察，既有 attempt、event、outcome 和历史报告逐字节保留；没有任何 dataset mutation、事件追加、replay、自动授权或普通 `process save-draft` 修复 fallback。非空报告全部行 `equal_eligible` 才退出 0，其它状态退出 1；参数或证据绑定错误按 CLI 错误返回。
 
@@ -1479,7 +1479,7 @@ CLI 通过现有认证层取得绑定 contract project/user 的 live identity re
 }
 ```
 
-`actor.email` 可省略；若提供，只能是实际已知的精确 lowercase email。绑定的 live identity receipt 使用当前 project/user UUID，公开 email 保持现有 masked 形式。scope 及 provenance 文件在读取前后核验原字节；sources 为 1–16 个绝对路径/原始 SHA 文件，各不超过 64 MiB。scope 最多包含 256 个不重复 exact table/id/version。可选 `read_scope` 只能断言固定的 `public_100_199_or_current_owner_state_0`；省略仍采用同一限制，不能声明更宽或私有例外。调用方仍须在选入 exact 对象前按任务排除私有和已删除 typed identities；此范围文件不自行授予对象读取权限。名单、source provenance 与其科学合理性由调用方负责，CLI 不从数量、旧缓存、latest 查询或完整目录推导对象，不解析输入材料以制造资格或轴。
+`actor.email` 可省略；若提供，只能是实际已知的精确 lowercase email。绑定的 live identity receipt 使用当前 project/user UUID，公开 email 保持现有 masked 形式。scope 的解析只消费生成其 SHA 的同一字节快照；scope 及 provenance 文件仍在读取前后核验当前原字节；sources 为 1–16 个绝对路径/原始 SHA 文件，各不超过 64 MiB。scope 最多包含 256 个不重复 exact table/id/version。可选 `read_scope` 只能断言固定的 `public_100_199_or_current_owner_state_0`；省略仍采用同一限制，不能声明更宽或私有例外。调用方仍须在选入 exact 对象前按任务排除私有和已删除 typed identities；此范围文件不自行授予对象读取权限。名单、source provenance 与其科学合理性由调用方负责，CLI 不从数量、旧缓存、latest 查询或完整目录推导对象，不解析输入材料以制造资格或轴。
 
 每个 Process 读取完整 `json_ordered`、id/version、实际 user/state/`modified_at`，以及四个实际关系列。远端 GET 在取得正文前同时约束 exact id/version 和 `or(and(state_code.gte.100,state_code.lt.200),and(state_code.eq.0,user_id.eq.<当前 actor UUID>))`。因此公共 100–199（包括其它 owner）与当前 actor own0 才能作为 `found` 观察；own20、foreign0/20 及其它范围外状态不传回正文，不能把 RLS 可见误当作任务许可。Model 关联不扩大读取权限，也不能套用 owner-draft 的采用策略。数值消费者要求 state100 的规则另由消费者判断，读取 101–199 不代表数值准入。缺列/非法值/多行/读取失败是 `indeterminate`；显式 nullable 值原样保留。LifecycleModel 仅取其真实表字段（包括 team_id），不填造该表没有的 model_id/model_version/review_id。
 

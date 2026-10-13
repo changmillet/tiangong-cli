@@ -1,6 +1,6 @@
 // data-api-relations: contacts, flowproperties, flows, lifecyclemodels, processes, sources, unitgroups
 // data-api-dynamic-relation-expression: options.table
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import type { AuthIdentityReceipt } from './auth-identity-receipt.js';
 import type { DatasetCommandTable } from './dataset-command.js';
@@ -8,6 +8,7 @@ import {
   assertReconciliationFiles,
   reconciliationFileFact,
   reconciliationOutputDirectory,
+  readReconciliationSnapshot,
   writeDraftReconciliation,
   type ReconciliationFileFact,
 } from './dataset-draft-reconciliation.js';
@@ -376,9 +377,10 @@ async function execute(options: RunDatasetReadExactOptions): Promise<DatasetRead
     fail('Exact-read timeout is invalid.');
   if (options.now && !Number.isFinite(options.now.getTime())) fail('Exact-read time is invalid.');
   const scopePath = path.resolve(options.scopeFile);
-  const scopeFact = reconciliationFileFact(scopePath);
+  const scopeSnapshot = readReconciliationSnapshot(scopePath);
+  const scopeFact = scopeSnapshot.fact;
   if (scopeFact.sha256 !== options.scopeSha256) fail('Exact-read scope file hash does not match.');
-  const scope = parseScope(JSON.parse(readFileSync(scopePath, 'utf8')));
+  const scope = parseScope(JSON.parse(scopeSnapshot.bytes!.toString('utf8')));
   const scopePhysical = { ...scopeFact, path: realpathSync(scopePath) };
   const sources = scope.sources.map((source) => {
     const fact = reconciliationFileFact(source.path, false, SOURCE_MAX_BYTES);

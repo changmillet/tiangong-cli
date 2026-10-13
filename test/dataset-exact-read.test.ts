@@ -1001,6 +1001,45 @@ test('scope SHA, provenance hashes, malformed JSON and unsafe files fail without
   }
 });
 
+test('the public exact reader parses the same scope snapshot it hashes despite A-to-B-to-A pathname substitution', async (t) => {
+  const f = fixture();
+  const read = fs.readFileSync;
+  const scopeA = read(f.options.scopeFile);
+  const scopeB = JSON.stringify({ ...f.scope, rows: [{ ...PROCESS_SELECTION, id: FOREIGN }] });
+  let pathnameReads = 0;
+  f.setData((url) => [processRow({ id: url.searchParams.get('id')?.slice(3) })]);
+  try {
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      if (typeof args[0] !== 'number' && String(args[0]) === f.options.scopeFile) {
+        pathnameReads += 1;
+        // The old seam hashed A through a descriptor, parsed this transient B pathname
+        // observation, and then reobserved unchanged A through descriptors at publication.
+        return scopeB;
+      }
+      return read(...args);
+    });
+    syncBuiltinESMExports();
+    const report = await runDatasetReadExact(f.options);
+    assert.equal(report.status, 'observed');
+    assert.equal(report.scope.sha256, hash(scopeA));
+    assert.equal(report.rows[0]?.selection.id, PROCESS);
+    assert.equal(report.rows[0]?.actual_row?.id, PROCESS);
+    assert.equal(f.dataCalls.length, 1);
+    assert.equal(f.dataCalls[0]?.searchParams.get('id'), `eq.${PROCESS}`);
+    assert.equal(pathnameReads, 0, 'scope parsing cannot obtain another pathname observation');
+    assert.deepEqual(read(f.options.scopeFile), scopeA);
+    const artifact = JSON.parse(
+      read(path.join(f.options.outDir, 'read-exact.json'), 'utf8'),
+    ) as typeof report;
+    assert.equal(artifact.scope.sha256, hash(scopeA));
+    assert.equal(artifact.rows[0]?.selection.id, PROCESS);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    f.close();
+  }
+});
+
 test('physically duplicate provenance through a symlink parent is rejected', async () => {
   const f = fixture();
   try {

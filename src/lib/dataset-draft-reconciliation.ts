@@ -49,16 +49,20 @@ export type DraftObservation = {
   actual_payload_sha256: string | null;
 };
 export type ReconciliationFileFact = { path: string; sha256: string | null; bytes: number | null };
+export type ReconciliationFileSnapshot = {
+  fact: ReconciliationFileFact;
+  bytes: Buffer | null;
+};
 
 export function reconciliationError(message: string): never {
   throw new CliError(message, { code: 'DATASET_DRAFT_RECONCILIATION_INVALID', exitCode: 2 });
 }
 
-export function reconciliationFileFact(
+export function readReconciliationSnapshot(
   file: string,
   optional = false,
   maxBytes = 32 * 1024 * 1024,
-): ReconciliationFileFact {
+): ReconciliationFileSnapshot {
   let descriptor: number;
   let entry: BigIntStats;
   try {
@@ -68,7 +72,7 @@ export function reconciliationFileFact(
     descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   } catch (error) {
     if (optional && (error as NodeJS.ErrnoException).code === 'ENOENT')
-      return { path: file, sha256: null, bytes: null };
+      return { fact: { path: file, sha256: null, bytes: null }, bytes: null };
     throw error;
   }
   try {
@@ -87,13 +91,24 @@ export function reconciliationFileFact(
     )
       reconciliationError('Reconciliation input changed during observation.');
     return {
-      path: file,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-      bytes: bytes.length,
+      fact: {
+        path: file,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        bytes: bytes.length,
+      },
+      bytes,
     };
   } finally {
     closeSync(descriptor);
   }
+}
+
+export function reconciliationFileFact(
+  file: string,
+  optional = false,
+  maxBytes = 32 * 1024 * 1024,
+): ReconciliationFileFact {
+  return readReconciliationSnapshot(file, optional, maxBytes).fact;
 }
 
 export function assertReconciliationFiles(

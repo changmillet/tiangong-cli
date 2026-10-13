@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -490,5 +491,152 @@ test('reconciliation rejects a replaced session before its first body query', as
     assert.equal(fs.existsSync(s.options.outDir), false);
   } finally {
     s.cleanup();
+  }
+});
+
+test('contract and input pathname substitution cannot change the rows bound to descriptor snapshots', async (t) => {
+  const s = setup();
+  const read = fs.readFileSync;
+  const replacementId = '33333333-3333-4333-8333-333333333333';
+  const replacement = structuredClone(s.payload);
+  const root = replacement.processDataSet as Json;
+  ((root.processInformation as Json).dataSetInformation as Json)['common:UUID'] = replacementId;
+  const substitutedContract = {
+    ...s.contract,
+    execution_id: 'substituted-request',
+    actions: [{ ...s.action, id: replacementId, desired_sha256: sha256Json(replacement) }],
+  };
+  const requested: string[] = [];
+  let pathnameReads = 0;
+  try {
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      if (args[0] === s.options.inputPath || args[0] === s.options.executionContractPath) {
+        pathnameReads += 1;
+        const text = JSON.stringify(
+          args[0] === s.options.inputPath ? replacement : substitutedContract,
+        );
+        return args[1] === 'utf8' ? text : Buffer.from(text);
+      }
+      return read(...args);
+    });
+    syncBuiltinESMExports();
+    const report = await runDatasetDraftReconciliation({
+      ...s.options,
+      fetchImpl: async (url) => {
+        const u = new URL(String(url));
+        if (u.pathname === '/auth/v1/user')
+          return response({ id: owner, email: 'user@example.com', role: 'authenticated' });
+        const id = u.searchParams.get('id')!.slice(3);
+        requested.push(id);
+        return response([
+          { ...s.row, id, json_ordered: id === replacementId ? replacement : s.payload },
+        ]);
+      },
+    });
+    assert.deepEqual(requested, [s.row.id]);
+    assert.equal(pathnameReads, 0);
+    assert.equal(report.execution_contract.execution_id, s.contract.execution_id);
+    assert.equal(report.execution_contract.sha256, sha256Json(s.contract));
+    assert.equal(report.rows[0]?.status, 'equal_eligible');
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    s.cleanup();
+  }
+});
+
+test('ledger pathname substitution cannot erase the consumed UNKNOWN history in its descriptor snapshot', async (t) => {
+  const s = setup();
+  const read = fs.readFileSync;
+  const contract = __testInternals.parseExecutionContract(s.contract);
+  const action = contract.actions[0]!;
+  const ledgerFile = __testInternals.executionLedgerPath(
+    __testInternals.executionLedgerRoot(s.options.env, contract),
+    action,
+  );
+  const attemptCore = {
+    schema_version: 'dataset-save-draft-execution-event.v1',
+    sequence: 1,
+    contract_sha256: sha256Json(contract),
+    action_id: action.action_id,
+    desired_sha256: action.desired_sha256,
+    action_binding_sha256: __testInternals.executionActionBindingSha256(action),
+    event_type: 'attempt_emitted',
+    operation: action.expected_operation,
+    outcome: null,
+    recovered: false,
+    recorded_at_utc: '2026-10-13T00:00:00.000Z',
+    previous_event_sha256: null,
+  };
+  const attempt = { ...attemptCore, event_sha256: sha256Json(attemptCore) };
+  const outcomeCore = {
+    ...attemptCore,
+    sequence: 2,
+    event_type: 'outcome',
+    outcome: 'unknown',
+    previous_event_sha256: attempt.event_sha256,
+  };
+  const outcome = { ...outcomeCore, event_sha256: sha256Json(outcomeCore) };
+  const original = `${JSON.stringify(attempt)}\n${JSON.stringify(outcome)}\n`;
+  fs.mkdirSync(path.dirname(ledgerFile), { recursive: true });
+  fs.writeFileSync(ledgerFile, original);
+  let pathnameReads = 0;
+  try {
+    t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+      if (args[0] === ledgerFile) {
+        pathnameReads += 1;
+        return args[1] === 'utf8' ? '' : Buffer.alloc(0);
+      }
+      return read(...args);
+    });
+    syncBuiltinESMExports();
+    const report = await runDatasetDraftReconciliation(s.options);
+    assert.equal(report.rows[0]?.history.attempt_consumed, true);
+    assert.equal(report.rows[0]?.history.outcome, 'unknown');
+    assert.equal(report.rows[0]?.history.event_count, 2);
+    assert.equal(report.rows[0]?.history.event_tip_sha256, outcome.event_sha256);
+    assert.equal(pathnameReads, 0);
+    assert.equal(read(ledgerFile, 'utf8'), original);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    s.cleanup();
+  }
+});
+
+test('reconciliation accepts bound JSONL snapshots through the existing row normalization', async () => {
+  const s = setup();
+  try {
+    const inputPath = path.join(s.dir, 'rows.JSONL');
+    fs.writeFileSync(inputPath, `\n ${JSON.stringify(s.payload)} \r\n\n`);
+    const report = await runDatasetDraftReconciliation({ ...s.options, inputPath });
+    assert.equal(report.rows[0]?.status, 'equal_eligible');
+    assert.equal(report.input.path, inputPath);
+    assert.equal(report.rows[0]?.history.event_count, 0);
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('malformed captured JSON and JSONL stop before identity without exposing input bytes', async () => {
+  for (const extension of ['json', 'jsonl']) {
+    const s = setup();
+    try {
+      const inputPath = path.join(s.dir, `malformed.${extension}`);
+      fs.writeFileSync(inputPath, '{"private":"CANARY_SECRET"');
+      await assert.rejects(
+        runDatasetDraftReconciliation({ ...s.options, inputPath }),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(error.message, /valid JSON or JSONL/u);
+          assert.equal(JSON.stringify(error).includes('CANARY_SECRET'), false);
+          return true;
+        },
+      );
+      assert.equal(s.calls.length, 0);
+      assert.equal(fs.existsSync(s.options.outDir), false);
+    } finally {
+      s.cleanup();
+    }
   }
 });

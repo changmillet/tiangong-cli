@@ -11,6 +11,7 @@ import {
   reconciliationError,
   reconciliationFileFact,
   reconciliationOutputDirectory,
+  readReconciliationSnapshot,
   writeDraftReconciliation,
 } from '../src/lib/dataset-draft-reconciliation.js';
 import { sha256Json } from '../src/lib/dataset-maintenance-contract.js';
@@ -189,6 +190,94 @@ test('file facts bind exact bytes, including empty files and optional absence', 
     fs.writeFileSync(f.file, '');
     assert.equal(reconciliationFileFact(f.file).bytes, 0);
   } finally {
+    f.close();
+  }
+});
+
+test('a snapshot returns the same private descriptor bytes it fingerprints with one bounded read', (t) => {
+  const f = fixture();
+  const open = fs.openSync,
+    read = fs.readFileSync,
+    lstat = fs.lstatSync,
+    stat = fs.fstatSync,
+    close = fs.closeSync;
+  const bytes = Buffer.from('{"selected":"original"}\n');
+  const counts = { opens: 0, reads: 0, lstats: 0, fstats: 0, closes: 0 };
+  let descriptor = -1;
+  try {
+    fs.writeFileSync(f.file, bytes);
+    t.mock.method(fs, 'openSync', (file: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+      counts.opens += 1;
+      descriptor = open(file, flags, mode);
+      return descriptor;
+    });
+    t.mock.method(fs, 'readFileSync', (file: number) => {
+      counts.reads += 1;
+      assert.equal(file, descriptor, 'snapshot bytes come from the prechecked open descriptor');
+      return read(file);
+    });
+    t.mock.method(fs, 'lstatSync', (file: fs.PathLike, options?: { bigint?: boolean }) => {
+      counts.lstats += 1;
+      assert.equal(options?.bigint, true);
+      return lstat(file, { bigint: true });
+    });
+    t.mock.method(fs, 'fstatSync', (fd: number, options?: { bigint?: boolean }) => {
+      counts.fstats += 1;
+      assert.equal(options?.bigint, true);
+      return stat(fd, { bigint: true });
+    });
+    t.mock.method(fs, 'closeSync', (fd: number) => {
+      counts.closes += 1;
+      return close(fd);
+    });
+    syncBuiltinESMExports();
+    const snapshot = readReconciliationSnapshot(f.file);
+    assert.deepEqual(snapshot.bytes, bytes);
+    assert.deepEqual(snapshot.fact, {
+      path: f.file,
+      sha256: createHash('sha256').update(snapshot.bytes!).digest('hex'),
+      bytes: snapshot.bytes!.length,
+    });
+    assert.deepEqual(counts, { opens: 1, reads: 1, lstats: 1, fstats: 2, closes: 1 });
+    assert.throws(() => stat(descriptor), { code: 'EBADF' });
+    assert.deepEqual(
+      Object.keys(snapshot.fact).sort(),
+      ['bytes', 'path', 'sha256'],
+      'private bytes are not added to reportable facts',
+    );
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    f.close();
+  }
+});
+
+test('snapshot optional absence is null and empty existing bytes remain a real hashed buffer', (t) => {
+  const f = fixture();
+  const open = fs.openSync;
+  let opens = 0;
+  try {
+    t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+      opens += 1;
+      return open(...args);
+    });
+    syncBuiltinESMExports();
+    assert.deepEqual(readReconciliationSnapshot(f.file, true), {
+      fact: { path: f.file, sha256: null, bytes: null },
+      bytes: null,
+    });
+    assert.throws(() => readReconciliationSnapshot(f.file), { code: 'ENOENT' });
+    assert.equal(opens, 0);
+    fs.writeFileSync(f.file, '');
+    const snapshot = readReconciliationSnapshot(f.file, false, 0);
+    assert.ok(Buffer.isBuffer(snapshot.bytes));
+    assert.equal(snapshot.bytes.length, 0);
+    assert.equal(snapshot.fact.bytes, 0);
+    assert.equal(snapshot.fact.sha256, createHash('sha256').update(snapshot.bytes).digest('hex'));
+    assert.equal(opens, 1);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
     f.close();
   }
 });
