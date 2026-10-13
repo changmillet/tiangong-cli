@@ -403,16 +403,16 @@ test('singleton support classifications preserve full paths without truncation',
 test('array classification writers retain full paths and unrelated metadata', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-classification-arrays-'));
   const cases = [
-    ['contact', 'contactDataSet', 'contactInformation'],
-    ['flow-elementary', 'flowDataSet', 'flowInformation'],
-    ['flow-product', 'flowDataSet', 'flowInformation'],
-    ['lciamethod', 'LCIAMethodDataSet', 'LCIAMethodInformation'],
-    ['process', 'processDataSet', 'processInformation'],
+    ['contact', 'contactDataSet', 'contactInformation', '2.1', 2],
+    ['flow-elementary', 'flowDataSet', 'flowInformation', '1.1.1', 3],
+    ['flow-product', 'flowDataSet', 'flowInformation', '01111', 5],
+    ['lciamethod', 'LCIAMethodDataSet', 'LCIAMethodInformation', '1.2.1', 3],
+    ['process', 'processDataSet', 'processInformation', '0111', 4],
   ] as const;
   try {
-    for (const [type, root, information] of cases) {
-      const categories = await runDatasetClassificationChildren({ type });
-      const category = categories.children[0]!;
+    for (const [type, root, information, code, length] of cases) {
+      const category = await runDatasetClassificationPath({ type, code });
+      assert.equal(category.path.length, length, type);
       const containerKey =
         type === 'flow-elementary'
           ? 'common:elementaryFlowCategorization'
