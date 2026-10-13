@@ -22,9 +22,9 @@ checkPaths:
   - src/**
   - scripts/**
   - .github/workflows/**
-lastReviewedAt: 2026-10-09
-lastReviewedCommit: 49c4ac555d35666e4a6ab8ad701338a45c345147
-lastReviewedNote: 'CLI #391 integration with main 49c4ac5: retain expiry-aware owner-token reuse and CLI 0.1.28; exact freight-work QA, scale guards, conservative failures and input evidence remain unchanged. This QA change adds no dependency, version bump, release or authorization surface.'
+lastReviewedAt: 2026-10-11
+lastReviewedCommit: a780355c2e348250d828bc13085c80f1dbc99a17
+lastReviewedNote: 'Reviewed PR #413 integration with canonical main a780355: explicit intended applications, evidence binding, aliases, embedded payloads and public proof remain intact; upstream owner-token reuse, CLI 0.1.28 and exact freight-work QA are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
