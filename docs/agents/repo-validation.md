@@ -110,9 +110,9 @@ First-install proof uses an isolated packed CLI without local public configurati
 
 LifecycleModel save-draft regressions must preserve sanitized structured application `code` and `details` without exposing raw HTTP bodies. Private Production qualification requires explicit authorization, disposable fixtures, exact owner/state/payload readback, and actor-bound cleanup. Ambiguous mutation or cleanup blocks acceptance.
 
-### Source classification public-command proof
+### Support classification public-command proof
 
-Run `node scripts/ci/prove-source-classification.mjs --out-dir /new/evidence/directory` after building. The canonical test suite runs the same public-launcher regression with a complete synthetic Source fixture and real SDK validation. It checks object and single-entry array containers, metadata preservation, apply/reapply validity, multi-container and invalid-decision blockers without content loss, and unchanged Process array serialization. Multi-container selection is intentionally unsupported.
+Run `node scripts/ci/prove-source-classification.mjs --out-dir /new/evidence/directory` after building. The canonical test suite runs the same public-launcher regression with complete synthetic Source, Flow Property and Unit Group fixtures and real SDK validation. It checks object and single-entry array containers, metadata preservation, apply/reapply validity, multi-container and invalid-decision blockers without content loss, and unchanged Process array serialization. The separate source tests cover every singleton catalog code and reject unrepresentable paths without truncation. Multi-container selection is intentionally unsupported. The public-test subprocess explicitly clears `NODE_V8_COVERAGE` so compiled JavaScript and tsx source mappings do not count the same functions twice; every public command still executes, and the source coverage gate remains exactly 100%.
 
 The proof retains actual argv, native reports, output hashes, checkout/build identity and the exact SDK/Node fingerprints. These local receipts contain host paths; publish only a sanitized projection. `--cli-bin` selects an isolated comparison build; `--expect legacy` characterizes the original invalid output. Passing this synthetic proof does not replace the original data-workflow candidate retest or authorize remote writes.
 

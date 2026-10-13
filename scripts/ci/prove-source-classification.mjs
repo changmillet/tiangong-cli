@@ -38,22 +38,45 @@ const readRows = (file) =>
     .trim()
     .split(/\r?\n/u)
     .map((line) => JSON.parse(line));
-const fixtureFile = path.join(repoRoot, 'test/fixtures/source-classification.json');
-const fixtureBytes = readFileSync(fixtureFile);
-const fixture = JSON.parse(fixtureBytes);
-const classificationOf = (payload) =>
-  payload.sourceDataSet.sourceInformation.dataSetInformation.classificationInformation[
+const datasetCases = [
+  {
+    type: 'source',
+    root: 'sourceDataSet',
+    information: 'sourceInformation',
+    validator: 'SourceSchema',
+    schema: 'tidas_sources.schema.js',
+    appliedClass: { '@level': '0', '@classId': '5', '#text': 'Publications and communications' },
+  },
+  {
+    type: 'flowproperty',
+    root: 'flowPropertyDataSet',
+    information: 'flowPropertiesInformation',
+    validator: 'FlowPropertySchema',
+    schema: 'tidas_flowproperties.schema.js',
+    appliedClass: { '@level': '0', '@classId': '4', '#text': 'Other flow properties' },
+  },
+  {
+    type: 'unitgroup',
+    root: 'unitGroupDataSet',
+    information: 'unitGroupInformation',
+    validator: 'UnitGroupSchema',
+    schema: 'tidas_unitgroups.schema.js',
+    appliedClass: { '@level': '0', '@classId': '4', '#text': 'Other unit groups' },
+  },
+].map((descriptor) => {
+  const fixtureBytes = readFileSync(
+    path.join(repoRoot, `test/fixtures/${descriptor.type}-classification.json`),
+  );
+  return { ...descriptor, fixtureBytes, fixture: JSON.parse(fixtureBytes) };
+});
+const classificationOf = (payload, descriptor) =>
+  payload[descriptor.root][descriptor.information].dataSetInformation.classificationInformation[
     'common:classification'
   ];
-const setContainer = (payload, container) => {
-  payload.sourceDataSet.sourceInformation.dataSetInformation.classificationInformation[
+const setContainer = (payload, descriptor, container) => {
+  payload[descriptor.root][descriptor.information].dataSetInformation.classificationInformation[
     'common:classification'
   ] = container;
-};
-const appliedClass = {
-  '@level': '0',
-  '@classId': '5',
-  '#text': 'Publications and communications',
 };
 const git = (args) =>
   spawnSync('git', ['-C', cliRoot, ...args], {
@@ -65,7 +88,7 @@ const hasCheckout = gitRoot.status === 0 && realpathSync(gitRoot.stdout.trim()) 
 const sdkEntry = createRequire(cliBin).resolve('@tiangong-lca/tidas-sdk');
 const sdkRoot = realpathSync(path.dirname(path.dirname(sdkEntry)));
 const proof = {
-  schema: 'tiangong-cli.source-classification-proof.v1',
+  schema: 'tiangong-cli.source-classification-proof.v2',
   started_at: new Date().toISOString(),
   expectation: values.expect,
   status: 'running',
@@ -90,10 +113,17 @@ const proof = {
     lockfile_sha256: hashFile(path.join(cliRoot, 'pnpm-lock.yaml')),
     sdk_version: readJson(path.join(sdkRoot, 'package.json')).version,
     sdk_package_sha256: hashFile(path.join(sdkRoot, 'package.json')),
-    sdk_sources_schema_sha256: hashFile(path.join(sdkRoot, 'dist/schemas/tidas_sources.schema.js')),
+    sdk_schema_sha256: Object.fromEntries(
+      datasetCases.map(({ type, schema }) => [
+        type,
+        hashFile(path.join(sdkRoot, 'dist/schemas', schema)),
+      ]),
+    ),
   },
   proof_script_sha256: hashFile(fileURLToPath(import.meta.url)),
-  fixture_sha256: sha256(fixtureBytes),
+  fixture_sha256: Object.fromEntries(
+    datasetCases.map(({ type, fixtureBytes }) => [type, sha256(fixtureBytes)]),
+  ),
   child_environment_keys: Object.keys(childEnv),
   limits: {
     process_case:
@@ -105,7 +135,9 @@ const proof = {
   checks: [],
 };
 mkdirSync(outDir, { recursive: true });
-writeFileSync(path.join(outDir, 'source-fixture.json'), fixtureBytes);
+for (const { type, fixtureBytes } of datasetCases) {
+  writeFileSync(path.join(outDir, `${type}-fixture.json`), fixtureBytes);
+}
 
 function check(name, action) {
   try {
@@ -160,21 +192,34 @@ function run(name, argv, input, artifact) {
   return { report, exitCode: result.status };
 }
 
-function validate(name, input, valid) {
+function validate(name, input, valid, descriptor) {
   const output = `results/${name}`;
   const result = run(
     name,
-    ['dataset', 'validate', '--input', input, '--type', 'source', '--out-dir', output, '--json'],
+    [
+      'dataset',
+      'validate',
+      '--input',
+      input,
+      '--type',
+      descriptor.type,
+      '--out-dir',
+      output,
+      '--json',
+    ],
     input,
     `${output}/outputs/validation-report.json`,
   );
-  check(`${name}: Source validation`, () => {
+  check(`${name}: ${descriptor.type} validation`, () => {
     assert.equal(result.exitCode, valid ? 0 : 1);
     assert.equal(result.report.counts.total, 1);
     assert.equal(result.report.counts.valid, valid ? 1 : 0);
     assert.equal(result.report.counts.invalid, valid ? 0 : 1);
     if (valid) {
-      assert.equal(result.report.rows[0].validator, '@tiangong-lca/tidas-sdk/SourceSchema');
+      assert.equal(
+        result.report.rows[0].validator,
+        `@tiangong-lca/tidas-sdk/${descriptor.validator}`,
+      );
       for (const layer of Object.values(result.report.rows[0].validation_layers)) {
         assert.equal(layer.status, 'passed');
       }
@@ -182,7 +227,7 @@ function validate(name, input, valid) {
   });
 }
 
-function apply(name, payload, type = 'source', code = '5') {
+function apply(name, payload, type, code) {
   const caseDir = `cases/${name}`;
   mkdirSync(path.join(outDir, caseDir), { recursive: true });
   const input = `${caseDir}/input.json`;
@@ -235,28 +280,29 @@ function assertApply(result, blocked) {
   assert.equal(result.report.counts.blockers, blocked ? 1 : 0);
 }
 
-function exerciseSource(name, payload, arrayContainer) {
-  const input = `${name}-source.json`;
+function exerciseDataset(name, payload, arrayContainer, descriptor) {
+  const input = `${name}-input.json`;
+  const { type, appliedClass } = descriptor;
   writeJson(path.join(outDir, input), payload);
-  validate(`${name}-input`, input, true);
-  const result = apply(`${name}-apply`, payload);
+  validate(`${name}-input`, input, true, descriptor);
+  const result = apply(`${name}-apply`, payload, type, appliedClass['@classId']);
   check(`${name}: applied without blockers`, () => assertApply(result, false));
   const expected = structuredClone(payload);
   if (values.expect === 'legacy') {
-    setContainer(expected, {
-      ...(arrayContainer ? {} : classificationOf(expected)),
+    setContainer(expected, descriptor, {
+      ...(arrayContainer ? {} : classificationOf(expected, descriptor)),
       'common:class': [appliedClass],
     });
   } else if (arrayContainer) {
-    classificationOf(expected)[0]['common:class'] = [appliedClass];
+    classificationOf(expected, descriptor)[0]['common:class'] = [appliedClass];
   } else {
-    classificationOf(expected)['common:class'] = appliedClass;
+    classificationOf(expected, descriptor)['common:class'] = appliedClass;
   }
   check(`${name}: correct class shape and all other data preserved`, () =>
     assert.deepEqual(result.payload, expected),
   );
-  validate(`${name}-output`, result.output, values.expect === 'repaired');
-  const reapplied = apply(`${name}-reapply`, result.payload);
+  validate(`${name}-output`, result.output, values.expect === 'repaired', descriptor);
+  const reapplied = apply(`${name}-reapply`, result.payload, type, appliedClass['@classId']);
   check(`${name}: reapply succeeds and preserves payload bytes`, () => {
     assertApply(reapplied, false);
     assert.equal(
@@ -264,48 +310,79 @@ function exerciseSource(name, payload, arrayContainer) {
       hashFile(path.join(outDir, result.output)),
     );
   });
-  validate(`${name}-reapplied-output`, reapplied.output, values.expect === 'repaired');
+  validate(`${name}-reapplied-output`, reapplied.output, values.expect === 'repaired', descriptor);
 }
 
 try {
-  exerciseSource('object-container', structuredClone(fixture), false);
-  const singleArray = structuredClone(fixture);
-  const objectContainer = classificationOf(singleArray);
-  setContainer(singleArray, [
-    { ...objectContainer, 'common:class': [objectContainer['common:class']] },
-  ]);
-  exerciseSource('single-array-container', singleArray, true);
+  for (const descriptor of datasetCases) {
+    const { type, appliedClass, fixture } = descriptor;
+    const pathDir = `results/${type}-catalog-path`;
+    const pathReport = run(
+      `${type}-catalog-path`,
+      [
+        'dataset',
+        'classification',
+        'path',
+        '--type',
+        type,
+        '--code',
+        appliedClass['@classId'],
+        '--out-dir',
+        pathDir,
+        '--json',
+      ],
+      `${type}-fixture.json`,
+      `${pathDir}/outputs/classification-path-report.json`,
+    );
+    check(`${type}: complete selected catalog path`, () => {
+      assert.equal(pathReport.exitCode, 0);
+      assert.deepEqual(pathReport.report.path, [appliedClass]);
+    });
+    exerciseDataset(`${type}-object-container`, structuredClone(fixture), false, descriptor);
+    const singleArray = structuredClone(fixture);
+    const objectContainer = classificationOf(singleArray, descriptor);
+    setContainer(singleArray, descriptor, [
+      { ...objectContainer, 'common:class': [objectContainer['common:class']] },
+    ]);
+    exerciseDataset(`${type}-single-array-container`, singleArray, true, descriptor);
 
-  const multiple = structuredClone(singleArray);
-  classificationOf(multiple).push({
-    '@name': 'Independent synthetic categories',
-    '@classes': 'https://example.invalid/categories/independent',
-    'common:class': [{ '@level': '0', '@classId': 'custom', '#text': 'Independent category' }],
-    'common:other': { 'proof:marker': 'Independent metadata must survive' },
-  });
-  writeJson(path.join(outDir, 'multiple-source.json'), multiple);
-  validate('multiple-input', 'multiple-source.json', true);
-  const ambiguous = apply('multiple-container-apply', multiple);
-  check('multiple containers: blocked unchanged without a selector', () => {
-    assertApply(ambiguous, values.expect === 'repaired');
-    if (values.expect === 'repaired') {
-      assert.deepEqual(ambiguous.payload, multiple);
-      assert.equal(ambiguous.report.blockers[0].code, 'classification_container_missing');
-    } else {
-      const expected = structuredClone(multiple);
-      setContainer(expected, { 'common:class': [appliedClass] });
-      assert.deepEqual(ambiguous.payload, expected);
-    }
-  });
-  validate('multiple-output', ambiguous.output, values.expect === 'repaired');
+    const multiple = structuredClone(singleArray);
+    classificationOf(multiple, descriptor).push({
+      '@name': 'Independent synthetic categories',
+      '@classes': 'https://example.invalid/categories/independent',
+      'common:class': [{ '@level': '0', '@classId': 'custom', '#text': 'Independent category' }],
+      'common:other': { 'proof:marker': 'Independent metadata must survive' },
+    });
+    const multipleInput = `${type}-multiple-input.json`;
+    writeJson(path.join(outDir, multipleInput), multiple);
+    validate(`${type}-multiple-input`, multipleInput, true, descriptor);
+    const ambiguous = apply(
+      `${type}-multiple-container-apply`,
+      multiple,
+      type,
+      appliedClass['@classId'],
+    );
+    check(`${type}: multiple containers blocked unchanged without a selector`, () => {
+      assertApply(ambiguous, values.expect === 'repaired');
+      if (values.expect === 'repaired') {
+        assert.deepEqual(ambiguous.payload, multiple);
+        assert.equal(ambiguous.report.blockers[0].code, 'classification_container_missing');
+      } else {
+        const expected = structuredClone(multiple);
+        setContainer(expected, descriptor, { 'common:class': [appliedClass] });
+        assert.deepEqual(ambiguous.payload, expected);
+      }
+    });
+    validate(`${type}-multiple-output`, ambiguous.output, values.expect === 'repaired', descriptor);
 
-  const invalid = apply('invalid-decision', fixture, 'source', 'not-a-source-category');
-  check('invalid decision: blocked and original Source unchanged', () => {
-    assertApply(invalid, true);
-    assert.equal(invalid.report.blockers[0].code, 'classification_decision_path_invalid');
-    assert.deepEqual(invalid.payload, fixture);
-  });
-  validate('invalid-decision-output', invalid.output, true);
+    const invalid = apply(`${type}-invalid-decision`, fixture, type, 'not-a-category');
+    check(`${type}: invalid decision blocked and original unchanged`, () => {
+      assertApply(invalid, true);
+      assert.equal(invalid.report.blockers[0].code, 'classification_decision_path_invalid');
+      assert.deepEqual(invalid.payload, fixture);
+    });
+    validate(`${type}-invalid-decision-output`, invalid.output, true, descriptor);
+  }
 
   const processPayload = {
     processDataSet: {

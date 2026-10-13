@@ -7,7 +7,7 @@ import process from 'node:process';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-test('public Source classification preserves SDK-valid shapes and metadata', () => {
+test('public Source, Flow Property and Unit Group classifications preserve valid shapes', () => {
   const repoRoot = fileURLToPath(new URL('../', import.meta.url));
   const tempDir = mkdtempSync(path.join(os.tmpdir(), 'tg-source-classification-public-'));
   const outDir = path.join(tempDir, 'proof');
@@ -17,7 +17,8 @@ test('public Source classification preserves SDK-valid shapes and metadata', () 
       [path.join(repoRoot, 'scripts/ci/prove-source-classification.mjs'), '--out-dir', outDir],
       {
         cwd: tempDir,
-        env: { PATH: path.dirname(process.execPath), LANG: 'C', TZ: 'UTC' },
+        // The public proof executes compiled CLI children; source tests own coverage counting.
+        env: { PATH: path.dirname(process.execPath), LANG: 'C', TZ: 'UTC', NODE_V8_COVERAGE: '' },
         encoding: 'utf8',
         shell: false,
         timeout: 60_000,
@@ -32,8 +33,8 @@ test('public Source classification preserves SDK-valid shapes and metadata', () 
     assert.equal(result.status, 0, JSON.stringify(failures, null, 2));
     assert.equal(proof.status, 'passed');
     assert.equal(proof.expectation, 'repaired');
-    assert.equal(proof.commands.length, 16);
-    assert.equal(proof.checks.length, 18);
+    assert.equal(proof.commands.length, 49);
+    assert.equal(proof.checks.length, 55);
     assert.deepEqual(JSON.parse(result.stdout), proof);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

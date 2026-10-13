@@ -347,16 +347,67 @@ test('Source classification blocks ambiguous or malformed array containers witho
   }
 });
 
-test('non-Source classification writers retain array paths and unrelated metadata', async () => {
+test('singleton support classifications preserve full paths without truncation', async () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-support-classification-'));
+  const cases = [
+    ['source', 'sourceDataSet', 'sourceInformation'],
+    ['flowproperty', 'flowPropertyDataSet', 'flowPropertiesInformation'],
+    ['unitgroup', 'unitGroupDataSet', 'unitGroupInformation'],
+  ] as const;
+  try {
+    for (const [type, root, information] of cases) {
+      const categories = await runDatasetClassificationChildren({ type });
+      for (const category of categories.children) {
+        assert.equal(category.path.length, 1, `${type}/${category.code}: complete catalog path`);
+        const makeRow = (classification: unknown) => ({
+          [root]: {
+            [information]: {
+              dataSetInformation: {
+                classificationInformation: { 'common:classification': classification },
+              },
+            },
+          },
+        });
+        for (const asArray of [false, true]) {
+          const entry = {
+            '@name': 'Synthetic',
+            '@classes': 'https://example.org/categories',
+            'common:class': asArray ? category.path : category.path[0],
+          };
+          const input = makeRow(asArray ? [entry] : entry);
+          const report = await runDatasetClassificationApply({
+            inputPath: 'memory',
+            rawInput: input,
+            decisionsPath: 'memory',
+            rawDecisions: [{ row_index: 0, code: category.code }],
+            type,
+            outPath: path.join(dir, 'classified.jsonl'),
+          });
+          assert.equal(report.counts.applied, 1);
+          assert.equal(report.counts.blockers, 0);
+          assert.deepEqual(readJsonl(report.out_path), [input]);
+        }
+        const object = makeRow({ 'common:class': category.path[0] });
+        const row = __testInternals.prepareRows('memory', object)[0]!;
+        for (const unrepresentable of [[], [...category.path, ...category.path]]) {
+          assert.equal(__testInternals.setClassification(row, type, unrepresentable), false);
+          assert.deepEqual(row.payload, object);
+        }
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('array classification writers retain full paths and unrelated metadata', async () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'tg-cli-classification-arrays-'));
   const cases = [
     ['contact', 'contactDataSet', 'contactInformation'],
     ['flow-elementary', 'flowDataSet', 'flowInformation'],
     ['flow-product', 'flowDataSet', 'flowInformation'],
-    ['flowproperty', 'flowPropertyDataSet', 'flowPropertiesInformation'],
     ['lciamethod', 'LCIAMethodDataSet', 'LCIAMethodInformation'],
     ['process', 'processDataSet', 'processInformation'],
-    ['unitgroup', 'unitGroupDataSet', 'unitGroupInformation'],
   ] as const;
   try {
     for (const [type, root, information] of cases) {

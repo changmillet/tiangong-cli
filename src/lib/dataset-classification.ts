@@ -181,6 +181,7 @@ type CategoryConfig = {
   schemaFile: string;
   defaultValueKey: ClassificationValueKey;
   target: 'common:category' | 'common:class' | 'location';
+  singletonClass?: boolean;
 };
 
 type ClassificationNavigator = {
@@ -244,6 +245,7 @@ const CATEGORY_CONFIGS: Record<DatasetClassificationType, CategoryConfig> = {
     schemaFile: 'tidas_flowproperties_category.json',
     defaultValueKey: '@classId',
     target: 'common:class',
+    singletonClass: true,
   },
   lciamethod: {
     type: 'lciamethod',
@@ -268,12 +270,14 @@ const CATEGORY_CONFIGS: Record<DatasetClassificationType, CategoryConfig> = {
     schemaFile: 'tidas_sources_category.json',
     defaultValueKey: '@classId',
     target: 'common:class',
+    singletonClass: true,
   },
   unitgroup: {
     type: 'unitgroup',
     schemaFile: 'tidas_unitgroups_category.json',
     defaultValueKey: '@classId',
     target: 'common:class',
+    singletonClass: true,
   },
 };
 
@@ -782,7 +786,7 @@ function classificationContainer(
     };
   }
   const classification = classificationInformation['common:classification'];
-  if (type === 'source' && Array.isArray(classification)) {
+  if (CATEGORY_CONFIGS[type].singletonClass && Array.isArray(classification)) {
     // The SDK's named-array form has array-valued classes. No selector exists
     // for multiple classification systems, so never discard or guess an entry.
     if (classification.length !== 1 || !isRecord(classification[0])) return null;
@@ -794,7 +798,7 @@ function classificationContainer(
   return {
     container: classificationInformation['common:classification'] as JsonObject,
     valueKey: 'common:class',
-    singleton: type === 'source',
+    singleton: CATEGORY_CONFIGS[type].singletonClass === true,
   };
 }
 
@@ -812,7 +816,7 @@ function setClassification(
   classificationPath: ClassificationPathEntry[],
 ): boolean {
   const target = classificationContainer(row, type);
-  if (!target) return false;
+  if (!target || (target.singleton && classificationPath.length !== 1)) return false;
   target.container[target.valueKey] = cloneJson(
     target.singleton ? classificationPath[0] : classificationPath,
   );
@@ -1275,10 +1279,9 @@ export async function runDatasetClassificationApply(
     if (!setClassification(row, decision.categoryType, decision.path)) {
       blockers.push({
         code: 'classification_container_missing',
-        message:
-          decision.categoryType === 'source'
-            ? 'Source classification requires an object or a single-entry array container; multiple named classifications are not selected automatically.'
-            : 'Input row does not contain a supported classification container for this type.',
+        message: CATEGORY_CONFIGS[decision.categoryType].singletonClass
+          ? `${decision.categoryType} classification requires an object with a single-node path or a single-entry array container; multiple named classifications are not selected automatically.`
+          : 'Input row does not contain a supported classification container for this type.',
         decision_index: decision.decisionIndex,
         row_index: row.index,
         dataset_id: row.id,
