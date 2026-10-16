@@ -30,9 +30,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-11
-lastReviewedCommit: a780355c2e348250d828bc13085c80f1dbc99a17
-lastReviewedNote: 'Reviewed PR #413 integration with canonical main a780355: explicit intended applications, evidence binding, aliases, embedded payloads and public proof remain intact; upstream owner-token reuse, CLI 0.1.28 and exact freight-work QA are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
+lastReviewedAt: 2026-10-16
+lastReviewedCommit: 87374a90ebbcdb486204358c0bdf99218fd5f1c0
+lastReviewedNote: 'CLI #427: reviewed automatic exact-head dependency/configuration/Actions PR qualification and focused monitoring against base 87374a9; existing package, source, 100% coverage and release authorization contracts are retained.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -270,7 +270,7 @@ If a task changes output layout, locking, or local run roots, inspect these firs
 
 Repo-level maintenance gates are now split across:
 
-- `.github/workflows/quality-gate.yml` for manual exact-head reproduction and reusable four-platform pre-tag validation
+- `.github/workflows/quality-gate.yml` for automatic dependency/configuration/Actions PR validation, manual exact-head reproduction and reusable four-platform pre-tag validation
 - `.github/workflows/ai-doc-lint.yml`
 - `.github/workflows/tag-release-from-merge.yml`
 - `.github/workflows/publish.yml`

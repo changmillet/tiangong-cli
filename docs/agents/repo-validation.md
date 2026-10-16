@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-11
-lastReviewedCommit: a780355c2e348250d828bc13085c80f1dbc99a17
-lastReviewedNote: 'Reviewed PR #413 integration with canonical main a780355: explicit intended applications, evidence binding, aliases, embedded payloads and public proof remain intact; upstream owner-token reuse, CLI 0.1.28 and exact freight-work QA are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
+lastReviewedAt: 2026-10-16
+lastReviewedCommit: 87374a90ebbcdb486204358c0bdf99218fd5f1c0
+lastReviewedNote: 'CLI #427: reviewed automatic exact-head dependency/configuration/Actions PR qualification and focused monitoring against base 87374a9; existing package, source, 100% coverage and release authorization contracts are retained.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -146,7 +146,7 @@ Facts that matter:
 - `pnpm prepush:gate` is the exact local test gate
 - `pnpm peers:check` is part of that gate; direct dependencies are latest stable for Node 24 and `@types/node` remains on latest 24.x
 - the local `pre-push` hook runs docpact first and then `pnpm prepush:gate`
-- `.github/workflows/quality-gate.yml` supports manual exact-head reproduction and reusable invocation; its four exact matrix entries fail closed on actual `process.platform`/`process.arch`, and a detected CLI version change must pass them before tag creation
+- `.github/workflows/quality-gate.yml` automatically validates main PRs touching dependency/configuration/Actions inputs and supports manual exact-head reproduction and reusable invocation; its four exact matrix entries fail closed on actual `process.platform`/`process.arch`, and a detected CLI version change must pass them before tag creation
 - every Node workflow bootstraps through pinned `pnpm/setup` v2.0.2 with Node 24.19.0 and installs with `pnpm install --frozen-lockfile`; publishing uses native pnpm OIDC/provenance
 - `pnpm release:verify-published -- --version <x.y.z> --expected-git-head <release-merge-sha>` is the post-publish cryptographic Sigstore/registry-signature/tarball/public-consumer gate; it fixes pnpm 11.24.0, replaces user/global package-manager configs, scans every production dependency branch, and passes no TianGong or registry credential into the clean consumer
 - `process save-draft`, `lifecyclemodel save-draft`, ordered `dataset save-draft --execution-contract`, dataset governance commands such as curation queue build/next/verify, BuildPlan gates, publish schema/verification gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, recovery, or fallback branches
