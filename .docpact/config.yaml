@@ -1,8 +1,8 @@
 version: 1
 layout: repo
-lastReviewedAt: 2026-10-11
-lastReviewedCommit: a780355c2e348250d828bc13085c80f1dbc99a17
-lastReviewedNote: 'Reviewed PR #413 integration with canonical main a780355: explicit intended applications, evidence binding, aliases, embedded payloads and public proof remain intact; upstream owner-token reuse, CLI 0.1.28 and exact freight-work QA are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
+lastReviewedAt: '2026-10-16'
+lastReviewedCommit: '87374a90ebbcdb486204358c0bdf99218fd5f1c0'
+lastReviewedNote: 'CLI #427: reviewed automatic exact-head dependency/configuration/Actions PR qualification and focused monitoring against base 87374a9; existing package, source, 100% coverage and release authorization contracts are retained.'
 
 catalog:
   repos:
@@ -115,6 +115,7 @@ ownership:
           - test/**
           - scripts/**
           - src/lib/cli-repository-identity.ts
+          - .github/dependabot.yml
           - .github/workflows/quality-gate.yml
           - .github/workflows/publish.yml
           - .github/workflows/tag-release-from-merge.yml
@@ -160,6 +161,7 @@ coverage:
     - test/**
     - scripts/**
     - .github/workflows/ai-doc-lint.yml
+    - .github/dependabot.yml
     - .github/workflows/quality-gate.yml
     - .github/workflows/publish.yml
     - .github/workflows/tag-release-from-merge.yml
@@ -180,6 +182,10 @@ freshness:
 
 routing:
   intents:
+    dependency-maintenance:
+      paths:
+        - .github/dependabot.yml
+        - docs/agents/dependency-maintenance.md
     local-docpact-gate:
       paths:
         - .githooks/pre-push
@@ -328,6 +334,7 @@ routing:
 
 docInventory:
   include:
+    - docs/agents/dependency-maintenance.md
     - docs/agents/exact-reference-intent-contract.md
     - docs/agents/runtime-distribution-contract.md
     - docs/agents/live-case-testing.md
@@ -780,3 +787,16 @@ rules:
       - path: docs/agents/pcr-snapshot-contract.md
         mode: review_or_update
     reason: Task PCR preparation and consumption must preserve compatibility, separate trust, immutable pins and offline core ownership.
+
+  - id: cli-dependency-maintenance
+    scope: repo
+    repo: cli
+    triggers:
+      - path: .github/dependabot.yml
+        kind: dependency-monitoring
+      - path: docs/agents/dependency-maintenance.md
+        kind: maintenance-guide
+    requiredDocs:
+      - path: docs/agents/dependency-maintenance.md
+        mode: review_or_update
+    reason: Dependency monitoring cadence, budgets and manual intake belong in the focused maintenance guide.
