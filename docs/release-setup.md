@@ -25,8 +25,8 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-17
-lastReviewedCommit: b4799e7dd93185bc3cec4958def12787e88aed2d
-lastReviewedNote: 'CLI #435: reviewed dev-only ip-address 10.7.4 security lock update and existing SDK 0.5.1 baseline; runtime, package version, canonical gates and release authorization are unchanged.'
+lastReviewedCommit: d4fb3806b82f73748ba16a67ecea5069b6821bc0
+lastReviewedNote: 'CLI #436: reviewed manual latest-stable Oxlint 1.88.0/tsgolint 7.0.2004 lock adoption; this is not seven-day bot cooldown qualification. Runtime, other pins, diagnostics, supply-chain policy and release authority are unchanged.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
