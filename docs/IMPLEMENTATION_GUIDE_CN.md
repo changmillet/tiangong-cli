@@ -1280,7 +1280,7 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 - release-prep PR 只修改 `package.json` 版本；依赖图不变时，唯一根 `pnpm-lock.yaml` 保持存在、frozen 且不变
 - 合并到 `main` 后，`tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
-- 所有 Node workflow 通过固定的 `pnpm/setup` v2.0.2 配置 Node 24.19.0，并以 frozen 根 lock 安装
+- 所有 Node workflow 通过固定的 `pnpm/setup` v3.1.1 配置 Node 24.19.0，并以 frozen 根 lock 安装
 - `publish.yml` 从该 tag 通过原生 pnpm OIDC/provenance 触发 npm Trusted Publishing
 - 例行发布不从本机发起；本机只做版本修改、质量门、未发布校验和 `pnpm --filter @tiangong-lca/cli --fail-if-no-match pack --dry-run`
 - tarball 必须只含 runtime files；不能携带 pnpm workspace/lock、TypeScript、Oxlint、测试或源码工具，consumer 不能依赖 pnpm 特性

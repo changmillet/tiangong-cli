@@ -211,7 +211,7 @@ pnpm build
 - PR 合并后，`.github/workflows/tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
 - `.github/workflows/publish.yml` 再从这个不可变 tag 通过 npm Trusted Publishing 发布
 
-正式发布不能从本机发起。本机只负责版本 bump、验证和 PR；合并到 upstream `main` 之后，由 GitHub Actions 使用固定的 `pnpm/setup` v2.0.2、原生 pnpm OIDC 与 provenance 创建 tag 并完成 npm 发布。本机 npm 登录状态或个人 npm 权限不属于 release 契约。
+正式发布不能从本机发起。本机只负责版本 bump、验证和 PR；合并到 upstream `main` 之后，由 GitHub Actions 使用固定的 `pnpm/setup` v3.1.1、原生 pnpm OIDC 与 provenance 创建 tag 并完成 npm 发布。本机 npm 登录状态或个人 npm 权限不属于 release 契约。
 
 值班发布步骤见 [docs/release-runbook.md](./docs/release-runbook.md)。
 

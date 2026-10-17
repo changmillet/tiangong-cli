@@ -74,7 +74,7 @@ const EXPECTED_AUTH_IDENTITY_RUNTIME_EXPORTS = Object.freeze([
 const PACKAGE_MANAGER = 'pnpm@11.24.0';
 const PACKAGE_MANAGER_VERSION = PACKAGE_MANAGER.slice('pnpm@'.length);
 const NODE_VERSION = '24.19.0';
-const PNPM_SETUP_ACTION = '84cb39b217b10273981911c288cd62326dc7c6d2';
+const PNPM_SETUP_ACTION = 'a0881977cd8ea73b1ed212236c99ca10dcc80cf4';
 
 const PACKAGE_LOCKFILE_NAMES = new Set([
   'bun.lock',
@@ -291,7 +291,7 @@ test('active automation uses pnpm commands and a current pnpm setup action', () 
   assert.deepEqual(
     setupActions.filter(({ version }) => version !== PNPM_SETUP_ACTION),
     [],
-    `pnpm/setup must use the reviewed immutable v2.0.2 revision:\n${formatJson(setupActions)}`,
+    `pnpm/setup must use the reviewed immutable v3.1.1 revision:\n${formatJson(setupActions)}`,
   );
 
   const launcherGuidanceFindings = [];
