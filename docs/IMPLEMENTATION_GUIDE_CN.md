@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-11
-lastReviewedCommit: a780355c2e348250d828bc13085c80f1dbc99a17
-lastReviewedNote: 'Reviewed PR #413 integration with canonical main a780355: explicit intended applications, evidence binding, aliases, embedded payloads and public proof remain intact; upstream owner-token reuse, CLI 0.1.28 and exact freight-work QA are retained. Maintainer compatibility acceptance and managed-consumer adoption remain separate.'
+lastReviewedAt: 2026-10-18
+lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
+lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1280,7 +1280,7 @@ CLI 现在额外有一条独立于质量门的 npm 发布链路：
 
 - release-prep PR 只修改 `package.json` 版本；依赖图不变时，唯一根 `pnpm-lock.yaml` 保持存在、frozen 且不变
 - 合并到 `main` 后，`tag-release-from-merge.yml` 自动创建 `cli-vX.Y.Z`
-- 所有 Node workflow 通过固定的 `pnpm/setup` v2.0.2 配置 Node 24.19.0，并以 frozen 根 lock 安装
+- 所有 Node workflow 通过固定的 `pnpm/setup` v3.1.1 配置 Node 24.19.0，并以 frozen 根 lock 安装
 - `publish.yml` 从该 tag 通过原生 pnpm OIDC/provenance 触发 npm Trusted Publishing
 - 例行发布不从本机发起；本机只做版本修改、质量门、未发布校验和 `pnpm --filter @tiangong-lca/cli --fail-if-no-match pack --dry-run`
 - tarball 必须只含 runtime files；不能携带 pnpm workspace/lock、TypeScript、Oxlint、测试或源码工具，consumer 不能依赖 pnpm 特性

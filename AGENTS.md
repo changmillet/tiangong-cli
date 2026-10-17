@@ -37,9 +37,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-17
-lastReviewedCommit: 238b97d1c5781142c6e03376c385f07ada805b18
-lastReviewedNote: 'CLI #437: reviewed manual latest-stable Supabase 2.118.0 family and injected old/new consumer proof; not bot cooldown qualification. Manifest minimum, runtime/auth/replay policy, unrelated pins and release authority are unchanged.'
+lastReviewedAt: 2026-10-18
+lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
+lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
 related:
   - .docpact/config.yaml
   - docs/agents/repo-validation.md
@@ -154,7 +154,7 @@ Route those tasks to:
 - The canonical minimum validation command is `pnpm lint`. Type-aware Oxlint is the only linter; the retired ESLint and TypeScript Compiler API lint paths must not return.
 - The authoritative full gate is `pnpm prepush:gate`; it includes `pnpm test:package`, the exact 100% coverage proof, and the coverage assertion. The local pre-push hook runs it after docpact for source pushes; only a complete, verified branch-deletion-only stdin stream skips both gates as documented in the validation guide.
 - Release tagging is guarded in `.github/workflows/tag-release-from-merge.yml` so only the upstream repository can execute the merge-tag flow. Its detector runs under exact Node 24.19.0; it calls the reusable four-platform `.github/workflows/quality-gate.yml` only for a CLI release, every job asserts exact runtime platform/architecture, and `cli-v<version>` tag creation depends on all four. `.github/workflows/publish.yml` publishes from that tag and also supports `workflow_dispatch` for existing-tag recovery/backfill.
-- CLI package releases must go through a version-bump PR merged to upstream `main`; routine publication must not originate from a local workstation. The release-prep PR updates `package.json`; the sole root `pnpm-lock.yaml` remains frozen and unchanged unless an explicitly reviewed dependency change requires pnpm regeneration. Issue #230's only graph exception is exact dev-only `sigstore@5.0.0`; published runtime dependencies stay unchanged. Merge creates `cli-v<version>`, and GitHub Actions uses pinned `pnpm/setup` v2.0.2 plus native pnpm OIDC/provenance publication through Trusted Publishing.
+- CLI package releases must go through a version-bump PR merged to upstream `main`; routine publication must not originate from a local workstation. The release-prep PR updates `package.json`; the sole root `pnpm-lock.yaml` remains frozen and unchanged unless an explicitly reviewed dependency change requires pnpm regeneration. Issue #230's only graph exception is exact dev-only `sigstore@5.0.0`; published runtime dependencies stay unchanged. Merge creates `cli-v<version>`, and GitHub Actions uses pinned `pnpm/setup` v3.1.1 plus native pnpm OIDC/provenance publication through Trusted Publishing.
 - Managed Node host context uses the explicit manifest protocol and one-use inherited IPC receiver. It retains the original trusted manifest and validates actual host/cache/cwd/executable state; task/env/ordinary argv values and cache receipts cannot replace its trust anchor. Host/application inputs are snapshotted before installation, cancellation ends new handshake admission, and leases remain until child/output closure. Product task/account authorization remains separate.
 - Coverage for `src/**/*.ts` is expected to stay at `100%` statements, branches, functions, and lines
 

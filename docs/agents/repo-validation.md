@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-17
-lastReviewedCommit: 238b97d1c5781142c6e03376c385f07ada805b18
-lastReviewedNote: 'CLI #437: reviewed manual latest-stable Supabase 2.118.0 family and injected old/new consumer proof; not bot cooldown qualification. Manifest minimum, runtime/auth/replay policy, unrelated pins and release authority are unchanged.'
+lastReviewedAt: 2026-10-18
+lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
+lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -147,7 +147,7 @@ Facts that matter:
 - `pnpm peers:check` is part of that gate; direct dependencies are latest stable for Node 24 and `@types/node` remains on latest 24.x
 - the local `pre-push` hook runs docpact first and then `pnpm prepush:gate`
 - `.github/workflows/quality-gate.yml` automatically validates main PRs touching dependency/configuration/Actions inputs and supports manual exact-head reproduction and reusable invocation; its four exact matrix entries fail closed on actual `process.platform`/`process.arch`, and a detected CLI version change must pass them before tag creation
-- every Node workflow bootstraps through pinned `pnpm/setup` v2.0.2 with Node 24.19.0 and installs with `pnpm install --frozen-lockfile`; publishing uses native pnpm OIDC/provenance
+- every Node workflow bootstraps through pinned `pnpm/setup` v3.1.1 with Node 24.19.0 and installs with `pnpm install --frozen-lockfile`; publishing uses native pnpm OIDC/provenance
 - `pnpm release:verify-published -- --version <x.y.z> --expected-git-head <release-merge-sha>` is the post-publish cryptographic Sigstore/registry-signature/tarball/public-consumer gate; it fixes pnpm 11.24.0, replaces user/global package-manager configs, scans every production dependency branch, and passes no TianGong or registry credential into the clean consumer
 - `process save-draft`, `lifecyclemodel save-draft`, ordered `dataset save-draft --execution-contract`, dataset governance commands such as curation queue build/next/verify, BuildPlan gates, publish schema/verification gates, and the newer process maintenance commands are expected to preserve `100%` coverage even when they add schema-validation, rewrite, recovery, or fallback branches
 - dataset save-draft scheduler dogfood must leave the complete dependency prefix serial and keep `executeAction` as the only owner of durable attempt-before-dispatch, exact readback, UNKNOWN/no-replay, row reports, and report bytes; a generic batch failure may stop new suffix claims but cannot synthesize a command outcome
