@@ -1,8 +1,8 @@
 version: 1
 layout: repo
 lastReviewedAt: "2026-10-17"
-lastReviewedCommit: "d4fb3806b82f73748ba16a67ecea5069b6821bc0"
-lastReviewedNote: 'CLI #436: reviewed manual latest-stable Oxlint 1.88.0/tsgolint 7.0.2004 lock adoption; this is not seven-day bot cooldown qualification. Runtime, other pins, diagnostics, supply-chain policy and release authority are unchanged.'
+lastReviewedCommit: "238b97d1c5781142c6e03376c385f07ada805b18"
+lastReviewedNote: 'CLI #437: reviewed manual latest-stable Supabase 2.118.0 family and injected old/new consumer proof; not bot cooldown qualification. Manifest minimum, runtime/auth/replay policy, unrelated pins and release authority are unchanged.'
 
 catalog:
   repos:
