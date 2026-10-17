@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-17
-lastReviewedCommit: 238b97d1c5781142c6e03376c385f07ada805b18
-lastReviewedNote: 'CLI #437: reviewed manual latest-stable Supabase 2.118.0 family and injected old/new consumer proof; not bot cooldown qualification. Manifest minimum, runtime/auth/replay policy, unrelated pins and release authority are unchanged.'
+lastReviewedAt: 2026-10-18
+lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
+lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
