@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-16
-lastReviewedCommit: 87374a90ebbcdb486204358c0bdf99218fd5f1c0
-lastReviewedNote: 'CLI #427: reviewed automatic exact-head dependency/configuration/Actions PR qualification and focused monitoring against base 87374a9; existing package, source, 100% coverage and release authorization contracts are retained.'
+lastReviewedAt: 2026-10-17
+lastReviewedCommit: b4799e7dd93185bc3cec4958def12787e88aed2d
+lastReviewedNote: 'CLI #435: reviewed dev-only ip-address 10.7.4 security lock update and existing SDK 0.5.1 baseline; runtime, package version, canonical gates and release authorization are unchanged.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
