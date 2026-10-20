@@ -11,8 +11,8 @@
   "files": [
     {
       "path": "README.md",
-      "sha256": "ba38817a96a107a886c3e4419cacb6dd0986f289c7d688f003adbabdf91e8a65",
-      "bytes": 6251
+      "sha256": "fc54725cbb19cd196b7ab4bb94c85fdad804df68d8d4628eaa725a7bb3cc6197",
+      "bytes": 9477
     },
     {
       "path": "independent-spec-tests.txt",
@@ -33,6 +33,26 @@
       "path": "prepush.txt",
       "sha256": "71da83b6e50dfc480fb0c34461588e75085b219892a1efa306bd930bafa61308",
       "bytes": 200954
+    },
+    {
+      "path": "review-follow-up/full-gate.txt",
+      "sha256": "d35b46af769037c4a6e0baef575395efab231e471662a5d8b8ca5f36136a5214",
+      "bytes": 202610
+    },
+    {
+      "path": "review-follow-up/native-regressions.json",
+      "sha256": "3e49e77b22937be901e0e96b27f370d8657cf9d8987ec37fc05f1a8d521c3fdb",
+      "bytes": 3388
+    },
+    {
+      "path": "review-follow-up/original-workflow-summary.json",
+      "sha256": "4ce4ca19ce2e3e9cad058a6e4ab15792a7fba66264e558c88d148742194ba91a",
+      "bytes": 1872
     }
-  ]
+  ],
+  "current_review_follow_up": {
+    "source_revision": "7a81eb1eed13176cd8197cca00fdd8695f627439",
+    "runtime_content_sha256": "c9be1d28e7230c2da26a2194fdd1577e2988b2168fd6ab6766e2b8678f53550e",
+    "historical_files": "Existing d053 result files remain historical; review-follow-up contains separately bound current evidence."
+  }
 }
