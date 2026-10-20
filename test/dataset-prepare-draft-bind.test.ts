@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import {
   mkdtempSync,
+  existsSync,
   readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -170,6 +173,175 @@ function fixture(table: PrepareTable = 'processes', observed = false) {
 function json(file: string): PrepareJson {
   return readJsonArtifact(file) as PrepareJson;
 }
+
+function utf8Fixture() {
+  const f = fixture();
+  const text = 'café 🔬 \uFFFD';
+  (f.proposal.processDataSet as PrepareJson).scientificExample = { text };
+  (f.predecessor['common:shortDescription'] as PrepareJson)['#text'] = text;
+  f.report.synthetic_utf8_probe = text;
+  f.freeze();
+  const context = {
+    candidate_sha256: f.options.proposalSha256,
+    flow_documents: allocationFixture().context.flow_documents,
+  };
+  const root = context.flow_documents[0]!.flowDataSet as PrepareJson;
+  const info = (root.flowInformation as PrepareJson).dataSetInformation as PrepareJson;
+  ((info.name as PrepareJson).treatmentStandardsRoutes as PrepareJson)['#text'] = text;
+  f.options.semanticContextFile = path.join(f.dir, 'context.json');
+  f.options.semanticContextSha256 = sha256Json(context);
+  writeFileSync(f.options.semanticContextFile, JSON.stringify(context));
+  return {
+    ...f,
+    text,
+    context,
+    inputs: [
+      { role: 'scientific_proposal', file: f.options.inputPath },
+      { role: 'preparation_report', file: f.options.preparationReportPath },
+      { role: 'reviewed_predecessor', file: f.options.predecessorFile! },
+      { role: 'native_semantic_context', file: f.options.semanticContextFile },
+    ],
+  };
+}
+
+function malformedReplacement(bytes: Buffer, replacement: number): Buffer {
+  const marker = Buffer.from('\uFFFD');
+  const index = bytes.indexOf(marker);
+  assert.notEqual(index, -1);
+  return Buffer.concat([
+    bytes.subarray(0, index),
+    Buffer.from([replacement]),
+    bytes.subarray(index + marker.length),
+  ]);
+}
+
+test('binding rejects malformed UTF-8 before parsing every captured input role', async () => {
+  for (let index = 0; index < 4; index++) {
+    for (const byte of [0x80, 0x81]) {
+      const f = utf8Fixture();
+      try {
+        const file = f.inputs[index]!.file;
+        const original = readFileSync(file);
+        const invalid = malformedReplacement(original, byte);
+        assert.equal(invalid.toString('utf8'), original.toString('utf8'));
+        writeFileSync(file, invalid);
+        let patchCalls = 0;
+        const applyPatchImpl: typeof runDatasetPatchApply = async (options) => {
+          patchCalls++;
+          // These distinct illegal bytes previously decoded to the same U+FFFD.
+          writeFileSync(file, malformedReplacement(original, byte === 0x80 ? 0x81 : 0x80));
+          return runDatasetPatchApply(options);
+        };
+        await assert.rejects(runDatasetBindPreparedProposal({ ...f.options, applyPatchImpl }), {
+          code: 'DATASET_PROPOSAL_BINDING_UTF8_INVALID',
+        });
+        assert.equal(patchCalls, 0);
+        assert.equal(existsSync(f.options.outDir), false);
+        assert.deepEqual(readFileSync(file), invalid);
+      } finally {
+        f.close();
+      }
+    }
+  }
+});
+
+test('binding hashes exact valid UTF-8 bytes and preserves multibyte text and intentional U+FFFD', async () => {
+  const f = utf8Fixture();
+  try {
+    const originals = new Map(f.inputs.map(({ file }) => [file, readFileSync(file)]));
+    const binding = await runDatasetBindPreparedProposal(f.options);
+    assert.equal(binding.inputs.length, 4);
+    for (const { role, file } of f.inputs) {
+      const entry = binding.inputs.find((input) => input.role === role)!;
+      assert.equal(entry.path, file);
+      assert.equal(
+        entry.bytes_sha256,
+        createHash('sha256').update(originals.get(file)!).digest('hex'),
+      );
+      assert.deepEqual(readFileSync(file), originals.get(file));
+    }
+    const desired = json(binding.files.desired);
+    const payload = desired.jsonOrdered as PrepareJson;
+    assert.deepEqual((payload.processDataSet as PrepareJson).scientificExample, { text: f.text });
+    assert.deepEqual(pub(payload)[PRECEDING], f.predecessor);
+    assert.deepEqual(
+      (desired.semantic_context as PrepareJson).flow_documents,
+      f.context.flow_documents,
+    );
+    assert.equal(binding.save_ready, false);
+  } finally {
+    f.close();
+  }
+});
+
+test('binding rechecks raw bytes for every role both before patching and after awaited application', async () => {
+  const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
+  for (let index = 0; index < 4; index++) {
+    for (const phase of ['before_patch', 'after_patch']) {
+      const f = utf8Fixture();
+      const originalRead = mutableFs.readFileSync;
+      try {
+        const file = f.inputs[index]!.file;
+        const original = readFileSync(file);
+        const changed = malformedReplacement(original, 0x80);
+        assert.equal(changed.toString('utf8'), original.toString('utf8'));
+        let altered = false;
+        if (phase === 'before_patch') {
+          mutableFs.readFileSync = ((selected, options) => {
+            const captured = originalRead(selected, options);
+            if (!altered && selected === file) {
+              altered = true;
+              writeFileSync(file, changed);
+            }
+            return captured;
+          }) as typeof mutableFs.readFileSync;
+          syncBuiltinESMExports();
+        }
+        let patchCalls = 0;
+        const applyPatchImpl: typeof runDatasetPatchApply = async (options) => {
+          patchCalls++;
+          const result = await runDatasetPatchApply(options);
+          altered = true;
+          writeFileSync(file, changed);
+          return result;
+        };
+        await assert.rejects(runDatasetBindPreparedProposal({ ...f.options, applyPatchImpl }), {
+          code: 'DATASET_PROPOSAL_BINDING_INPUT_CHANGED',
+        });
+        assert.equal(altered, true);
+        assert.equal(patchCalls, phase === 'before_patch' ? 0 : 1);
+        assert.deepEqual(readFileSync(file), changed);
+        assert.deepEqual(readdirSync(f.options.outDir), []);
+      } finally {
+        mutableFs.readFileSync = originalRead;
+        syncBuiltinESMExports();
+        f.close();
+      }
+    }
+  }
+});
+
+test('binding retains JSON parsing and leading BOM rejection for every input role', async () => {
+  for (let index = 0; index < 4; index++) {
+    for (const kind of ['bom', 'invalid_json']) {
+      const f = utf8Fixture();
+      try {
+        const file = f.inputs[index]!.file;
+        const original = readFileSync(file);
+        writeFileSync(
+          file,
+          kind === 'bom'
+            ? Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), original])
+            : Buffer.from('{'),
+        );
+        await assert.rejects(runDatasetBindPreparedProposal(f.options), SyntaxError);
+        assert.equal(existsSync(f.options.outDir), false);
+      } finally {
+        f.close();
+      }
+    }
+  }
+});
 
 // These are entirely synthetic scientific payloads; no private proposal or review hash is a fixture.
 test('offline binding changes only three reviewed identity fields and preserves the proposal and source', async () => {

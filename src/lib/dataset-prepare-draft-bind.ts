@@ -13,6 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import { TextDecoder } from 'node:util';
 import { ProcessSchema } from '@tiangong-lca/tidas-sdk';
 import { withBatchRunLock } from '../batch.js';
 import { readJsonLinesArtifact, writeJsonArtifact } from './artifacts.js';
@@ -107,7 +108,7 @@ export type DatasetPreparedProposalBinding = {
 type CapturedInput = {
   role: string;
   path: string;
-  text: string;
+  bytes: Buffer;
   value: unknown;
   bytesSha256: string;
 };
@@ -118,6 +119,7 @@ const globalReferenceSchema =
     'common:referenceToPrecedingDataSetVersion'
   ].unwrap();
 const HASH = /^[a-f0-9]{64}$/u;
+const STRICT_UTF8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const IDENTITY_FIELDS = [
   'common:dataSetVersion',
   'common:permanentDataSetURI',
@@ -132,17 +134,26 @@ function capture(role: string, file: string): CapturedInput {
   if (!file.trim())
     prepareFail(`Binding ${role} path is required.`, 'DATASET_PROPOSAL_BINDING_INVALID');
   const resolved = path.resolve(file);
-  const text = readFileSync(resolved, 'utf8');
+  const bytes = readFileSync(resolved);
+  let text: string;
+  try {
+    text = STRICT_UTF8.decode(bytes);
+  } catch {
+    prepareFail(
+      `Binding ${role} must be valid UTF-8 JSON.`,
+      'DATASET_PROPOSAL_BINDING_UTF8_INVALID',
+    );
+  }
   return {
     role,
     path: resolved,
-    text,
+    bytes,
     value: JSON.parse(text),
-    bytesSha256: createHash('sha256').update(text).digest('hex'),
+    bytesSha256: createHash('sha256').update(bytes).digest('hex'),
   };
 }
 function assertInputsCurrent(inputs: CapturedInput[]): void {
-  if (inputs.some((input) => readFileSync(input.path, 'utf8') !== input.text))
+  if (inputs.some((input) => !readFileSync(input.path).equals(input.bytes)))
     prepareFail(
       'Binding inputs changed during offline application.',
       'DATASET_PROPOSAL_BINDING_INPUT_CHANGED',

@@ -38,7 +38,7 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: be392b6c8af4081becc4d84a3c1541e7524c5716
+lastReviewedCommit: 6986319877ff874f86884b5b619b437d614c65da
 lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 related:
   - .docpact/config.yaml

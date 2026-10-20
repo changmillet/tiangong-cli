@@ -32,7 +32,7 @@ checkPaths:
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: 87cecdfd255b88c922d7e986a51f71329e6ff382
+lastReviewedCommit: 6986319877ff874f86884b5b619b437d614c65da
 lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 ---
 
@@ -521,7 +521,7 @@ Every preparation report keeps `save_ready: false`: a source clone is not a revi
 tiangong-lca dataset prepare-draft bind --input ./reviewed-proposal.json --proposal-sha256 <reviewed-canonical-sha256> --source-sha256 <public-source-canonical-sha256> --preparation-report ./draft-admission/report.json --predecessor-file ./reviewed-predecessor.json --predecessor-sha256 <reviewed-reference-canonical-sha256> --out-dir ./bound-proposal --json
 ```
 
-The proposal and source digests bind the canonical JSON payloads: recursive object-key sorting, preserved array order, compact ECMAScript JSON serialization, then SHA-256 over UTF-8. Input-file byte digests are recorded separately. The predecessor is one reviewed SDK-valid typed reference (a single object or one-reference array) to the exact source UUID/version and canonical source URI, including its supplied short description. If the proposal already carries that correct reference, the file/hash pair can be omitted. Otherwise binding fails with `PREDECESSOR_BINDING_REQUIRED`; it generates no predecessor text and changes no verifier semantics.
+The proposal and source digests bind the canonical JSON payloads: recursive object-key sorting, preserved array order, compact ECMAScript JSON serialization, then SHA-256 over UTF-8. Input-file byte digests hash the original raw buffers separately; malformed UTF-8 is rejected before JSON parsing. The predecessor is one reviewed SDK-valid typed reference (a single object or one-reference array) to the exact source UUID/version and canonical source URI, including its supplied short description. If the proposal already carries that correct reference, the file/hash pair can be omitted. Otherwise binding fails with `PREDECESSOR_BINDING_REQUIRED`; it generates no predecessor text and changes no verifier semantics.
 
 The existing `dataset patch apply` owner applies only `common:dataSetVersion`, `common:permanentDataSetURI` and `common:referenceToPrecedingDataSetVersion`. The dataset UUID and every other scientific value remain identical to the hash-bound proposal. The private, create-only bundle contains `desired.json`, `identity-patch.json`, `evidence.json` and `binding.json`, all with `save_ready: false`. Its manifest binds proposal/source/predecessor, preparation report/request/receipt, exact target before-image and desired payload hashes, and equal proposal/desired scientific-projection hashes. It rechecks input bytes after application and never performs authentication or network work.
 
