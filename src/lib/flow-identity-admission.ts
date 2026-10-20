@@ -16,8 +16,10 @@ import { runFlowIdentityPreflight } from './identity-preflight.js';
 import { loadCliPackageVersion } from './package-version.js';
 import {
   flowIdentityCoverageSnapshots,
+  flowIdentityPayloadType,
   parseFlowIdentityCoverage,
   type FlowIdentityCoverage,
+  type FlowIdentityFlowType,
 } from './flow-identity-admission-remote.js';
 
 type JsonObject = Record<string, unknown>;
@@ -334,19 +336,17 @@ function validity(value: unknown) {
   );
   return { reviewed_at_utc: reviewed, expires_at_utc: expires };
 }
-function payloadTarget(row: JsonObject): { target: Target; payload: JsonObject } {
+function payloadTarget(row: JsonObject): {
+  target: Target;
+  payload: JsonObject;
+  flowType: FlowIdentityFlowType;
+} {
   const payload = unwrapDatasetPayload(row);
   const identity = datasetIdentity({}, payload, 'flow');
   const rowIdentity = datasetIdentity(row, payload, 'flow');
   same(identity, rowIdentity, 'Flow row identity does not match its complete payload.');
-  const root = payload.flowDataSet;
-  requireFact(
-    isRecord(root) &&
-      isRecord(root.modellingAndValidation) &&
-      isRecord(root.modellingAndValidation.LCIMethod) &&
-      root.modellingAndValidation.LCIMethod.typeOfDataSet === 'Product flow',
-    'Admission needs a complete Product Flow payload.',
-  );
+  const flowType = flowIdentityPayloadType(payload);
+  requireFact(flowType !== null, 'Admission needs a complete Product or Waste Flow payload.');
   return {
     target: {
       id: uuid(identity.id),
@@ -354,6 +354,7 @@ function payloadTarget(row: JsonObject): { target: Target; payload: JsonObject }
       payload_sha256: sha256Json(payload),
     },
     payload,
+    flowType,
   };
 }
 
@@ -444,6 +445,14 @@ async function validateEvidence(
     coverage.project_ref,
     input.projectRef,
     'Coverage project differs from the execution project.',
+  );
+  requireFact(
+    coverage.queries.some((query) =>
+      query.kind === 'flow_family'
+        ? query.type_of_dataset === preparedTarget.flowType
+        : query.filter.flowType === preparedTarget.flowType,
+    ),
+    'Coverage needs a query for the target Flow type.',
   );
   const snapshots = flowIdentityCoverageSnapshots(coverage);
   const snapshotTargets = snapshots.map((entry) => ({
@@ -631,12 +640,20 @@ async function validateEvidence(
   let reuseIdentity: { id: string; version: string } | null = null;
   if (review.decision === 'reuse') {
     const chosen = object(review.reuse_identity, ['id', 'version'], 'Reuse identity');
-    reuseIdentity = { id: uuid(chosen.id), version: version(chosen.version) };
+    const selectedIdentity = { id: uuid(chosen.id), version: version(chosen.version) };
+    reuseIdentity = selectedIdentity;
     requireFact(
       reuses.length === 1 &&
         reuses[0]?.id === reuseIdentity.id &&
         reuses[0]?.version === reuseIdentity.version,
       'Reuse requires exactly one reviewed existing identity.',
+    );
+    const selectedCandidate = snapshots.find(
+      (entry) => entry.id === selectedIdentity.id && entry.version === selectedIdentity.version,
+    )!;
+    requireFact(
+      flowIdentityPayloadType(selectedCandidate.payload) === preparedTarget.flowType,
+      'Reuse requires the same Flow type as the complete target.',
     );
   } else
     requireFact(

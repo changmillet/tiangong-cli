@@ -18,6 +18,7 @@ import {
 } from './supabase-data-api-contract.js';
 
 type JsonObject = Record<string, unknown>;
+export type FlowIdentityFlowType = 'Product flow' | 'Waste flow';
 export type FlowIdentitySnapshot = {
   id: string;
   version: string;
@@ -29,13 +30,13 @@ export type FlowIdentityFamilyQuery = {
   kind: 'flow_family';
   visibility: 'public' | 'owner_draft';
   ids: string[];
-  type_of_dataset: 'Product flow';
+  type_of_dataset: FlowIdentityFlowType;
   snapshots: FlowIdentitySnapshot[];
 };
 export type FlowIdentityHybridQuery = {
   kind: 'flow_hybrid_search';
   query: string;
-  filter: { flowType: 'Product flow'; asInput: false };
+  filter: { flowType: FlowIdentityFlowType; asInput: false };
   data_source: 'tg';
   match_count: number;
   page_size: number;
@@ -144,17 +145,20 @@ function key(row: Pick<FlowIdentitySnapshot, 'id' | 'version'>): string {
   return `${row.id}@${row.version}`;
 }
 
-function productType(payload: JsonObject): unknown {
-  const dataset = payload.flowDataSet;
+/** Reads only the supported exact nested Flow type; never changes the supplied body. */
+export function flowIdentityPayloadType(payload: unknown): FlowIdentityFlowType | null {
+  const dataset = object(payload) ? payload.flowDataSet : null;
   const modelling = object(dataset) ? dataset.modellingAndValidation : null;
   const method = object(modelling) ? modelling.LCIMethod : null;
-  return object(method) ? method.typeOfDataSet : null;
+  const type = object(method) ? method.typeOfDataSet : null;
+  return type === 'Product flow' || type === 'Waste flow' ? type : null;
 }
 
 function snapshot(
   value: unknown,
   actorUserId: string,
   visibility: 'public' | 'owner_draft',
+  flowType: FlowIdentityFlowType,
 ): FlowIdentitySnapshot {
   const row = exact(value, ['id', 'version', 'user_id', 'state_code', 'payload'], 'snapshot');
   if (
@@ -168,10 +172,10 @@ function snapshot(
       ? Number(row.state_code) < 100 || Number(row.state_code) >= 200
       : row.state_code !== 0 || row.user_id !== actorUserId) ||
     !object(row.payload) ||
-    productType(row.payload) !== 'Product flow'
+    flowIdentityPayloadType(row.payload) !== flowType
   ) {
     fail(
-      'Identity coverage snapshot violated the exact identity, Product Flow, or visibility fence.',
+      'Identity coverage snapshot violated the exact identity, query Flow type, or visibility fence.',
     );
   }
   return {
@@ -187,11 +191,12 @@ function snapshots(
   value: unknown,
   actorUserId: string,
   visibility: 'public' | 'owner_draft',
+  flowType: FlowIdentityFlowType,
 ): FlowIdentitySnapshot[] {
   if (!Array.isArray(value) || value.length > MAX_ROWS)
     fail('Identity coverage snapshot count exceeds the supported bound.');
   const result = value
-    .map((entry) => snapshot(entry, actorUserId, visibility))
+    .map((entry) => snapshot(entry, actorUserId, visibility, flowType))
     .sort((left, right) => key(left).localeCompare(key(right), 'en'));
   if (new Set(result.map(key)).size !== result.length)
     fail('Identity coverage contains duplicate candidate identities.');
@@ -241,7 +246,7 @@ export function parseFlowIdentityCoverage(
       );
       if (
         (query.visibility !== 'public' && query.visibility !== 'owner_draft') ||
-        query.type_of_dataset !== 'Product flow' ||
+        (query.type_of_dataset !== 'Product flow' && query.type_of_dataset !== 'Waste flow') ||
         !Array.isArray(query.ids) ||
         query.ids.length < 1 ||
         query.ids.length > 50 ||
@@ -250,14 +255,14 @@ export function parseFlowIdentityCoverage(
       )
         fail('Identity coverage family query has unsupported filters.');
       const ids = (query.ids as string[]).toSorted();
-      const rows = snapshots(query.snapshots, actorUserId, query.visibility);
+      const rows = snapshots(query.snapshots, actorUserId, query.visibility, query.type_of_dataset);
       if (rows.some((row) => !ids.includes(row.id)))
         fail('Identity coverage snapshot is outside its requested families.');
       return {
         kind: 'flow_family',
         visibility: query.visibility,
         ids,
-        type_of_dataset: 'Product flow',
+        type_of_dataset: query.type_of_dataset,
         snapshots: rows,
       };
     }
@@ -283,11 +288,13 @@ export function parseFlowIdentityCoverage(
     if (
       query.kind !== 'flow_hybrid_search' ||
       query.data_source !== 'tg' ||
-      filter.flowType !== 'Product flow' ||
+      (filter.flowType !== 'Product flow' && filter.flowType !== 'Waste flow') ||
       filter.asInput !== false
     )
-      fail('Identity coverage hybrid query supports only the public Product Flow filter profile.');
-    const rows = snapshots(query.snapshots, actorUserId, 'public');
+      fail(
+        'Identity coverage hybrid query supports only the public Product/Waste Flow filter profile.',
+      );
+    const rows = snapshots(query.snapshots, actorUserId, 'public', filter.flowType);
     if (rows.some((row) => row.state_code !== 100))
       fail('The public hybrid source is restricted to state 100.');
     const pageSize = number(query.page_size, 1, 100, true);
@@ -300,7 +307,7 @@ export function parseFlowIdentityCoverage(
     return {
       kind: 'flow_hybrid_search',
       query: text(query.query, 1_800, 'query'),
-      filter: { flowType: 'Product flow', asInput: false },
+      filter: { flowType: filter.flowType, asInput: false },
       data_source: 'tg',
       // This profile uses the raw latest route, whose Edge contract caps this budget at 100.
       match_count: number(query.match_count, 1, 100, true),
@@ -368,6 +375,7 @@ async function responseJson(
 function fencedUrl(
   context: DatasetMaintenanceRemoteContext,
   visibility: 'public' | 'owner_draft',
+  flowType: FlowIdentityFlowType,
 ): URL {
   const url = new URL(buildDataApiUrl(context.rest_base_url, { kind: 'relation', name: 'flows' }));
   url.searchParams.set('select', 'id,version,user_id,state_code,json');
@@ -377,7 +385,7 @@ function fencedUrl(
     url.searchParams.set('user_id', `eq.${context.account.user_id}`);
     url.searchParams.set('state_code', 'eq.0');
   }
-  url.searchParams.set(TYPE_PATH, 'eq.Product flow');
+  url.searchParams.set(TYPE_PATH, `eq.${flowType}`);
   return url;
 }
 
@@ -385,6 +393,7 @@ async function readRows(
   context: DatasetMaintenanceRemoteContext,
   url: URL,
   visibility: 'public' | 'owner_draft',
+  flowType: FlowIdentityFlowType,
 ): Promise<{ rows: FlowIdentitySnapshot[]; range: string | null }> {
   const headers = applyDataApiProfileHeaders(
     {
@@ -410,6 +419,7 @@ async function readRows(
       },
       context.account.user_id,
       visibility,
+      flowType,
     );
   });
   return { rows, range: response.range };
@@ -424,12 +434,12 @@ async function familyRows(
     requestedPageSize: PAGE_SIZE,
     rowIdentity: key,
     fetchPage: async (offset) => {
-      const url = fencedUrl(context, query.visibility);
+      const url = fencedUrl(context, query.visibility, query.type_of_dataset);
       url.searchParams.set('id', `in.(${query.ids.join(',')})`);
       url.searchParams.set('order', 'id.asc,version.asc');
       url.searchParams.set('limit', String(PAGE_SIZE));
       url.searchParams.set('offset', String(offset));
-      const page = await readRows(context, url, query.visibility);
+      const page = await readRows(context, url, query.visibility, query.type_of_dataset);
       if (
         parseExactContentRange(page.range).total > MAX_ROWS ||
         page.rows.some((row) => !query.ids.includes(row.id))
@@ -508,11 +518,11 @@ async function hybridRows(
     fail('Identity coverage search membership changed.', 'FLOW_IDENTITY_COVERAGE_DRIFT');
   const snapshots: FlowIdentitySnapshot[] = [];
   for (const identity of identities) {
-    const exactUrl = fencedUrl(context, 'public');
+    const exactUrl = fencedUrl(context, 'public', query.filter.flowType);
     exactUrl.searchParams.set('id', `eq.${identity.id}`);
     exactUrl.searchParams.set('version', `eq.${identity.version}`);
     exactUrl.searchParams.set('limit', '2');
-    const current = await readRows(context, exactUrl, 'public');
+    const current = await readRows(context, exactUrl, 'public', query.filter.flowType);
     const range = parseExactContentRange(current.range);
     if (
       current.rows.length !== 1 ||

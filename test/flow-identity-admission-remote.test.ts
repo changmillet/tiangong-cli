@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { sha256Json } from '../src/lib/canonical-json-hash.js';
 import { CliError } from '../src/lib/errors.js';
 import type { FetchLike, ResponseLike } from '../src/lib/http.js';
 import {
   parseFlowIdentityCoverage,
+  flowIdentityPayloadType,
   flowIdentityCoverageSnapshots,
   verifyFlowIdentityCoverage,
   type FlowIdentityCoverage,
+  type FlowIdentityFlowType,
   type FlowIdentitySnapshot,
 } from '../src/lib/flow-identity-admission-remote.js';
 import {
@@ -21,7 +24,11 @@ const id = '33333333-3333-4333-8333-333333333333';
 const other = '44444444-4444-4444-8444-444444444444';
 const env = buildSupabaseTestEnv({ TIANGONG_LCA_AUTH_MODE: 'access-token' });
 
-function row(version = '01.00.000', state = 100): FlowIdentitySnapshot {
+function row(
+  version = '01.00.000',
+  state = 100,
+  flowType: FlowIdentityFlowType = 'Product flow',
+): FlowIdentitySnapshot {
   return {
     id,
     version,
@@ -29,14 +36,17 @@ function row(version = '01.00.000', state = 100): FlowIdentitySnapshot {
     state_code: state,
     payload: {
       flowDataSet: {
-        modellingAndValidation: { LCIMethod: { typeOfDataSet: 'Product flow' } },
+        modellingAndValidation: { LCIMethod: { typeOfDataSet: flowType } },
         notes: { amount: 0.5, present: true, missing: null, multilingual: ['one', 'two'] },
       },
     },
   };
 }
 
-function family(rows = [row()]): FlowIdentityCoverage {
+function family(
+  rows = [row()],
+  flowType: FlowIdentityFlowType = 'Product flow',
+): FlowIdentityCoverage {
   return {
     schema_version: 'flow-identity-coverage.v1',
     scope: 'bounded_visible_search',
@@ -48,21 +58,24 @@ function family(rows = [row()]): FlowIdentityCoverage {
         kind: 'flow_family',
         visibility: rows[0]?.state_code === 0 ? 'owner_draft' : 'public',
         ids: [id],
-        type_of_dataset: 'Product flow',
+        type_of_dataset: flowType,
         snapshots: rows,
       },
     ],
   };
 }
 
-function hybrid(rows = [row()]): FlowIdentityCoverage {
+function hybrid(
+  rows = [row()],
+  flowType: FlowIdentityFlowType = 'Product flow',
+): FlowIdentityCoverage {
   return {
     ...family(),
     queries: [
       {
         kind: 'flow_hybrid_search',
         query: 'synthetic product query',
-        filter: { flowType: 'Product flow', asInput: false },
+        filter: { flowType, asInput: false },
         data_source: 'tg',
         match_count: 20,
         page_size: 10,
@@ -634,4 +647,193 @@ test('hybrid exact hydration rejects disappearing, duplicate, foreign-state or c
     ),
     CliError,
   );
+});
+
+test('supported body type reads only the exact nested Product/Waste type without mutation', () => {
+  for (const flowType of ['Product flow', 'Waste flow'] as const) {
+    const payload = row('01.00.000', 100, flowType).payload;
+    const before = structuredClone(payload);
+    assert.equal(flowIdentityPayloadType(payload), flowType);
+    assert.deepEqual(payload, before);
+  }
+  for (const payload of [
+    null,
+    [],
+    'Product flow',
+    {},
+    { flowDataSet: [] },
+    { flowDataSet: { modellingAndValidation: null } },
+    { flowDataSet: { modellingAndValidation: { LCIMethod: [] } } },
+    ...['Elementary flow', 'Other flow', 'Waste Flow', null].map((typeOfDataSet) => ({
+      flowDataSet: { modellingAndValidation: { LCIMethod: { typeOfDataSet } } },
+    })),
+  ])
+    assert.equal(flowIdentityPayloadType(payload), null);
+});
+
+test('typed queries retain the original Product serialization and independent mixed candidates', () => {
+  const original = family();
+  const parsed = parseFlowIdentityCoverage(original, actor);
+  assert.deepEqual(parsed, original);
+  assert.equal(
+    sha256Json(parsed),
+    '90bcbd986972aa16421c43ff55ec2c12a1b6dce4a217c8d4f0b4acb3f8577e07',
+  );
+  const waste = family([row('01.00.000', 100, 'Waste flow')], 'Waste flow');
+  waste.queries[0]!.snapshots[0]!.id = other;
+  assert(waste.queries[0]!.kind === 'flow_family');
+  waste.queries[0]!.ids = [other];
+  const mixed = parseFlowIdentityCoverage(
+    { ...original, queries: [...original.queries, ...waste.queries] },
+    actor,
+  );
+  assert.equal(flowIdentityCoverageSnapshots(mixed).length, 2);
+  for (const build of [family, hybrid]) {
+    assert.equal(
+      parseFlowIdentityCoverage(build([], 'Waste flow'), actor).queries[0]!.snapshots.length,
+      0,
+    );
+  }
+});
+
+test('typed family and hybrid mismatches and Elementary profiles stop before authentication', async () => {
+  let requests = 0;
+  for (const build of [family, hybrid]) {
+    for (const [queryType, bodyType] of [
+      ['Product flow', 'Waste flow'],
+      ['Waste flow', 'Product flow'],
+    ] as const) {
+      await assert.rejects(
+        verify(build([row('01.00.000', 100, bodyType)], queryType), async () => {
+          requests += 1;
+          throw new Error('forbidden');
+        }),
+        CliError,
+      );
+    }
+    const elementary = build();
+    const query = elementary.queries[0]!;
+    if (query.kind === 'flow_family') Object.assign(query, { type_of_dataset: 'Elementary flow' });
+    else Object.assign(query.filter, { flowType: 'Elementary flow' });
+    await assert.rejects(
+      verify(elementary, async () => {
+        requests += 1;
+        throw new Error('forbidden');
+      }),
+      CliError,
+    );
+  }
+  assert.equal(requests, 0);
+});
+
+test('Waste family reads retain public/owner fences and the exact Waste filter on every page', async () => {
+  for (const state of [0, 100, 199]) {
+    const coverage = family(
+      [row('01.00.000', state, 'Waste flow'), row('01.00.001', state, 'Waste flow')],
+      'Waste flow',
+    );
+    let reads = 0;
+    const result = await verify(
+      coverage,
+      transport((url) => {
+        reads += 1;
+        assert.equal(
+          url.searchParams.get(
+            'json->flowDataSet->modellingAndValidation->LCIMethod->>typeOfDataSet',
+          ),
+          'eq.Waste flow',
+        );
+        if (state === 0) {
+          assert.equal(url.searchParams.get('user_id'), `eq.${actor}`);
+          assert.equal(url.searchParams.get('state_code'), 'eq.0');
+        } else assert.equal(url.searchParams.get('and'), '(state_code.gte.100,state_code.lt.200)');
+        const offset = Number(url.searchParams.get('offset'));
+        return response([wire(coverage.queries[0]!.snapshots[offset]!)], `${offset}-${offset}/2`);
+      }),
+    );
+    assert.equal(reads, 2);
+    assert.equal(result.candidate_count, 2);
+  }
+});
+
+test('Waste hybrid sends the exact typed filter and repeats it during public body hydration', async () => {
+  const coverage = hybrid([row('01.00.000', 100, 'Waste flow')], 'Waste flow');
+  let reads = 0;
+  await verify(
+    coverage,
+    transport((url, init) => {
+      if (url.pathname.endsWith('/flow_hybrid_search')) {
+        assert.deepEqual(JSON.parse(String(init?.body)).filter, {
+          flowType: 'Waste flow',
+          asInput: false,
+        });
+        return response({ data: [{ id, version: '01.00.000', total_count: 1 }] });
+      }
+      reads += 1;
+      assert.equal(
+        url.searchParams.get(
+          'json->flowDataSet->modellingAndValidation->LCIMethod->>typeOfDataSet',
+        ),
+        'eq.Waste flow',
+      );
+      assert.equal(url.searchParams.get('and'), '(state_code.gte.100,state_code.lt.200)');
+      assert.equal(url.searchParams.get('id'), `eq.${id}`);
+      assert.equal(url.searchParams.get('version'), 'eq.01.00.000');
+      return response([wire(coverage.queries[0]!.snapshots[0]!)]);
+    }),
+  );
+  assert.equal(reads, 1);
+});
+
+test('typed family and hydrated hybrid responses reject servers ignoring body type filters', async () => {
+  for (const [queryType, bodyType] of [
+    ['Product flow', 'Waste flow'],
+    ['Waste flow', 'Product flow'],
+  ] as const) {
+    for (const build of [family, hybrid]) {
+      const coverage = build([row('01.00.000', 100, queryType)], queryType);
+      await assert.rejects(
+        verify(
+          coverage,
+          transport((url) =>
+            url.pathname.endsWith('/flow_hybrid_search')
+              ? response({ data: [{ id, version: '01.00.000', total_count: 1 }] })
+              : response([wire(row('01.00.000', 100, bodyType))]),
+          ),
+        ),
+        CliError,
+      );
+    }
+  }
+});
+
+test('Elementary candidate bodies reject locally and from typed family/hybrid responses', async () => {
+  for (const build of [family, hybrid]) {
+    for (const flowType of ['Product flow', 'Waste flow'] as const) {
+      const elementary = row('01.00.000', 100, flowType);
+      elementary.payload.flowDataSet = {
+        modellingAndValidation: { LCIMethod: { typeOfDataSet: 'Elementary flow' } },
+      };
+      let requests = 0;
+      await assert.rejects(
+        verify(build([elementary], flowType), async () => {
+          requests += 1;
+          throw new Error('forbidden');
+        }),
+        CliError,
+      );
+      assert.equal(requests, 0);
+      await assert.rejects(
+        verify(
+          build([row('01.00.000', 100, flowType)], flowType),
+          transport((url) =>
+            url.pathname.endsWith('/flow_hybrid_search')
+              ? response({ data: [{ id, version: '01.00.000', total_count: 1 }] })
+              : response([wire(elementary)]),
+          ),
+        ),
+        CliError,
+      );
+    }
+  }
 });

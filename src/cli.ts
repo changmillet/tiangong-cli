@@ -9697,7 +9697,7 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
   tiangong-lca flow identity-admission prepare --input <file> --preflight <file>
     --review <file> --coverage <file> --execution-contract <file> --out-dir <fresh-dir> [--json]
 
-Prepare a content-bound agent review for one new Product Flow owner-draft insert.
+Prepare a content-bound agent review for one new Product or Waste Flow owner-draft insert.
 All inputs are local, complete and hash-bound. This command does not authenticate a reviewer,
 grant permissions, search the whole catalogue or write remote data. A reuse decision emits
 no insert contract. The nominated host must independently pin the returned raw contract SHA.

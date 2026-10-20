@@ -37,7 +37,7 @@ function ref(type: string, id: string) {
     'common:shortDescription': loc(id),
   };
 }
-function flow(id: string, route: string) {
+function flow(id: string, route: string, flowType: 'Product flow' | 'Waste flow') {
   return {
     flowDataSet: {
       '@xmlns': 'http://lca.jrc.it/ILCD/Flow',
@@ -51,7 +51,7 @@ function flow(id: string, route: string) {
         dataSetInformation: {
           'common:UUID': id,
           name: {
-            baseName: loc('Soil service'),
+            baseName: loc(flowType === 'Waste flow' ? 'Waste soil' : 'Soil service'),
             treatmentStandardsRoutes: loc(route),
             mixAndLocationTypes: loc('market'),
           },
@@ -60,9 +60,15 @@ function flow(id: string, route: string) {
               'common:class': [
                 {
                   '@level': '0',
-                  '@classId': '0',
-                  '#text': 'Agriculture, forestry and fishery products',
+                  '@classId': flowType === 'Waste flow' ? '3' : '0',
+                  '#text':
+                    flowType === 'Waste flow'
+                      ? 'Other transportable goods, except metal products, machinery and equipment'
+                      : 'Agriculture, forestry and fishery products',
                 },
+                ...(flowType === 'Waste flow'
+                  ? [{ '@level': '1', '@classId': '39', '#text': 'Wastes or scraps' }]
+                  : []),
               ],
             },
           },
@@ -70,7 +76,7 @@ function flow(id: string, route: string) {
         quantitativeReference: { referenceToReferenceFlowProperty: '0' },
       },
       modellingAndValidation: {
-        LCIMethod: { typeOfDataSet: 'Product flow' },
+        LCIMethod: { typeOfDataSet: flowType },
         complianceDeclarations: {
           compliance: {
             'common:referenceToComplianceSystem': ref(
@@ -111,7 +117,11 @@ function flow(id: string, route: string) {
   };
 }
 
-export async function identitySaveFixture(t: TestContext) {
+export async function identitySaveFixture(
+  t: TestContext,
+  options: { flowType?: 'Product flow' | 'Waste flow' } = {},
+) {
+  const flowType = options.flowType ?? 'Product flow';
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-identity-save-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const files = Object.fromEntries(
@@ -130,8 +140,8 @@ export async function identitySaveFixture(t: TestContext) {
   const reviewed = new Date();
   const expires = new Date(reviewed.getTime() + 24 * 60 * 60 * 1000);
   const account = { user_id: actor, email: 'owner@example.com', state_code: 0 };
-  const target = flow(targetId, 'Risk management');
-  const candidate = flow(candidateId, 'Complete cleanup');
+  const target = flow(targetId, 'Risk management', flowType);
+  const candidate = flow(candidateId, 'Complete cleanup', flowType);
   const candidateRow = {
     id: candidateId,
     version,
@@ -209,7 +219,7 @@ export async function identitySaveFixture(t: TestContext) {
         url.searchParams.get(
           'json->flowDataSet->modellingAndValidation->LCIMethod->>typeOfDataSet',
         ),
-        'eq.Product flow',
+        `eq.${flowType}`,
       );
       return response([{ ...candidateRow, json: controls.candidate }], '0-0/1');
     }
@@ -230,7 +240,7 @@ export async function identitySaveFixture(t: TestContext) {
   );
   assert.equal(original.exitCode, 1, original.stderr || original.stdout);
   const preflight = JSON.parse(original.stdout) as Obj;
-  assert.equal(preflight.status, 'needs_review');
+  assert.equal(preflight.status, 'needs_review', original.stdout);
   write(files.preflight!, preflight);
   reviewed.setTime(Date.now());
   expires.setTime(reviewed.getTime() + 24 * 60 * 60 * 1000);
@@ -251,7 +261,7 @@ export async function identitySaveFixture(t: TestContext) {
         kind: 'flow_family',
         visibility: 'public',
         ids: [candidateId],
-        type_of_dataset: 'Product flow',
+        type_of_dataset: flowType,
         snapshots: [
           { id: candidateId, version, user_id: null, state_code: 100, payload: candidate },
         ],

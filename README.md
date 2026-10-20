@@ -407,7 +407,7 @@ Exact process exchange fingerprints with matching identity context block duplica
 
 ## Scoped Flow Identity Admission
 
-For an explicitly reviewed new Product Flow, `flow identity-admission prepare` binds the complete saved preflight, actual Agent review, standing authorization evidence and bounded search coverage to one owner-draft insert. Its v2 execution contract requires the original host-pinned raw contract SHA through `dataset save-draft --execution-contract-sha256`; fresh content, coverage, owner and expiry checks precede the single guarded write. Consumed attempts recover by exact readback without replay, including after review expiry.
+For an explicitly reviewed new Product or Waste Flow, `flow identity-admission prepare` binds the complete saved preflight, actual Agent review, standing authorization evidence and bounded search coverage to one owner-draft insert. Its v2 execution contract requires the original host-pinned raw contract SHA through `dataset save-draft --execution-contract-sha256`; fresh content, coverage, owner and expiry checks precede the single guarded write. Consumed attempts recover by exact readback without replay, including after review expiry.
 
 See [the strict inputs, supported searches and trust boundaries](docs/agents/flow-identity-admission.md). Preparation is offline and grants no permission. Existing preflight, v1/no-contract saves and Process paths keep their behavior; this opt-in profile does not enforce a global identity gate.
 

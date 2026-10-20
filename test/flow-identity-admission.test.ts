@@ -323,6 +323,48 @@ test('Agent review prepares an immutable v2 contract, rechecks every file and ke
   }
 });
 
+for (const mode of ['retain', 'missing_target_query', 'reuse_other_type']) {
+  test(`typed coverage preserves original cross-type evidence: ${mode}`, async (t) => {
+    const f = await fixture(t);
+    const candidate = f.input.candidates[0]!.json_ordered;
+    candidate.flowDataSet.modellingAndValidation.LCIMethod.typeOfDataSet = 'Waste flow';
+    f.coverage.queries[0]!.type_of_dataset = 'Waste flow';
+    if (mode !== 'missing_target_query') {
+      f.coverage.queries.push({
+        kind: 'flow_family',
+        visibility: 'public',
+        ids: [targetId],
+        type_of_dataset: 'Product flow',
+        snapshots: [],
+      });
+    }
+    write(f.files.input!, f.input);
+    write(f.files.preflight!, await runFlowIdentityPreflight({ inputPath: f.files.input!, now }));
+    write(f.files.coverage!, f.coverage);
+    f.review.preflight.input = fact(f.files.input!);
+    f.review.preflight.report = fact(f.files.preflight!);
+    f.review.coverage.file = fact(f.files.coverage!);
+    f.review.candidate_decisions[0]!.payload_sha256 = sha256Json(candidate);
+    if (mode === 'reuse_other_type') {
+      f.review.decision = 'reuse';
+      f.review.reuse_identity = { id: candidateId, version };
+      f.review.candidate_decisions[0]!.decision = 'reuse';
+      await assert.rejects(f.prepare, /same Flow type/u);
+    } else if (mode === 'missing_target_query') {
+      await assert.rejects(f.prepare, /query for the target Flow type/u);
+    } else {
+      const result = await f.prepare();
+      assert.equal(result.status, 'prepared_for_recheck');
+      const { loaded } = await f.load(result);
+      assert.equal(loaded.coverage.queries.length, 2);
+      assert.equal(
+        sha256Json(loaded.coverage.queries[0]!.snapshots[0]!.payload),
+        sha256Json(candidate),
+      );
+    }
+  });
+}
+
 test('reuse produces only an exact existing identity and no executable insert receipt', async (t) => {
   const f = await fixture(t);
   f.review.decision = 'reuse';

@@ -417,7 +417,7 @@ node ./bin/tiangong-lca.js admin embedding-run --input ./jobs.json --dry-run
 
 ## process / review / publish / validation 边界
 
-显式的新 Product Flow 身份裁决由 `flow identity-admission prepare` 和 save v2 profile 消费，字段、支持的检索及恢复规则见[专门合同](docs/agents/flow-identity-admission.md)。调用宿主独立固定合同原字节 hash，真实 Agent 审查与既有授权来源分别绑定；工具不授予人工审核或发布权限。旧入口不变，候选运行时资格与原数据流程验收分别保留。
+显式的新 Product/Waste Flow 身份裁决由 `flow identity-admission prepare` 和 save v2 profile 消费，字段、支持的检索及恢复规则见[专门合同](docs/agents/flow-identity-admission.md)。调用宿主独立固定合同原字节 hash，真实 Agent 审查与既有授权来源分别绑定；工具不授予人工审核或发布权限。旧入口不变，候选运行时资格与原数据流程验收分别保留。
 
 Process allocation/reference 校验统一消费精确固定的已发布 SDK 0.5.1。离线 wrapper 的 `semantic_context.flow_documents` 必须提供完整的精确 Flow 文档；报告区分 passed、failed、unresolved 并绑定候选、依赖与规则 profile hash。Process 写路径在 dispatch 前通过当前 actor 读取精确 UUID/version，再核对本地证据的字节 hash；不完整或 stale 的语义证据不能使用既有 annual-volume draft-repair 例外。`build-resulting-process` 按 source instance/exchange lineage 守恒 quantity-weighted allocation，并将 candidate export 与 `qualification.publish_ready` 分开。源码版本仍为 0.1.25；CLI 0.1.26 发布与 Foundry managed binding 是后续验收。
 

@@ -40,6 +40,248 @@ function events(root: string): Obj[] {
 const familyReads = (f: Awaited<ReturnType<typeof identitySaveFixture>>) =>
   f.calls.filter(({ url }) => url.searchParams.get('id')?.startsWith('in.')).length;
 
+test('public Waste identity prepares offline, dry-runs, inserts once and recovers consumed readback', async (t) => {
+  const f = await identitySaveFixture(t, { flowType: 'Waste flow' });
+  assert.equal(f.calls.length, 0, 'Waste preparation uses local artifacts only.');
+  const dryRun = await f.invoke();
+  assert.equal(dryRun.exitCode, 0, dryRun.stderr || dryRun.stdout);
+  assert.equal(report(dryRun).counts.prepared, 1);
+  assert.equal(report(dryRun).counts.attempts_consumed, 0);
+  assert.equal(f.writes.length, 0);
+  assert.equal(events(path.join(f.root, 'state')).length, 0);
+  const first = await f.invoke(true);
+  assert.equal(first.exitCode, 0, first.stderr || first.stdout);
+  const value = report(first);
+  assert.equal(value.counts.executed, 1);
+  assert.equal(value.counts.attempts_consumed, 1);
+  assert.equal(f.writes.length, 1);
+  assert.deepEqual(f.writes[0]!.jsonOrdered, f.target);
+  const ledger = events(value.files.execution_ledger);
+  assert.equal(ledger.length, 2);
+  assertLedgerChain(ledger);
+  assert.deepEqual(ledger[0]!.identity_admission, value.rows[0]!.identity_admission);
+  assert.deepEqual(ledger[1]!.identity_observation, value.rows[0]!.identity_observation);
+  const reads = familyReads(f);
+  const recovered = await f.invoke(true);
+  assert.equal(recovered.exitCode, 0, recovered.stderr || recovered.stdout);
+  assert.equal(report(recovered).counts.executed, 1);
+  assert.equal(f.writes.length, 1);
+  assert.equal(familyReads(f), reads, 'Consumed Waste admission cannot renew candidate reads.');
+  assert.deepEqual(events(value.files.execution_ledger), ledger);
+  assert.deepEqual(
+    report(recovered).rows[0]!.identity_observation,
+    value.rows[0]!.identity_observation,
+  );
+});
+
+test('public Waste hybrid preparation and save retain typed search and exact hydration fences', async (t) => {
+  const f = await identitySaveFixture(t, { flowType: 'Waste flow' });
+  const coverage = JSON.parse(fs.readFileSync(f.files.coverage!, 'utf8')) as Obj;
+  const original = (coverage.queries as Obj[])[0]!;
+  const snapshots = original.snapshots as Obj[];
+  const snapshot = snapshots[0]!;
+  coverage.queries = [
+    {
+      kind: 'flow_hybrid_search',
+      query: 'Synthetic Waste soil identity',
+      filter: { flowType: 'Waste flow', asInput: false },
+      data_source: 'tg',
+      match_count: 10,
+      page_size: 10,
+      match_threshold: 0,
+      lexical_weight: 0.5,
+      semantic_weight: 0.5,
+      rrf_k: 60,
+      total_count: 1,
+      snapshots,
+    },
+  ];
+  write(f.files.coverage!, coverage);
+  f.review.coverage.file = fact(f.files.coverage!);
+  write(f.files.review!, f.review);
+  const prepared = await f.prepare();
+  assert.equal(prepared.exitCode, 0, prepared.stderr || prepared.stdout);
+  Object.assign(f.preparation, JSON.parse(prepared.stdout));
+  const response = (value: unknown, range: string | null = null) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (name: string) => (name === 'content-range' ? range : null) },
+    text: async () => JSON.stringify(value),
+  });
+  let searches = 0,
+    hydrations = 0;
+  f.controls.responseOverride = (url) => {
+    if (url.pathname.endsWith('/flow_hybrid_search')) {
+      searches += 1;
+      return response({ data: [{ id: snapshot.id, version: snapshot.version, total_count: 1 }] });
+    }
+    if (
+      url.pathname.endsWith('/flows') &&
+      url.searchParams.get('id') === `eq.${snapshot.id as string}`
+    ) {
+      hydrations += 1;
+      assert.equal(
+        url.searchParams.get(
+          'json->flowDataSet->modellingAndValidation->LCIMethod->>typeOfDataSet',
+        ),
+        'eq.Waste flow',
+      );
+      assert.match(url.searchParams.get('and')!, /state_code.gte.100,state_code.lt.200/u);
+      return response(
+        [
+          {
+            id: snapshot.id,
+            version: snapshot.version,
+            state_code: 100,
+            user_id: null,
+            json: f.candidate,
+          },
+        ],
+        '0-0/1',
+      );
+    }
+    return undefined;
+  };
+  f.deps.fetchImpl = async (url, init) => {
+    if (String(url).includes('/flow_hybrid_search')) {
+      assert.deepEqual(JSON.parse(String(init?.body)).filter, {
+        flowType: 'Waste flow',
+        asInput: false,
+      });
+    }
+    return f.fetchImpl(url, init);
+  };
+  const result = await f.invoke(true);
+  assert.equal(result.exitCode, 0, result.stderr || result.stdout);
+  assert.equal(report(result).counts.executed, 1);
+  assert.equal(f.writes.length, 1);
+  assert.ok(searches >= 2);
+  assert.equal(hydrations, searches);
+});
+
+for (const behavior of ['lost_before_write', 'lost_after_write'] as const) {
+  test(`Waste ${behavior} consumes one attempt and recovers after expiry without replay`, async (t) => {
+    const f = await identitySaveFixture(t, { flowType: 'Waste flow' });
+    f.controls.behavior = behavior;
+    const first = await f.invoke(true);
+    const value = report(first);
+    const outcome = behavior === 'lost_after_write' ? 'executed' : 'unknown';
+    assert.equal(first.exitCode, behavior === 'lost_after_write' ? 0 : 1);
+    assert.equal(value.counts[outcome], 1);
+    assert.equal(value.counts.attempts_consumed, 1);
+    assert.equal(f.writes.length, 1);
+    const ledger = events(value.files.execution_ledger);
+    assertLedgerChain(ledger);
+    const reads = familyReads(f);
+    const recovered = await runDatasetSaveDraft({
+      inputPath: f.files.rows!,
+      type: 'flow',
+      outDir: path.join(f.root, 'expired-waste-recovery'),
+      commit: true,
+      executionContractPath: f.preparation.files.execution_contract,
+      executionContractSha256: f.preparation.execution_contract_sha256,
+      env: f.env,
+      fetchImpl: f.fetchImpl,
+      identityAdmissionClock: () => new Date(f.expires.getTime() + 1),
+    });
+    assert.equal(recovered.counts[outcome], 1);
+    assert.equal(recovered.counts.attempts_consumed, 1);
+    assert.equal(f.writes.length, 1);
+    assert.equal(familyReads(f), reads);
+    assert.deepEqual(events(value.files.execution_ledger), ledger);
+    assert.deepEqual(recovered.rows[0]!.identity_observation, value.rows[0]!.identity_observation);
+  });
+}
+
+for (const flowType of ['Product flow', 'Waste flow'] as const) {
+  for (const kind of ['flow_family', 'flow_hybrid_search'] as const) {
+    test(`public prepare rejects ${flowType} ${kind} snapshot/filter mismatch before auth or artifacts`, async (t) => {
+      const f = await identitySaveFixture(t, { flowType });
+      const coverage = JSON.parse(fs.readFileSync(f.files.coverage!, 'utf8')) as Obj;
+      const original = (coverage.queries as Obj[])[0]!;
+      const oppositeType = flowType === 'Waste flow' ? 'Product flow' : 'Waste flow';
+      coverage.queries = [
+        kind === 'flow_family'
+          ? { ...original, type_of_dataset: oppositeType }
+          : {
+              kind,
+              query: 'Synthetic soil identity',
+              filter: { flowType: oppositeType, asInput: false },
+              data_source: 'tg',
+              match_count: 10,
+              page_size: 10,
+              match_threshold: 0,
+              lexical_weight: 0.5,
+              semantic_weight: 0.5,
+              rrf_k: 60,
+              total_count: 1,
+              snapshots: original.snapshots,
+            },
+      ];
+      write(f.files.coverage!, coverage);
+      f.review.coverage.file = fact(f.files.coverage!);
+      write(f.files.review!, f.review);
+      const before = fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-'));
+      const result = await f.prepare();
+      assert.equal(result.exitCode, 2, result.stdout);
+      assert.match(result.stderr, /FLOW_IDENTITY_COVERAGE_INVALID/u);
+      assert.match(result.stderr, /snapshot violated the exact identity, query Flow type/u);
+      assert.deepEqual(
+        fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-')),
+        before,
+      );
+      assert.equal(f.calls.length, 0);
+      assert.equal(f.writes.length, 0);
+      assert.equal(events(path.join(f.root, 'state')).length, 0);
+    });
+  }
+}
+
+for (const flowType of ['Product flow', 'Waste flow'] as const) {
+  test(`public prepare requires coverage of its ${flowType} target before auth or artifacts`, async (t) => {
+    const f = await identitySaveFixture(t, { flowType });
+    const coverage = JSON.parse(fs.readFileSync(f.files.coverage!, 'utf8')) as Obj;
+    const query = (coverage.queries as Obj[])[0]!;
+    query.type_of_dataset = flowType === 'Waste flow' ? 'Product flow' : 'Waste flow';
+    query.snapshots = [];
+    write(f.files.coverage!, coverage);
+    f.review.coverage.file = fact(f.files.coverage!);
+    write(f.files.review!, f.review);
+    const before = fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-'));
+    const result = await f.prepare();
+    assert.equal(result.exitCode, 2, result.stdout);
+    assert.match(result.stderr, /Coverage needs a query for the target Flow type/u);
+    assert.deepEqual(
+      fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-')),
+      before,
+    );
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.writes.length, 0);
+    assert.equal(events(path.join(f.root, 'state')).length, 0);
+  });
+}
+
+for (const subject of ['target', 'candidate'] as const) {
+  test(`public prepare excludes an Elementary ${subject} before auth or artifacts`, async (t) => {
+    const f = await identitySaveFixture(t);
+    const payload = subject === 'target' ? f.target : f.candidate;
+    (payload.flowDataSet.modellingAndValidation.LCIMethod as Obj).typeOfDataSet = 'Elementary flow';
+    write(f.files.input!, f.input);
+    const before = fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-'));
+    const result = await f.prepare();
+    assert.equal(result.exitCode, 2, result.stdout);
+    assert.match(result.stderr, /FLOW_IDENTITY_ADMISSION_INVALID/u);
+    assert.match(result.stderr, /complete Product or Waste Flow payload/u);
+    assert.deepEqual(
+      fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-')),
+      before,
+    );
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.writes.length, 0);
+    assert.equal(events(path.join(f.root, 'state')).length, 0);
+  });
+}
+
 test('public identity prepare binds actual Agent raw evidence and dry-run produces no attempt', async (t) => {
   const f = await identitySaveFixture(t);
   assert.equal(f.calls.length, 0, 'Preparation uses local artifacts only.');

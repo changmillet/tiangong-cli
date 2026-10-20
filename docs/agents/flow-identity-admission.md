@@ -9,7 +9,7 @@ authoritative: true
 owner: cli
 language: en
 whenToUse:
-  - when preparing or consuming an explicitly reviewed new Product Flow identity
+  - when preparing or consuming an explicitly reviewed new Product or Waste Flow identity
 whenToUpdate:
   - when the scoped review, coverage, execution or recovery contract changes
 checkPaths:
@@ -28,7 +28,7 @@ related:
 
 # Scoped Flow identity admission
 
-`flow identity-admission prepare` binds an actual Agent review, its standing authorization evidence, a complete saved preflight and bounded candidate observations to one new Product Flow owner-draft insert. The selected `dataset save-draft` v2 profile consumes that evidence with an independently pinned contract hash and fresh checks before dispatch. It uses the existing authenticated writer and action ledger.
+`flow identity-admission prepare` binds an actual Agent review, its standing authorization evidence, a complete saved preflight and bounded candidate observations to one new Product or Waste Flow owner-draft insert. The selected `dataset save-draft` v2 profile consumes that evidence with an independently pinned contract hash and fresh checks before dispatch. It uses the existing authenticated writer and action ledger.
 
 This is an explicit partial implementation of [CLI #374](https://github.com/tiangong-lca/cli/issues/374). Existing preflight, build-plan, v1/no-contract save and independent Process save behavior remain unchanged. It does not enforce identity policy across all clients, authenticate human reviewers, establish global catalogue uniqueness, or grant account/publication permissions.
 
@@ -122,18 +122,22 @@ The synthetic fixture and public tests in `test/helpers/flow-identity-admission-
 }
 ```
 
-The example uses placeholders. Each query carries `snapshots`, an array of complete `{id, version, user_id, state_code, payload}` objects. `payload` is the original complete Product Flow body. Matching exact identities across queries must have identical owner/state/body; duplicates within a query are rejected. The total union is bounded to 1,000 candidates.
+The example uses placeholders. Each query carries `snapshots`, an array of complete `{id, version, user_id, state_code, payload}` objects. `payload` is the original complete Product or Waste Flow body. Matching exact identities across queries must have identical owner/state/body; duplicates within a query are rejected. The total union is bounded to 1,000 candidates.
+
+Every snapshot must match its own query's exact type, and fresh responses must satisfy the same type fence. At least one query must match the complete target's type; an empty result is still a bounded observation. Additional typed queries can retain original comparison candidates of the other supported type. Original candidates still require a complete-body decision and cannot be silently omitted or marked `not_applicable`. A reuse verdict can select only the target's same type. Elementary targets, queries and native comparison snapshots remain excluded.
+
+Either supported adapter can provide target-type coverage; a hybrid search is not newly mandatory for Waste. The actual Agent review must justify bounded coverage sufficiency and adopt its limitations. The existing complete-body hashes already bind type, so Product receipts, coverage serialization, v2 action bindings and consumed-operation recovery retain their original formats. An older Product-only runtime rejects Waste preparation; use a separately qualified candidate without replacing an earlier consumed operation's runtime or evidence.
 
 Two adapters are supported:
 
 | Kind | Exact query fields in addition to `kind` and `snapshots` |
 | --- | --- |
-| `flow_family` | `visibility: "public" | "owner_draft"`, `ids: string[]`(1–50 unique UUIDs),`type_of_dataset: "Product flow"` |
-| `flow_hybrid_search` | `query`, `filter: {flowType: "Product flow", asInput: false}`, `data_source: "tg"`, `match_count`, `page_size`, `match_threshold`, `lexical_weight`, `semantic_weight`, `rrf_k`, `total_count: number | null` |
+| `flow_family` | `visibility` (`"public"` or `"owner_draft"`), `ids: string[]` (1–50 unique UUIDs), `type_of_dataset` (`"Product flow"` or `"Waste flow"`) |
+| `flow_hybrid_search` | `query`, `filter` with exact `flowType` (`"Product flow"` or `"Waste flow"`) and `asInput: false`, `data_source: "tg"`, `match_count`, `page_size`, `match_threshold`, `lexical_weight`, `semantic_weight`, `rrf_k`, `total_count` (number or null) |
 
-Family scans send exact IDs and Product Flow filters before reading, plus public `state_code >= 100 AND < 200`, or current owner `state_code=0`. The existing exact-count paginator verifies ordered membership and every complete page; response caps cannot silently skip rows.
+Family scans send exact IDs and the query's exact Product/Waste type filter before reading, plus public `state_code >= 100 AND < 200`, or current owner `state_code=0`. The existing exact-count paginator verifies ordered membership and every complete page; response caps cannot silently skip rows.
 
-The supported hybrid source is the existing public `tg` raw latest route, which searches state 100. All query parameters are explicit and bound: `match_count` is 1–100, `page_size` 1–100, threshold and weights 0–1 with positive combined weight, and `rrf_k` 1–1,000. Values 101–200 fail locally before authentication or search; the matched-version route's separate 200-candidate contract is not selected by this profile. `match_count` is a candidate budget, not the final result limit: the latest implementation uses `max(match_count, page_size)` to size its candidate branches, while `page_size` limits the output page. Only its original first-page bounded results are accepted. Known total counts that imply unhandled pagination are rejected; unknown totals remain explicitly unknown. Do not claim a bounded search exhausts the catalogue. The `my` hybrid source and unknown filters/options are unsupported, rather than being sent and assumed effective.
+The supported hybrid source is the existing public `tg` raw latest route, which searches state 100. Its exact `flowType` is Product or Waste; `asInput: false` leaves the existing Emissions exclusion inactive and is not a direction selector. Each exact-body hydration repeats that query's type and public visibility fence; a server that returns another type is rejected. All query parameters are explicit and bound: `match_count` is 1–100, `page_size` 1–100, threshold and weights 0–1 with positive combined weight, and `rrf_k` 1–1,000. Values 101–200 fail locally before authentication or search; the matched-version route's separate 200-candidate contract is not selected by this profile. `match_count` is a candidate budget, not the final result limit: the latest implementation uses `max(match_count, page_size)` to size its candidate branches, while `page_size` limits the output page. Only its original first-page bounded results are accepted. Known total counts that imply unhandled pagination are rejected; unknown totals remain explicitly unknown. Do not claim a bounded search exhausts the catalogue. The `my` hybrid source and unknown filters/options are unsupported, rather than being sent and assumed effective.
 
 Hybrid membership is compared by exact identity, independent of ranking/score. Every result is hydrated through a publicly fenced exact body read with exact-count proof. Missing, duplicate, newly matching, changed-body, owner/state/version or hidden results invalidate the receipt. Family checks can see new versions only within the selected family IDs; no adapter promises global uniqueness or transaction-level catalogue snapshot isolation.
 
@@ -159,7 +163,7 @@ Prepare emits `dataset-save-draft-execution-contract.v2`. It keeps the template'
 }
 ```
 
-This is an excerpt, not a complete contract. V2 uses strict required keys and cannot silently drop admission fields like the legacy v1 parser. Only one independent Product Flow insert is supported. Existing exact-reference intent can be selected separately and must also pass.
+This is an excerpt, not a complete contract. V2 uses strict required keys and cannot silently drop admission fields like the legacy v1 parser. Only one independent Product or Waste Flow insert is supported. Existing exact-reference intent can be selected separately and must also pass.
 
 The v2 action binding includes static action fields, profile-selected receipt and the externally fixed raw contract hash. Actual current observation time does not enter the action identity. A passed fresh check records a separate `identity_observation` with observed time, normalized coverage hash, query/candidate counts and bounded scope. The row report and original attempt/outcome retain that observation together with the static `identity_admission` summary. The summary's coverage hash binds raw coverage-file bytes; the observation's coverage hash binds the parsed normalized coverage, a deliberately separate hash domain.
 
@@ -177,6 +181,6 @@ Lost responses are resolved only by exact current owner/state/body readback of t
 
 ## Required proof
 
-Run the focused admission suites through the actual public parser and real SDK, then the canonical `pnpm prepush:gate` and Docpact gate. Cover malformed contracts, full-content and scope drift, unsupported queries, legacy behavior, expiry during awaited checks, pre-dispatch zero mutation, concurrent/nested invocation, ledger integrity, error redaction, lost responses and expired consumed recovery.
+Run the focused admission suites through the actual public parser and real SDK, then the canonical `pnpm prepush:gate` and Docpact gate. Cover both SDK-valid Product and Waste targets; matching family/hybrid filters, wrong-type snapshots/responses, missing target-type coverage, retained cross-type originals and same-type-only reuse; Elementary rejection; malformed contracts, full-content and scope drift, unsupported queries, legacy behavior, expiry during awaited checks, pre-dispatch zero mutation, concurrent/nested invocation, ledger integrity, error redaction, lost responses and expired consumed recovery.
 
 Packed-candidate qualification records the exact runtime descriptor, dependencies, source and artifact hashes separately from publication. The original independent DATA verifier must select that exact candidate through its real entry and verify the unchanged task inputs and native save/readback. Synthetic transport tests and local review cannot substitute for that evidence.
