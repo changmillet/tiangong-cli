@@ -798,7 +798,283 @@ test('public executeCli uses fresh identity and real authenticated GET adapters 
   ) as Awaited<ReturnType<typeof runDatasetRemoteVerify>>;
   assert.equal(report.status, 'passed_remote_verification');
   assert.equal(urls.filter((url) => url.pathname === '/auth/v1/user').length, 3);
-  assert.equal(urls.filter((url) => url.searchParams.get('state_code') === 'eq.0').length, 2);
+  const exactBodies = urls.filter(
+    (url) =>
+      url.searchParams.has('version') && url.searchParams.get('select')?.includes('json_ordered'),
+  );
+  assert.equal(exactBodies.length, 2);
+  for (const url of exactBodies) {
+    assert.equal(url.searchParams.get('version'), `eq.${selectedVersion}`);
+    assert.equal(url.searchParams.get('user_id'), `eq.${actor}`);
+    assert.equal(url.searchParams.get('state_code'), 'eq.0');
+  }
+  assert.equal(urls.filter((url) => url.searchParams.get('state_code') === 'eq.0').length, 4);
   assert.equal(urls.filter((url) => url.searchParams.has('and')).length, 2);
   assert.ok(!JSON.stringify(report).includes('root-test-token'));
+});
+
+test('root payload adapter requires one actor draft defensively and records the constrained source URL', async () => {
+  const runtime = {
+    apiBaseUrl: `https://${project}.supabase.co`,
+    publishableKey: 'public-key',
+    getAccessToken: async () => 'root-test-token',
+  };
+  const draft = remoteRow(selectedVersion, 0);
+  for (const rows of [
+    [],
+    [draft, draft],
+    [{ ...draft, user_id: owner }],
+    [{ ...draft, state_code: 20 }],
+    [draft],
+  ]) {
+    let calls = 0;
+    const result = await __testInternals.lookupRemoteDatasetPayload({
+      runtime,
+      timeoutMs: 1000,
+      request: { table: 'processes', id: processId, version: selectedVersion },
+      ownerDraftUserId: actor,
+      requireUnique: true,
+      fetchImpl: async (input, init) => {
+        calls++;
+        const url = new URL(String(input));
+        assert.equal(init?.method, 'GET');
+        assert.equal(init?.body, undefined);
+        assert.equal(url.searchParams.get('id'), `eq.${processId}`);
+        assert.equal(url.searchParams.get('version'), `eq.${selectedVersion}`);
+        assert.equal(url.searchParams.get('user_id'), `eq.${actor}`);
+        assert.equal(url.searchParams.get('state_code'), 'eq.0');
+        return jsonResponse(rows);
+      },
+    });
+    assert.equal(calls, 1);
+    if (rows.length !== 1 || rows[0] !== draft) {
+      assert.equal(result, null);
+    } else {
+      assert.deepEqual(result?.payload, draft.json_ordered);
+      const source = new URL(result!.source_url!);
+      assert.equal(source.searchParams.get('user_id'), `eq.${actor}`);
+      assert.equal(source.searchParams.get('state_code'), 'eq.0');
+    }
+  }
+  const ordinary = await __testInternals.lookupRemoteDatasetPayload({
+    runtime,
+    timeoutMs: 1000,
+    request: { table: 'processes', id: processId, version: selectedVersion },
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      assert.equal(url.searchParams.has('user_id'), false);
+      assert.equal(url.searchParams.has('state_code'), false);
+      return jsonResponse([{ ...draft, user_id: owner, state_code: 20 }]);
+    },
+  });
+  assert.equal(ordinary?.user_id, owner);
+  assert.equal(ordinary?.state_code, 20);
+});
+
+test('public optional root readbacks always request the bound actor draft and block conflicting requirements', async (t) => {
+  const cases = [
+    { flags: ['--compare-root-payload'], statuses: ['payload_mismatch'] },
+    { flags: ['--target-user-id', actor], statuses: [] },
+    { flags: ['--state-code', '0'], statuses: [] },
+    {
+      flags: ['--compare-root-payload', '--target-user-id', actor],
+      statuses: ['payload_mismatch'],
+    },
+    { flags: ['--compare-root-payload', '--state-code', '0'], statuses: ['payload_mismatch'] },
+    { flags: ['--target-user-id', actor, '--state-code', '0'], statuses: [] },
+    {
+      flags: ['--compare-root-payload', '--target-user-id', actor, '--state-code', '0'],
+      statuses: ['payload_mismatch'],
+    },
+    { flags: ['--target-user-id', owner], statuses: ['owner_mismatch'] },
+    { flags: ['--state-code', '20'], statuses: ['state_code_mismatch'] },
+    {
+      flags: ['--compare-root-payload', '--target-user-id', owner, '--state-code', '20'],
+      statuses: ['owner_mismatch', 'state_code_mismatch', 'payload_mismatch'],
+    },
+  ];
+  for (const scenario of cases) {
+    const f = fixture(t);
+    const bodies: { url: URL; rows: unknown[] }[] = [];
+    const result = await executeCli(
+      [
+        'dataset',
+        'verify-remote',
+        '--input',
+        f.input,
+        '--out-dir',
+        f.options.outDir!,
+        '--root-policy',
+        'candidate',
+        '--existing-draft-root-file',
+        f.intentFile,
+        ...scenario.flags,
+      ],
+      {
+        env: buildSupabaseTestEnv({
+          TIANGONG_LCA_API_BASE_URL: `https://${project}.supabase.co/functions/v1`,
+          TIANGONG_LCA_DISABLE_SESSION_CACHE: 'true',
+          TIANGONG_LCA_ACCESS_TOKEN: 'root-test-token',
+        }),
+        dotEnvStatus: cliDefaults.dotEnvStatus,
+        fetchImpl: async (input, init) => {
+          assert.equal((init?.method ?? 'GET').toUpperCase(), 'GET');
+          assert.equal(init?.body, undefined);
+          const url = new URL(String(input));
+          if (url.pathname === '/auth/v1/user')
+            return makeSupabaseAuthResponse({ userId: actor, accessToken: 'root-test-token' });
+          assert.equal(url.pathname, '/rest/v1/processes');
+          const params = url.searchParams;
+          if (params.get('select') === 'id,version')
+            return jsonResponse([
+              { id: processId, version: params.get('version')?.slice(3) ?? publicVersion },
+            ]);
+          if (params.has('and')) return jsonResponse([]);
+          if (params.has('version')) {
+            assert.equal(params.get('id'), `eq.${processId}`);
+            assert.equal(params.get('version'), `eq.${selectedVersion}`);
+            assert.equal(params.get('user_id'), `eq.${actor}`);
+            assert.equal(params.get('state_code'), 'eq.0');
+            const rows = [f.draft].filter(
+              (row) =>
+                params.get('user_id') === `eq.${row.user_id}` &&
+                params.get('state_code') === `eq.${row.state_code}`,
+            );
+            bodies.push({ url, rows });
+            return jsonResponse(rows);
+          }
+          return jsonResponse([params.get('state_code') === 'eq.100' ? f.published : f.draft]);
+        },
+      },
+    );
+    assert.equal(result.exitCode, scenario.statuses.length ? 1 : 0, result.stderr || result.stdout);
+    const report = JSON.parse(
+      fs.readFileSync(
+        path.join(f.options.outDir!, 'outputs', 'remote-verification-report.json'),
+        'utf8',
+      ),
+    ) as Awaited<ReturnType<typeof runDatasetRemoteVerify>>;
+    assert.equal(
+      report.status,
+      scenario.statuses.length ? 'blocked_remote_verification' : 'passed_remote_verification',
+    );
+    assert.equal(rootCheck(report).existing_draft_root?.applied, true);
+    assert.equal(bodies.length, 3, scenario.flags.join(' '));
+    assert.ok(bodies.every(({ rows }) => rows.length === 1 && rows[0] === f.draft));
+    const readback = checks(report).filter((check) => check.path.endsWith('#readback'));
+    for (const status of scenario.statuses)
+      assert.ok(
+        checks(report).some((check) => check.status === status),
+        status,
+      );
+    assert.ok(readback.length > 0);
+    for (const check of readback) {
+      const source = new URL(check.exact_source_url!);
+      assert.equal(source.searchParams.get('user_id'), `eq.${actor}`);
+      assert.equal(source.searchParams.get('state_code'), 'eq.0');
+    }
+    assert.deepEqual(fs.readdirSync(path.dirname(report.files.report)), [
+      'blockers.jsonl',
+      'remote-verification-report.json',
+      'remote-verification.jsonl',
+    ]);
+  }
+});
+
+test('public initial, final and optional body reads return no out-of-scope data after owner or state drift', async (t) => {
+  for (const phase of ['initial', 'optional', 'final'] as const) {
+    for (const drift of ['owner', 'state'] as const) {
+      const f = fixture(t);
+      const bodies: { phase: string; rows: unknown[] }[] = [];
+      const result = await executeCli(
+        [
+          'dataset',
+          'verify-remote',
+          '--input',
+          f.input,
+          '--out-dir',
+          f.options.outDir!,
+          '--root-policy',
+          'candidate',
+          '--existing-draft-root-file',
+          f.intentFile,
+          '--target-user-id',
+          actor,
+          '--state-code',
+          '0',
+        ],
+        {
+          env: buildSupabaseTestEnv({
+            TIANGONG_LCA_API_BASE_URL: `https://${project}.supabase.co/functions/v1`,
+            TIANGONG_LCA_DISABLE_SESSION_CACHE: 'true',
+            TIANGONG_LCA_ACCESS_TOKEN: 'root-test-token',
+          }),
+          dotEnvStatus: cliDefaults.dotEnvStatus,
+          fetchImpl: async (input, init) => {
+            assert.equal((init?.method ?? 'GET').toUpperCase(), 'GET');
+            assert.equal(init?.body, undefined);
+            const url = new URL(String(input));
+            if (url.pathname === '/auth/v1/user')
+              return makeSupabaseAuthResponse({ userId: actor, accessToken: 'root-test-token' });
+            assert.equal(url.pathname, '/rest/v1/processes');
+            const params = url.searchParams;
+            if (params.get('select') === 'id,version')
+              return jsonResponse([
+                { id: processId, version: params.get('version')?.slice(3) ?? publicVersion },
+              ]);
+            if (params.has('and')) return jsonResponse([]);
+            if (params.has('version')) {
+              const currentPhase = ['initial', 'optional', 'final'][bodies.length]!;
+              assert.equal(params.get('user_id'), `eq.${actor}`);
+              assert.equal(params.get('state_code'), 'eq.0');
+              const current =
+                currentPhase !== phase
+                  ? f.draft
+                  : {
+                      ...f.draft,
+                      ...(drift === 'owner' ? { user_id: owner } : { state_code: 20 }),
+                      json_ordered: payload(selectedVersion, 'Out-of-scope secret body'),
+                    };
+              const rows = [current].filter(
+                (row) =>
+                  params.get('user_id') === `eq.${row.user_id}` &&
+                  params.get('state_code') === `eq.${row.state_code}`,
+              );
+              bodies.push({ phase: currentPhase, rows });
+              return jsonResponse(rows);
+            }
+            return jsonResponse([params.get('state_code') === 'eq.100' ? f.published : f.draft]);
+          },
+        },
+      );
+      assert.equal(result.exitCode, 1, `${phase}:${drift}: ${result.stderr || result.stdout}`);
+      const report = JSON.parse(
+        fs.readFileSync(
+          path.join(f.options.outDir!, 'outputs', 'remote-verification-report.json'),
+          'utf8',
+        ),
+      ) as Awaited<ReturnType<typeof runDatasetRemoteVerify>>;
+      assert.equal(report.status, 'blocked_remote_verification');
+      assert.equal(bodies.length, 3);
+      assert.deepEqual(bodies.find((body) => body.phase === phase)?.rows, []);
+      assert.ok(!JSON.stringify(bodies).includes('Out-of-scope secret body'));
+      if (phase === 'optional') {
+        assert.equal(rootCheck(report).existing_draft_root?.applied, true);
+        const readback = checks(report).find((check) => check.path.endsWith('#readback'))!;
+        assert.equal(readback.status, 'missing_dataset');
+        assert.equal(readback.remote_user_id, null);
+        assert.equal(readback.remote_state_code, null);
+        assert.equal(readback.remote_payload_sha256, null);
+      } else {
+        assert.equal(rootCheck(report).existing_draft_root?.applied, false);
+        assert.equal(rootCheck(report).existing_draft_root?.failure, 'observation_failed');
+      }
+      assert.deepEqual(fs.readdirSync(path.dirname(report.files.report)), [
+        'blockers.jsonl',
+        'remote-verification-report.json',
+        'remote-verification.jsonl',
+      ]);
+      assert.equal(fs.readFileSync(f.input, 'utf8'), JSON.stringify([f.candidate]));
+    }
+  }
 });

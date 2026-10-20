@@ -205,7 +205,12 @@ export async function observeExistingDraftRoot(options: {
       content_range: response.headers.get('content-range'),
     };
   }
-  const exact = await get({ version: `eq.${options.version}`, limit: '2' });
+  const exact = await get({
+    version: `eq.${options.version}`,
+    user_id: `eq.${options.actorUserId}`,
+    state_code: 'eq.0',
+    limit: '2',
+  });
   requireObservation(exact.rows.length === 1);
   const selected = snapshot(exact.rows[0], {
     id: options.id,

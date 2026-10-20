@@ -730,6 +730,7 @@ export async function lookupRemoteDatasetPayload(options: {
   request: RemoteDatasetLookupRequest;
   allowLatest?: boolean;
   requireUnique?: boolean;
+  ownerDraftUserId?: string;
 }): Promise<RemoteDatasetPayloadLookup | null> {
   if (!options.request.version && !(options.allowLatest && options.request.version === null)) {
     return null;
@@ -739,7 +740,7 @@ export async function lookupRemoteDatasetPayload(options: {
     options.fetchImpl,
     options.timeoutMs,
   );
-  const sourceUrl = buildRemotePayloadUrl(
+  let sourceUrl = buildRemotePayloadUrl(
     restBaseUrl,
     options.request.table,
     options.request.id,
@@ -749,6 +750,14 @@ export async function lookupRemoteDatasetPayload(options: {
     .from(options.request.table)
     .select('id,version,user_id,state_code,modified_at,json,json_ordered')
     .eq('id', options.request.id);
+  if (options.ownerDraftUserId !== undefined) {
+    // Eligibility must constrain the body request itself, before any bytes are read.
+    query.eq('user_id', options.ownerDraftUserId).eq('state_code', 0);
+    const scopedUrl = new URL(sourceUrl);
+    scopedUrl.searchParams.set('user_id', `eq.${options.ownerDraftUserId}`);
+    scopedUrl.searchParams.set('state_code', 'eq.0');
+    sourceUrl = scopedUrl.toString();
+  }
   const rows = await runSupabaseArrayQuery(
     options.request.version === null
       ? query.order('version', { ascending: false }).limit(1)
@@ -758,6 +767,12 @@ export async function lookupRemoteDatasetPayload(options: {
   const payloadRow = normalizePayloadRow(
     Array.isArray(rows) && (!options.requireUnique || rows.length === 1) ? rows[0] : null,
   );
+  if (
+    payloadRow &&
+    options.ownerDraftUserId !== undefined &&
+    (payloadRow.user_id !== options.ownerDraftUserId || payloadRow.state_code !== 0)
+  )
+    return null;
   return payloadRow ? { ...payloadRow, source_url: sourceUrl } : null;
 }
 
@@ -1099,6 +1114,9 @@ export async function runDatasetRemoteVerify(
             fetchImpl,
             timeoutMs,
             request,
+            ...(rootIntent
+              ? { ownerDraftUserId: rootIntent.actor_user_id, requireUnique: true }
+              : {}),
           })
       : null);
   const verifyBoundIdentity = async () => {

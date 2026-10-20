@@ -117,6 +117,8 @@ test('existing root observation uses four fresh authenticated GET scopes with ex
   assert.equal(urls.length, 4);
   assert.equal(urls[0]!.searchParams.get('select'), COLUMNS);
   assert.equal(urls[0]!.searchParams.get('version'), `eq.${VERSION}`);
+  assert.equal(urls[0]!.searchParams.get('user_id'), `eq.${ACTOR}`);
+  assert.equal(urls[0]!.searchParams.get('state_code'), 'eq.0');
   assert.equal(urls[0]!.searchParams.get('limit'), '2');
   assert.equal(urls[1]!.searchParams.get('order'), 'version.desc');
   assert.equal(urls[1]!.searchParams.get('limit'), '1');
@@ -137,6 +139,38 @@ test('existing root observation uses four fresh authenticated GET scopes with ex
   assert.equal(result.completeness.page_count, 2);
   await observe(fetchImpl);
   assert.equal(urls.length, 8);
+});
+
+test('exact body transport excludes a selected version that becomes an owner review or foreign draft', async () => {
+  for (const changed of [
+    { ...row(), state_code: 20 },
+    { ...row(), user_id: OTHER },
+  ]) {
+    const delivered: unknown[][] = [];
+    const urls: URL[] = [];
+    await assert.rejects(
+      observe(async (input, init) => {
+        const url = new URL(input);
+        urls.push(url);
+        assert.equal(init?.method, 'GET');
+        assert.equal(init?.body, undefined);
+        assert.equal(url.searchParams.get('version'), `eq.${VERSION}`);
+        assert.equal(url.searchParams.get('user_id'), `eq.${ACTOR}`);
+        assert.equal(url.searchParams.get('state_code'), 'eq.0');
+        // Model server predicates: an ineligible body must never cross this transport.
+        const allowed = [changed].filter(
+          (candidate) =>
+            `eq.${candidate.user_id}` === url.searchParams.get('user_id') &&
+            `eq.${candidate.state_code}` === url.searchParams.get('state_code'),
+        );
+        delivered.push(allowed);
+        return response(allowed);
+      }),
+      invalid,
+    );
+    assert.equal(urls.length, 1);
+    assert.deepEqual(delivered, [[]]);
+  }
 });
 
 test('row hash binds exactly ten original fields while full ordered payload changes payload hash', async () => {
@@ -168,7 +202,8 @@ test('empty censuses and actual server page lengths are recorded without inferre
   const offsets: string[] = [];
   const fetchImpl: FetchLike = async (input, init) => {
     const url = new URL(input);
-    if (url.searchParams.get('state_code') !== 'eq.0') return transport()(input, init);
+    if (url.searchParams.has('version') || url.searchParams.get('state_code') !== 'eq.0')
+      return transport()(input, init);
     const offset = url.searchParams.get('offset')!;
     offsets.push(offset);
     return response(
@@ -343,7 +378,8 @@ test('pagination fails closed on absent, truncated, drifting, duplicate or out-o
     await assert.rejects(
       observe(async (input, init) => {
         const url = new URL(input);
-        if (url.searchParams.get('state_code') !== 'eq.0') return transport()(input, init);
+        if (url.searchParams.has('version') || url.searchParams.get('state_code') !== 'eq.0')
+          return transport()(input, init);
         if (url.searchParams.get('offset') === '0') return response([row()], '0-0/2');
         if (mode === 'empty') return response([], '*/2');
         return response(
