@@ -142,10 +142,11 @@ test('existing root observation uses four fresh authenticated GET scopes with ex
 });
 
 test('exact body transport excludes a selected version that becomes an owner review or foreign draft', async () => {
-  for (const changed of [
+  const changedRows: Record<string, unknown>[] = [
     { ...row(), state_code: 20 },
     { ...row(), user_id: OTHER },
-  ]) {
+  ];
+  for (const changed of changedRows) {
     const delivered: unknown[][] = [];
     const urls: URL[] = [];
     await assert.rejects(
