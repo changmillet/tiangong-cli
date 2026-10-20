@@ -1291,7 +1291,9 @@ test('a prepared target entering a model/result or elementary domain cannot read
         return response(body);
       };
       const report = await runDatasetPrepareDraft(f.frozen({ statusOnly: true, fetchImpl }));
-      assert.equal(report.status, 'unknown');
+      assert.equal(report.status, 'changed');
+      assert.deepEqual(report.receipt, first.receipt);
+      assert.equal(report.save_ready, false);
       assert.equal(report.target, null);
       assert.equal(
         report.error?.code,
@@ -1370,6 +1372,19 @@ test('prepared target entering review retains original receipt but cannot author
     assert.equal(status.receipt?.requestId, REQUEST);
     assert.equal(status.target, null);
     assert.equal(status.save_ready, false);
+    const unavailableCurrent: FetchLike = async (url, init) => {
+      if (new URL(url).searchParams.get('version') === 'eq.01.01.001')
+        throw new Error('review target read unavailable');
+      return f.fetchImpl(url, init);
+    };
+    const retained = await runDatasetPrepareDraft(
+      f.frozen({ statusOnly: true, fetchImpl: unavailableCurrent }),
+    );
+    assert.equal(retained.status, 'review_conflict');
+    assert.deepEqual(retained.receipt, prepared.receipt);
+    assert.equal(retained.error?.code, 'DATASET_REVIEW_IN_PROGRESS');
+    assert.ok(retained.recovery_error);
+    assert.equal(retained.target, null);
     const retried = await runDatasetPrepareDraft(
       f.frozen({ commit: true, outDir: path.join(f.dir, 'other-review') }),
     );
@@ -1442,6 +1457,178 @@ test('review census rejects incomplete, foreign and out-of-range rows; UUID shap
     const input = envelope();
     input.request.id = '00000000-0000-7000-0000-000000000007';
     assert.equal(parsePrepareEnvelope(input).request.id, input.request.id);
+  } finally {
+    f.close();
+  }
+});
+
+test('frozen first commit returns fresh review points when its selected draft entered review', async () => {
+  const f = fixture();
+  try {
+    const originalDraft = row('01.01.001');
+    f.state.drafts = [originalDraft];
+    const observation = await runDatasetPrepareDraft(f.options);
+    assert.equal(observation.status, 'selected');
+    const originalRequestBytes = readFileSync(observation.files.request, 'utf8');
+    f.state.drafts = [];
+    f.state.reviews = [{ ...originalDraft, state_code: 20, review_id: REQUEST }];
+    const report = await runDatasetPrepareDraft({
+      inputPath: observation.files.request,
+      outDir: f.options.outDir,
+      commit: true,
+      env: f.env,
+      fetchImpl: f.fetchImpl,
+    });
+    assert.equal(report.status, 'review_conflict');
+    assert.equal(report.error?.code, 'DATASET_REVIEW_IN_PROGRESS');
+    assert.deepEqual(report.reviews, [
+      {
+        table: 'processes',
+        id: ID,
+        version: '01.01.001',
+        userId: ACTOR,
+        stateCode: 20,
+        reviewId: REQUEST,
+      },
+    ]);
+    assert.deepEqual(report.request, observation.request);
+    assert.equal(readFileSync(observation.files.request, 'utf8'), originalRequestBytes);
+    assert.equal(report.target, null);
+    assert.equal(report.save_ready, false);
+    assert.equal(report.attempt_consumed, false);
+    assert.equal(report.mutation_dispatches, 0);
+    assert.equal(f.state.mutations, 0);
+    assert.equal(f.state.lookups, 0);
+    assert.equal(existsSync(prepareAttemptPath(f.env, observation.request)), false);
+    const stored = JSON.parse(readFileSync(report.files.report, 'utf8'));
+    assert.deepEqual(stored.error.details.reviews, report.reviews);
+  } finally {
+    f.close();
+  }
+});
+
+test('validated receipt survives independent current-target network and response failures', async () => {
+  for (const failure of ['network', 'invalid_current', 'invalid_status'] as const) {
+    const f = fixture();
+    try {
+      const original = await runDatasetPrepareDraft(f.frozen({ commit: true }));
+      assert.equal(original.status, 'prepared');
+      const fetchImpl: FetchLike = async (url, init) => {
+        if (failure === 'invalid_status' && url.endsWith('/app_dataset_stable_draft_request')) {
+          const raw = await f.fetchImpl(url, init);
+          const body = JSON.parse(await raw.text());
+          body.data.targetStatus = 'unrecognized-status';
+          return response(body);
+        }
+        const parsed = new URL(url);
+        if (
+          failure !== 'invalid_status' &&
+          parsed.pathname.endsWith('/processes') &&
+          parsed.searchParams.get('version') === 'eq.01.01.001'
+        ) {
+          if (failure === 'network') throw new Error('independent current-target read failed');
+          return response({ unexpected: 'not an exact row array' });
+        }
+        return f.fetchImpl(url, init);
+      };
+      const report = await runDatasetPrepareDraft(f.frozen({ statusOnly: true, fetchImpl }));
+      assert.equal(report.status, 'unknown');
+      assert.deepEqual(report.receipt, original.receipt);
+      assert.equal(report.target, null);
+      assert.equal(report.save_ready, false);
+      assert.equal(report.mutation_dispatches, 0);
+      assert.equal(f.state.mutations, 1);
+      assert.ok(report.error);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('invalid receipt is never retained even if its current-target response would match', async () => {
+  const f = fixture();
+  try {
+    await runDatasetPrepareDraft(f.frozen({ commit: true }));
+    let currentReads = 0;
+    const fetchImpl: FetchLike = async (url, init) => {
+      if (url.endsWith('/app_dataset_stable_draft_request')) {
+        const raw = await f.fetchImpl(url, init);
+        const body = JSON.parse(await raw.text());
+        body.data.result.actorId = FOREIGN;
+        return response(body);
+      }
+      if (new URL(url).searchParams.get('version') === 'eq.01.01.001') currentReads++;
+      return f.fetchImpl(url, init);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ statusOnly: true, fetchImpl }));
+    assert.equal(report.status, 'unknown');
+    assert.equal(report.receipt, undefined);
+    assert.equal(currentReads, 0);
+    assert.equal(report.error?.code, 'DATASET_PREPARE_DRAFT_RECEIPT_INVALID');
+    assert.equal(report.target, null);
+    assert.equal(report.save_ready, false);
+    assert.equal(f.state.mutations, 1);
+  } finally {
+    f.close();
+  }
+});
+
+test('validated receipt remains immutable when a current target becomes a Result or unknown Flow', async () => {
+  for (const table of ['processes', 'flows'] as const) {
+    const f = fixture(table);
+    try {
+      const original = await runDatasetPrepareDraft(f.frozen({ commit: true }));
+      if (table === 'processes') f.state.target!.state_code = 120;
+      else
+        f.state.target!.json_ordered = {
+          flowDataSet: { modellingAndValidation: { LCIMethod: { typeOfDataSet: 'unknown' } } },
+        };
+      const fetchImpl: FetchLike = async (url, init) => {
+        const raw = await f.fetchImpl(url, init);
+        if (!url.endsWith('/app_dataset_stable_draft_request')) return raw;
+        const body = JSON.parse(await raw.text());
+        body.data.currentDraft = null;
+        body.data.targetStatus = 'changed';
+        return response(body);
+      };
+      const report = await runDatasetPrepareDraft(f.frozen({ statusOnly: true, fetchImpl }));
+      assert.equal(report.status, 'changed');
+      assert.deepEqual(report.receipt, original.receipt);
+      assert.equal(report.target, null);
+      assert.equal(report.save_ready, false);
+      assert.equal(
+        report.error?.code,
+        table === 'processes' ? 'LIFECYCLEMODEL_BUNDLE_REQUIRED' : 'DATASET_REFERENCE_ONLY',
+      );
+      assert.equal(f.state.mutations, 1);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('lost prepare response plus unavailable current read retains its validated receipt without replay', async () => {
+  const f = fixture();
+  try {
+    f.state.drop = 'after';
+    const fetchImpl: FetchLike = async (url, init) => {
+      if (new URL(url).searchParams.get('version') === 'eq.01.01.001')
+        throw new Error('current read unavailable after lost response');
+      return f.fetchImpl(url, init);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'unknown');
+    assert.deepEqual(report.receipt, f.state.result);
+    assert.equal(report.target, null);
+    assert.equal(report.save_ready, false);
+    assert.equal(report.attempt_consumed, true);
+    assert.equal(report.error?.code, 'DATASET_PREPARE_DRAFT_TRANSPORT_UNKNOWN');
+    assert.ok(report.recovery_error);
+    const recovered = await runDatasetPrepareDraft(f.frozen({ statusOnly: true }));
+    assert.equal(recovered.status, 'prepared');
+    assert.deepEqual(recovered.receipt, report.receipt);
+    assert.equal(recovered.mutation_dispatches, 0);
+    assert.equal(f.state.mutations, 1);
   } finally {
     f.close();
   }

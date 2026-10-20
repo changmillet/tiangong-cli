@@ -31,7 +31,7 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: 1e646dc9aebb1cc6c568088d470e1c2d160bd4a0
+lastReviewedCommit: 87cecdfd255b88c922d7e986a51f71329e6ff382
 lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 related:
   - ../../AGENTS.md

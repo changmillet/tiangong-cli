@@ -204,39 +204,70 @@ async function observe(
   if (!source) prepareFail('Exact public source was not found.', 'DATASET_SOURCE_NOT_FOUND');
   return { census, source: sourceSnapshot(source) };
 }
-async function recover(context: DatasetMaintenanceRemoteContext, request: PrepareEnvelope) {
+type PrepareRecovery = {
+  receipt: PrepareResult;
+  target: Omit<PrepareRow, 'modelId'> | null;
+  status: 'prepared' | 'changed' | 'unknown';
+  error?: ReturnType<typeof errorEvidence>;
+};
+async function recover(
+  context: DatasetMaintenanceRemoteContext,
+  request: PrepareEnvelope,
+): Promise<PrepareRecovery> {
   const raw = await requestPrepareBackend(context, request, true);
-  if (
-    !prepareObject(raw) ||
-    raw.recorded !== true ||
-    !['unchanged', 'changed', 'missing'].includes(String(raw.targetStatus))
-  )
+  if (!prepareObject(raw) || raw.recorded !== true)
     prepareFail('Invalid preparation lookup response.', 'DATASET_PREPARE_DRAFT_RESPONSE_INVALID');
+  // A validated immutable receipt is historical evidence, independent of whether the
+  // current target can still be read or admitted by this preparation contract.
   const receipt = parsePrepareResult(raw.result, request);
-  const current = await readPrepareExact(
-    context,
-    request.request.table,
-    request.request.id,
-    receipt.version,
-  );
-  const target = current
-    ? {
-        version: current.version,
-        userId: current.userId,
-        stateCode: current.stateCode,
-        jsonOrdered: current.jsonOrdered,
-      }
-    : null;
-  const exact = prepareSame(target, receipt.selectedDraft);
-  if (
-    !prepareSame(raw.currentDraft, target) ||
-    raw.targetStatus !== (exact ? 'unchanged' : target === null ? 'missing' : 'changed')
-  )
-    prepareFail(
-      'Preparation lookup disagrees with independent exact readback.',
-      'DATASET_PREPARE_DRAFT_READBACK_MISMATCH',
+  try {
+    if (!['unchanged', 'changed', 'missing'].includes(String(raw.targetStatus)))
+      prepareFail(
+        'Invalid preparation lookup target status.',
+        'DATASET_PREPARE_DRAFT_RESPONSE_INVALID',
+      );
+    const current = await readPrepareExact(
+      context,
+      request.request.table,
+      request.request.id,
+      receipt.version,
     );
-  return { receipt, target, exact };
+    const target = current
+      ? {
+          version: current.version,
+          userId: current.userId,
+          stateCode: current.stateCode,
+          jsonOrdered: current.jsonOrdered,
+        }
+      : null;
+    const exact = prepareSame(target, receipt.selectedDraft);
+    if (
+      !prepareSame(raw.currentDraft, target) ||
+      raw.targetStatus !== (exact ? 'unchanged' : target === null ? 'missing' : 'changed')
+    )
+      prepareFail(
+        'Preparation lookup disagrees with independent exact readback.',
+        'DATASET_PREPARE_DRAFT_READBACK_MISMATCH',
+      );
+    return { receipt, target, status: exact ? 'prepared' : 'changed' };
+  } catch (error) {
+    const evidence = errorEvidence(error, request);
+    const scopeChanged = ['LIFECYCLEMODEL_BUNDLE_REQUIRED', 'DATASET_REFERENCE_ONLY'].includes(
+      evidence.code,
+    );
+    return {
+      receipt,
+      target: null,
+      status: scopeChanged ? 'changed' : 'unknown',
+      error: scopeChanged
+        ? {
+            ...evidence,
+            message:
+              'The original receipt is retained; the current target requires native bundle or reference-only handling and is unavailable for preparation.',
+          }
+        : evidence,
+    };
+  }
 }
 async function runLockedPrepareDraft(
   options: RunDatasetPrepareDraftOptions,
@@ -341,7 +372,9 @@ async function runLockedPrepareDraft(
   const consumed =
     envelope !== null && readPrepareAttempt(prepareAttemptPath(options.env, envelope), envelope);
   let observation: Awaited<ReturnType<typeof observe>> | null = null;
-  if (!options.statusOnly && !consumed) {
+  // A fresh review return point takes priority over drift of an earlier frozen draft.
+  // Preserve that original request instead of re-authorizing or replacing its snapshots.
+  if (!options.statusOnly && !consumed && (envelope === null || reviewCensus.rows.length === 0)) {
     observation = await observe(context, table, id, sourceVersion);
     const expectedDrafts = draftSnapshots(observation.census.rows);
     if (
@@ -408,7 +441,9 @@ async function runLockedPrepareDraft(
     };
     if (mode === 'status_only' || consumed) {
       try {
-        report.receipt = (await recover(context, request)).receipt;
+        const recovered = await recover(context, request);
+        report.receipt = recovered.receipt;
+        if (recovered.error) report.recovery_error = recovered.error;
       } catch (error) {
         report.recovery_error = errorEvidence(error, request);
       }
@@ -436,9 +471,13 @@ async function runLockedPrepareDraft(
     }
     try {
       const recovered = await recover(context, request);
-      report.status = recovered.exact ? 'prepared' : 'changed';
+      report.status = recovered.status;
       report.receipt = recovered.receipt;
       report.target = recovered.target;
+      if (recovered.error) {
+        if (report.error) report.recovery_error = recovered.error;
+        else report.error = recovered.error;
+      }
     } catch (error) {
       const recoveryError = errorEvidence(error, request);
       if (report.error) report.recovery_error = recoveryError;
