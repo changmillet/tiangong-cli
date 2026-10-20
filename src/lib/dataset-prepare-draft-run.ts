@@ -7,6 +7,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -288,14 +289,32 @@ async function runLockedPrepareDraft(
     ].some((value) => value !== undefined)
   )
     prepareFail('Frozen --input cannot be mixed with scope flags.');
+  const outDir = path.resolve(options.outDir);
+  const files = {
+    request: path.join(outDir, 'request.json'),
+    report: path.join(outDir, 'report.json'),
+    target: path.join(outDir, 'target.json'),
+  };
   const inputText = options.inputPath ? readFileSync(options.inputPath, 'utf8') : null;
   const assertInputCurrent = () => {
-    if (options.inputPath && readFileSync(options.inputPath, 'utf8') !== inputText)
+    if (!options.inputPath) return;
+    const inputFile = realpathSync(options.inputPath);
+    if (
+      [files.report, files.target].some(
+        (file) => existsSync(file) && realpathSync(file) === inputFile,
+      )
+    )
+      prepareFail(
+        'Frozen preparation input aliases a generated report or target artifact.',
+        'DATASET_PREPARE_DRAFT_OUTPUT_CONFLICT',
+      );
+    if (readFileSync(options.inputPath, 'utf8') !== inputText)
       prepareFail(
         'Frozen preparation input changed during this run.',
         'DATASET_PREPARE_DRAFT_INPUT_CHANGED',
       );
   };
+  assertInputCurrent();
   let envelope = inputText === null ? null : parsePrepareEnvelope(JSON.parse(inputText));
   if (options.selectedVersion !== undefined) {
     prepareVersion(options.selectedVersion);
@@ -363,12 +382,6 @@ async function runLockedPrepareDraft(
     );
   const reviewCensus = await readPrepareReviews(context, table, id);
   assertInputCurrent();
-  const outDir = path.resolve(options.outDir);
-  const files = {
-    request: path.join(outDir, 'request.json'),
-    report: path.join(outDir, 'report.json'),
-    target: path.join(outDir, 'target.json'),
-  };
   const consumed =
     envelope !== null && readPrepareAttempt(prepareAttemptPath(options.env, envelope), envelope);
   let observation: Awaited<ReturnType<typeof observe>> | null = null;
@@ -463,7 +476,10 @@ async function runLockedPrepareDraft(
       if (fresh) {
         report.mutation_dispatches = 1;
         try {
-          parsePrepareResult(await requestPrepareBackend(context, request, false), request);
+          report.receipt = parsePrepareResult(
+            await requestPrepareBackend(context, request, false),
+            request,
+          );
         } catch (error) {
           report.error = errorEvidence(error, request);
         }
@@ -471,8 +487,19 @@ async function runLockedPrepareDraft(
     }
     try {
       const recovered = await recover(context, request);
+      if (
+        report.receipt &&
+        !prepareSame(
+          { ...report.receipt, replayed: false },
+          { ...recovered.receipt, replayed: false },
+        )
+      )
+        prepareFail(
+          'Preparation lookup contradicts the validated preparation receipt.',
+          'DATASET_PREPARE_DRAFT_READBACK_MISMATCH',
+        );
       report.status = recovered.status;
-      report.receipt = recovered.receipt;
+      report.receipt ??= recovered.receipt;
       report.target = recovered.target;
       if (recovered.error) {
         if (report.error) report.recovery_error = recovered.error;

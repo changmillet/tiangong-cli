@@ -26,7 +26,7 @@ checkPaths:
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: e3eb3edc0849ed37a6529079ece5e85cf4fce0c9
+lastReviewedCommit: cbb51e8ea6d67f1131fa92ac9124be017d472601
 lastReviewedNote: 'CLI #372: stable draft preparation adds source capability and qualification tests only; package version, dependencies, exports, tag rules, Trusted Publishing and release setup remain unchanged. Backend deployment and formal adoption are separate gates.'
 related:
   - ../AGENTS.md

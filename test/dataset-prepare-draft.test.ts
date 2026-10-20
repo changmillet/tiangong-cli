@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
@@ -1225,6 +1227,276 @@ test('frozen input is rechecked after awaited observation and cannot be overwrit
     } finally {
       f.close();
     }
+  }
+});
+
+test('frozen report/target input aliases fail before transport and preserve their original bytes', async () => {
+  for (const name of ['report.json', 'target.json']) {
+    for (const alias of [false, true]) {
+      for (const mode of ['read_only', 'commit', 'status_only']) {
+        const f = fixture();
+        try {
+          mkdirSync(f.options.outDir!, { recursive: true });
+          const inputPath = path.join(f.options.outDir!, name);
+          const original = `${JSON.stringify(f.input, null, 2)}\n`;
+          writeFileSync(inputPath, original);
+          const aliasDir = path.join(f.dir, 'out-alias');
+          if (alias) symlinkSync(f.options.outDir!, aliasDir, 'junction');
+          let transportCalls = 0;
+          const fetchImpl: FetchLike = async (url, init) => {
+            transportCalls++;
+            return f.fetchImpl(url, init);
+          };
+          await assert.rejects(
+            runDatasetPrepareDraft(
+              f.frozen({
+                inputPath: alias ? path.join(aliasDir, name) : inputPath,
+                fetchImpl,
+                commit: mode === 'commit',
+                statusOnly: mode === 'status_only',
+              }),
+            ),
+            { code: 'DATASET_PREPARE_DRAFT_OUTPUT_CONFLICT' },
+          );
+          assert.equal(readFileSync(inputPath, 'utf8'), original);
+          assert.equal(transportCalls, 0);
+          assert.equal(f.state.mutations, 0);
+          assert.equal(f.state.lookups, 0);
+          assert.equal(existsSync(prepareAttemptPath(f.env, f.input)), false);
+          assert.equal(existsSync(path.join(f.options.outDir!, 'request.json')), false);
+        } finally {
+          f.close();
+        }
+      }
+    }
+  }
+});
+
+test('the original request.json remains a supported frozen commit and recovery input', async () => {
+  const f = fixture();
+  try {
+    const observed = await runDatasetPrepareDraft(f.options);
+    const original = readFileSync(observed.files.request, 'utf8');
+    const committed = await runDatasetPrepareDraft(
+      f.frozen({ inputPath: observed.files.request, commit: true }),
+    );
+    assert.equal(committed.status, 'prepared');
+    assert.equal(readFileSync(observed.files.request, 'utf8'), original);
+    const recovered = await runDatasetPrepareDraft(
+      f.frozen({ inputPath: observed.files.request, statusOnly: true }),
+    );
+    assert.equal(recovered.status, 'prepared');
+    assert.equal(recovered.mutation_dispatches, 0);
+    assert.equal(readFileSync(observed.files.request, 'utf8'), original);
+    assert.equal(f.state.mutations, 1);
+  } finally {
+    f.close();
+  }
+});
+
+test('the reserved batch lock cannot consume or replace a valid frozen request', async () => {
+  const f = fixture();
+  try {
+    mkdirSync(f.options.outDir!, { recursive: true });
+    const inputPath = path.join(f.options.outDir!, '.tiangong-lca-batch-run.state.lock');
+    const original = JSON.stringify(f.input);
+    writeFileSync(inputPath, original);
+    await assert.rejects(runDatasetPrepareDraft(f.frozen({ inputPath, commit: true })), {
+      name: 'BatchRunLockTimeoutError',
+    });
+    assert.equal(readFileSync(inputPath, 'utf8'), original);
+    assert.equal(f.state.mutations, 0);
+    assert.equal(f.state.lookups, 0);
+    assert.equal(existsSync(prepareAttemptPath(f.env, f.input)), false);
+  } finally {
+    f.close();
+  }
+});
+
+test('an input switched to an output alias after await is rejected before claim or publication', async () => {
+  for (const at of ['source', 'dispatch']) {
+    const f = fixture();
+    try {
+      const inputPath = f.write();
+      const original = readFileSync(inputPath, 'utf8');
+      const outputPath = path.join(f.options.outDir!, 'report.json');
+      let switched = false;
+      const fetchImpl: FetchLike = async (url, init) => {
+        const raw = await f.fetchImpl(url, init);
+        if (
+          !switched &&
+          (at === 'source'
+            ? url.includes('version=eq.01.01.000')
+            : url.endsWith('/app_dataset_prepare_stable_draft'))
+        ) {
+          switched = true;
+          writeFileSync(outputPath, original);
+          unlinkSync(inputPath);
+          symlinkSync(outputPath, inputPath);
+        }
+        return raw;
+      };
+      await assert.rejects(
+        runDatasetPrepareDraft(f.frozen({ inputPath, fetchImpl, commit: true })),
+        { code: 'DATASET_PREPARE_DRAFT_OUTPUT_CONFLICT' },
+      );
+      assert.equal(readFileSync(inputPath, 'utf8'), original);
+      assert.equal(readFileSync(outputPath, 'utf8'), original);
+      assert.equal(f.state.mutations, at === 'dispatch' ? 1 : 0);
+      assert.equal(existsSync(prepareAttemptPath(f.env, f.input)), at === 'dispatch');
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('validated prepare POST receipts survive failed or invalid lookup without a second dispatch', async () => {
+  for (const failure of ['network', 'invalid_envelope', 'unrecorded', 'invalid_receipt']) {
+    const f = fixture();
+    try {
+      let lookups = 0;
+      const fetchImpl: FetchLike = async (url, init) => {
+        if (url.endsWith('/app_dataset_stable_draft_request')) {
+          lookups++;
+          if (failure === 'network') throw new Error('lookup connection lost');
+          if (failure === 'invalid_envelope') return response({ unexpected: 'envelope' });
+          if (failure === 'unrecorded')
+            return response({
+              ok: true,
+              command: 'dataset_stable_draft_request',
+              data: { recorded: false },
+            });
+          const raw = await f.fetchImpl(url, init);
+          const body = JSON.parse(await raw.text());
+          body.data.result.actorId = FOREIGN;
+          return response(body);
+        }
+        return f.fetchImpl(url, init);
+      };
+      const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+      assert.equal(report.status, 'unknown');
+      assert.deepEqual(report.receipt, f.state.result);
+      assert.equal(report.target, null);
+      assert.equal(report.save_ready, false);
+      assert.equal(report.attempt_consumed, true);
+      assert.equal(report.mutation_dispatches, 1);
+      assert.equal(lookups, 1);
+      assert.ok(report.error);
+      const stored = JSON.parse(readFileSync(report.files.report, 'utf8'));
+      assert.deepEqual(stored.receipt, f.state.result);
+      assert.equal(stored.target, null);
+      assert.equal(stored.save_ready, false);
+      const recovered = await runDatasetPrepareDraft(f.frozen({ commit: true }));
+      assert.equal(recovered.status, 'prepared');
+      assert.deepEqual(recovered.receipt, report.receipt);
+      assert.equal(recovered.mutation_dispatches, 0);
+      assert.equal(f.state.mutations, 1);
+    } finally {
+      f.close();
+    }
+  }
+});
+
+test('an invalid prepare POST receipt is not retained when lookup also fails', async () => {
+  const f = fixture();
+  try {
+    const fetchImpl: FetchLike = async (url, init) => {
+      if (url.endsWith('/app_dataset_stable_draft_request')) throw new Error('lookup unavailable');
+      const raw = await f.fetchImpl(url, init);
+      if (!url.endsWith('/app_dataset_prepare_stable_draft')) return raw;
+      const body = JSON.parse(await raw.text());
+      body.data.actorId = FOREIGN;
+      return response(body);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'unknown');
+    assert.equal(report.receipt, undefined);
+    assert.equal(report.target, null);
+    assert.equal(report.save_ready, false);
+    assert.equal(report.error?.code, 'DATASET_PREPARE_DRAFT_RECEIPT_INVALID');
+    assert.ok(report.recovery_error);
+    assert.equal(f.state.mutations, 1);
+    assert.equal(report.mutation_dispatches, 1);
+  } finally {
+    f.close();
+  }
+});
+
+test('a validated POST receipt cannot be replaced by a contradictory valid lookup receipt', async () => {
+  const f = fixture();
+  try {
+    let originalReceipt: PrepareResult | undefined;
+    const fetchImpl: FetchLike = async (url, init) => {
+      const raw = await f.fetchImpl(url, init);
+      if (url.endsWith('/app_dataset_prepare_stable_draft')) {
+        originalReceipt = structuredClone(f.state.result!);
+        return raw;
+      }
+      if (!url.endsWith('/app_dataset_stable_draft_request')) return raw;
+      const body = JSON.parse(await raw.text());
+      const receipt = body.data.result;
+      receipt.version = '01.01.002';
+      receipt.draftVersions = [receipt.version];
+      receipt.selectedDraft.version = receipt.version;
+      receipt.selectedDraft.jsonOrdered = createdPreparePayload(f.input.request, receipt.version);
+      assert.equal(parsePrepareResult(receipt, f.input).version, '01.01.002');
+      body.data.currentDraft = structuredClone(receipt.selectedDraft);
+      f.state.target = row(receipt.version, { json_ordered: receipt.selectedDraft.jsonOrdered });
+      return response(body);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'unknown');
+    assert.deepEqual(report.receipt, originalReceipt);
+    assert.equal(report.target, null);
+    assert.equal(report.save_ready, false);
+    assert.equal(report.error?.code, 'DATASET_PREPARE_DRAFT_READBACK_MISMATCH');
+    assert.equal(f.state.mutations, 1);
+    assert.deepEqual(
+      JSON.parse(readFileSync(report.files.report, 'utf8')).receipt,
+      originalReceipt,
+    );
+  } finally {
+    f.close();
+  }
+});
+
+test('POST replay context may differ from the immutable lookup receipt without changing its target', async () => {
+  const f = fixture();
+  try {
+    const fetchImpl: FetchLike = async (url, init) => {
+      const raw = await f.fetchImpl(url, init);
+      if (!url.endsWith('/app_dataset_prepare_stable_draft')) return raw;
+      const body = JSON.parse(await raw.text());
+      body.data.replayed = true;
+      return response(body);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'prepared');
+    assert.deepEqual(report.receipt, { ...f.state.result, replayed: true });
+    assert.deepEqual(report.target, f.state.result!.selectedDraft);
+    assert.equal(f.state.mutations, 1);
+  } finally {
+    f.close();
+  }
+});
+
+test('a valid lookup can establish the outcome after an invalid POST receipt', async () => {
+  const f = fixture();
+  try {
+    const fetchImpl: FetchLike = async (url, init) => {
+      const raw = await f.fetchImpl(url, init);
+      if (!url.endsWith('/app_dataset_prepare_stable_draft')) return raw;
+      const body = JSON.parse(await raw.text());
+      body.data.actorId = FOREIGN;
+      return response(body);
+    };
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'prepared');
+    assert.deepEqual(report.receipt, f.state.result);
+    assert.equal(report.error?.code, 'DATASET_PREPARE_DRAFT_RECEIPT_INVALID');
+    assert.equal(f.state.mutations, 1);
+  } finally {
+    f.close();
   }
 });
 
