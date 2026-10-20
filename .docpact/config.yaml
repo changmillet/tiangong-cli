@@ -1,8 +1,8 @@
 version: 1
 layout: repo
 lastReviewedAt: "2026-10-21"
-lastReviewedCommit: "2b2eba10c68ff66d8f018b551c6c9b853a85267f"
-lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
+lastReviewedCommit: "1e646dc9aebb1cc6c568088d470e1c2d160bd4a0"
+lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 
 catalog:
   repos:

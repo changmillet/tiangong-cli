@@ -32,8 +32,8 @@ checkPaths:
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
-lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
+lastReviewedCommit: 1e646dc9aebb1cc6c568088d470e1c2d160bd4a0
+lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 ---
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
@@ -499,7 +499,7 @@ Key `flow materialize-decisions` outputs:
 
 ## Stable owner draft preparation
 
-`dataset prepare-draft` observes a complete current-owner state-0 set for one typed UUID and an exact public state-100/200 source. It supports Contact, Source, Product/Waste Flow and standalone Process; initial-version creation, Elementary Flow, LifecycleModel and model/result-bound Process preparation retain their separate owners.
+`dataset prepare-draft` observes complete current-owner draft (state 0) and review (20 ≤ state < 100) sets for one typed UUID and an exact public state-100/200 source. It supports Contact, Source, Product/Waste Flow and standalone Process; initial-version creation, Elementary Flow, LifecycleModel and model/result-bound Process preparation retain their separate owners.
 
 ```bash
 tiangong-lca dataset prepare-draft --type process --id <UUID> --source-version 01.01.000 --target-user-id <actor-UUID> --project-ref <project> --out-dir ./draft-observation --json
@@ -507,13 +507,27 @@ tiangong-lca dataset prepare-draft --input ./draft-observation/request.json --ou
 tiangong-lca dataset prepare-draft --input ./draft-observation/request.json --out-dir ./draft-recovery --status-only --json
 ```
 
-The default command uses existing authenticated read interfaces; it does not require the new prepare backend and emits no mutation. Zero drafts reports `needs_creation`, one returns its fixed exact target, and many returns the complete conflict set. An explicit `--selected-version` chooses only a member of that observed set and never consolidates or deletes siblings. Flow sources and the selected target must be Product/Waste; reference-only siblings remain visible in a complete conflict report.
+The default command uses existing authenticated read interfaces; it does not require the new prepare backend and emits no mutation. An in-progress review returns `review_conflict` with every exact table/UUID/version/owner/state/review-id return point, and blocks all new preparation without creating another queue. Zero drafts with no active review reports `needs_creation`, one returns its fixed exact target, and many returns the complete conflict set. An explicit `--selected-version` chooses only a member of that observed set and never consolidates or deletes siblings. Flow sources and the selected target must be Product/Waste; reference-only siblings remain visible in a complete conflict report.
 
 Each private output directory owns immutable `request.json` plus `report.json` and `target.json`. Repeating the same observation there retains its request identity; changed scope or source/census content fails instead of replacing recovery material. Use a distinct directory for a new observation. Commit takes the frozen request, rechecks the source and complete draft preimages, then delegates create-or-reuse to the server. Creation copies source content and changes only the assigned version and permanent URI. No corrected scientific payload is submitted by preparation.
 
 An emitted attempt is durably consumed under the platform user-state directory, scoped by project, actor and original request UUID. Changing the output directory cannot replay it. An uncertain response permits only original-request lookup, even when the server says `REQUEST_NOT_RECORDED`; no fallback insert, guessed version or automatic retry is allowed. Missing backend/RPC capability is reported explicitly. Recovery checks the immutable receipt against an independent current target read; changed, missing, model-bound or reference-only targets cannot report `prepared`. Structured server conflicts remain reviewable in the private report.
 
-`target.json` fixes identity and contains `jsonOrdered`; it grants no content-write permission. Prepare the reviewed desired payload separately, then use the existing `dataset save-draft --execution-contract` with fresh target before-image, schema/reference/owner gates and independent readback. Preparation does not make a later save enforce a sibling census, and does not establish production deployment or close the remaining initial/bundle dependencies of #372.
+Every preparation report keeps `save_ready: false`: a source clone is not a reviewed scientific candidate. `target.json` fixes identity and contains `jsonOrdered`; it grants no content-write permission. Prepare the reviewed desired payload separately, then use the existing `dataset save-draft --execution-contract` with fresh target before-image, schema/reference/owner gates and independent readback. Preparation does not make a later save enforce a sibling census, and does not establish production deployment or close the remaining initial/bundle dependencies of #372.
+
+`dataset prepare-draft bind` is a separate **offline** operation for a reviewed proposal that still carries its original public identity. It reads the actual fixed target from a successful preparation report; a current read-only `selected` report is accepted as `observed_only`, while zero-draft, review-conflicted, unknown and changed reports cannot bind.
+
+```bash
+tiangong-lca dataset prepare-draft bind --input ./reviewed-proposal.json --proposal-sha256 <reviewed-canonical-sha256> --source-sha256 <public-source-canonical-sha256> --preparation-report ./draft-admission/report.json --predecessor-file ./reviewed-predecessor.json --predecessor-sha256 <reviewed-reference-canonical-sha256> --out-dir ./bound-proposal --json
+```
+
+The proposal and source digests bind the canonical JSON payloads: recursive object-key sorting, preserved array order, compact ECMAScript JSON serialization, then SHA-256 over UTF-8. Input-file byte digests are recorded separately. The predecessor is one reviewed SDK-valid typed reference (a single object or one-reference array) to the exact source UUID/version and canonical source URI, including its supplied short description. If the proposal already carries that correct reference, the file/hash pair can be omitted. Otherwise binding fails with `PREDECESSOR_BINDING_REQUIRED`; it generates no predecessor text and changes no verifier semantics.
+
+The existing `dataset patch apply` owner applies only `common:dataSetVersion`, `common:permanentDataSetURI` and `common:referenceToPrecedingDataSetVersion`. The dataset UUID and every other scientific value remain identical to the hash-bound proposal. The private, create-only bundle contains `desired.json`, `identity-patch.json`, `evidence.json` and `binding.json`, all with `save_ready: false`. Its manifest binds proposal/source/predecessor, preparation report/request/receipt, exact target before-image and desired payload hashes, and equal proposal/desired scientific-projection hashes. It rechecks input bytes after application and never performs authentication or network work.
+
+For a standalone Process with existing native semantic evidence, optionally add `--semantic-context-file <context.json> --semantic-context-sha256 <reviewed-context-canonical-sha256>`. The exact context is `{candidate_sha256, flow_documents}`: its candidate digest must equal the reviewed proposal, and complete Flow document values are preserved. Only after scientific-projection equality is proved does binding update `candidate_sha256` to the desired payload digest. The output row retains `semantic_context`; the manifest records original/rebound context hashes, unchanged Flow-document hash/count and the original/desired candidate hashes. Without a supplied context it records `not_supplied`. Allocation transformations, invalid bindings and other generated Model/result provenance are rejected for their native owner; the binder does not relabel a generated proof or infer schema/allocation acceptance. Native validation and fresh exact Flow admission remain separate.
+
+An existing valid scientific review bound to the same proposal digest may be reused. Identity rebinding does not itself require a complete scientific re-review; material scientific changes reopen the affected review. The manifest reports scientific review status as `not_inferred`, rather than claiming a hash match proves acceptance. Exact identity-diff review and the existing schema/reference/current-owner/fresh-before-image and business review requirements still apply before a content save.
 
 ## Other Common Commands
 

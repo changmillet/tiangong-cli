@@ -23,8 +23,8 @@ checkPaths:
   - scripts/**
   - .github/workflows/**
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
-lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
+lastReviewedCommit: 1e646dc9aebb1cc6c568088d470e1c2d160bd4a0
+lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 related:
   - AGENTS.md
   - .docpact/config.yaml
@@ -934,3 +934,5 @@ Review note, 2026-09-21: independently reviewed CLI #283 annual-volume commit d4
 `dataset save-draft --execution-contract --reference-intent-file` 仅在 Flow-only 合约中消费 #289 的显式选择。前检与 dispatch 前鲜检由 CLI 承担；Foundry 只绑定并传递 snapshot，不复制 eligibility。新增用例位于 `test/dataset-save-draft-exact-reference.test.ts`，覆盖同一完整 consumer 的 public dry-run／commit、正文和账号漂移、async gate、原 admission ledger 与 UNKNOWN 不重放。执行 `pnpm prepush:gate` 的全量证明后，仍须由原调用方资格通路完成实际 Task 回验；合成 transport 成功不代表生产或正式 runtime 采用。字段定义见 [exact-reference contract](docs/agents/exact-reference-intent-contract.md#guarded-flow-owner-drafts)。
 
 `dataset prepare-draft` 的稳定目标、原请求恢复和私有工件边界见 [公开准备合同](README.md#stable-owner-draft-preparation)。默认观察仅用已有只读接口；新服务端能力、初始版本及 Model/resulting 整体合同的资格分别验证。维护者仍使用既有 Node/pnpm、原生 bin 和完整门禁，不改变包版本、公开库 export 或发布流程。
+
+补充：准备命令对当前 owner 的 20..99 审核状态返回完整原记录位置并零派发；离线 `prepare-draft bind` 复用 patch apply 和公开 SDK ProcessSchema 内的 GlobalReferenceType 子 schema，仅绑定三处身份字段，科学正文及已有有效同 proposal 评审可保持复用。公开 native-bin 合成证据与实际原流程/后端部署资格分别记录，不能把 `save_ready=false` 的身份绑定当科学接受或写权限。

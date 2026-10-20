@@ -28,6 +28,7 @@ import {
 import {
   parsePrepareEnvelope,
   parsePrepareResult,
+  parsePrepareReviewPoint,
   prepareFail,
   prepareObject,
   prepareSame,
@@ -39,11 +40,13 @@ import {
   type PrepareResult,
   type PrepareRow,
   type PrepareSnapshot,
+  type PrepareReviewPoint,
   type PrepareTable,
 } from './dataset-prepare-draft-contract.js';
 import {
   readPrepareCensus,
   readPrepareExact,
+  readPrepareReviews,
   requestPrepareBackend,
 } from './dataset-prepare-draft-remote.js';
 
@@ -64,6 +67,7 @@ export type RunDatasetPrepareDraftOptions = {
 export type DatasetPrepareDraftReport = {
   schema_version: 'dataset-prepare-draft-report.v1';
   status:
+    | 'review_conflict'
     | 'selected'
     | 'prepared'
     | 'needs_creation'
@@ -72,6 +76,9 @@ export type DatasetPrepareDraftReport = {
     | 'changed'
     | 'capability_unavailable';
   mode: 'read_only' | 'commit' | 'status_only';
+  save_ready: false;
+  reviews: PrepareReviewPoint[];
+  review_completeness: unknown;
   request: PrepareEnvelope;
   request_sha256: string;
   attempt_consumed: boolean;
@@ -84,7 +91,7 @@ export type DatasetPrepareDraftReport = {
   recovery_error?: { code: string; message: string; details?: unknown };
   files: { request: string; report: string; target: string };
 };
-function errorEvidence(error: unknown) {
+function errorEvidence(error: unknown, envelope: PrepareEnvelope) {
   const code = error instanceof CliError ? error.code : 'DATASET_PREPARE_DRAFT_TRANSPORT_UNKNOWN';
   let details: unknown;
   if (
@@ -115,6 +122,24 @@ function errorEvidence(error: unknown) {
           };
       }
     }
+  }
+  if (
+    error instanceof CliError &&
+    code === 'DATASET_REVIEW_IN_PROGRESS' &&
+    prepareObject(error.details) &&
+    error.details.table === envelope.request.table &&
+    error.details.id === envelope.request.id &&
+    Array.isArray(error.details.reviews)
+  ) {
+    const reviews = error.details.reviews.map((point) =>
+      parsePrepareReviewPoint(
+        point,
+        envelope.request.table,
+        envelope.request.id,
+        envelope.request.expectedActorId,
+      ),
+    );
+    details = { table: envelope.request.table, id: envelope.request.id, reviews };
   }
   return {
     code,
@@ -305,6 +330,7 @@ async function runLockedPrepareDraft(
       'Preparation project/actor differs from the authenticated session.',
       'DATASET_ACTOR_MISMATCH',
     );
+  const reviewCensus = await readPrepareReviews(context, table, id);
   assertInputCurrent();
   const outDir = path.resolve(options.outDir);
   const files = {
@@ -354,6 +380,9 @@ async function runLockedPrepareDraft(
         ? 'conflict'
         : 'needs_creation',
     mode,
+    save_ready: false,
+    reviews: reviewCensus.rows,
+    review_completeness: reviewCensus.completeness,
     request,
     request_sha256: sha256Json(request),
     attempt_consumed: consumed,
@@ -368,7 +397,23 @@ async function runLockedPrepareDraft(
   };
   assertInputCurrent();
   persistRequest(files.request, request);
-  if (mode === 'read_only') {
+  if (reviewCensus.rows.length > 0) {
+    report.status = 'review_conflict';
+    report.target = null;
+    report.error = {
+      code: 'DATASET_REVIEW_IN_PROGRESS',
+      message:
+        'Continue the exact existing dataset/review versions; preparation cannot bypass in-progress review.',
+      details: { table, id, reviews: reviewCensus.rows },
+    };
+    if (mode === 'status_only' || consumed) {
+      try {
+        report.receipt = (await recover(context, request)).receipt;
+      } catch (error) {
+        report.recovery_error = errorEvidence(error, request);
+      }
+    }
+  } else if (mode === 'read_only') {
     if (consumed) {
       report.status = 'unknown';
       report.target = null;
@@ -385,7 +430,7 @@ async function runLockedPrepareDraft(
         try {
           parsePrepareResult(await requestPrepareBackend(context, request, false), request);
         } catch (error) {
-          report.error = errorEvidence(error);
+          report.error = errorEvidence(error, request);
         }
       }
     }
@@ -395,15 +440,16 @@ async function runLockedPrepareDraft(
       report.receipt = recovered.receipt;
       report.target = recovered.target;
     } catch (error) {
-      const recoveryError = errorEvidence(error);
+      const recoveryError = errorEvidence(error, request);
       if (report.error) report.recovery_error = recoveryError;
       else report.error = recoveryError;
-      report.status =
-        report.error.code === 'DATASET_DRAFT_CONFLICT'
-          ? 'conflict'
-          : report.error.code === 'DATASET_PREPARE_DRAFT_CAPABILITY_UNAVAILABLE'
-            ? 'capability_unavailable'
-            : 'unknown';
+      report.status = ['DATASET_DRAFT_CONFLICT', 'DATASET_REVIEW_IN_PROGRESS'].includes(
+        report.error.code,
+      )
+        ? 'conflict'
+        : report.error.code === 'DATASET_PREPARE_DRAFT_CAPABILITY_UNAVAILABLE'
+          ? 'capability_unavailable'
+          : 'unknown';
       report.target = null;
     }
   }

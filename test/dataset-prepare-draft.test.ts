@@ -58,7 +58,7 @@ function payload(version: string, table: PrepareTable = 'processes'): Record<str
   return {
     [ROOTS[table]]: {
       administrativeInformation: { publicationAndOwnership: { 'common:dataSetVersion': version } },
-      science: { amount: '368', unit: 'L/t' },
+      science: { amount: '12', unit: 'kg' },
       ...(table === 'flows'
         ? { modellingAndValidation: { LCIMethod: { typeOfDataSet: 'Product flow' } } }
         : {}),
@@ -142,6 +142,7 @@ function fixture(table: PrepareTable = 'processes') {
   const source = row('01.01.000', { state_code: 100 }, table);
   const state: {
     drafts: ReturnType<typeof row>[];
+    reviews: Array<ReturnType<typeof row> & { review_id: string | null }>;
     target: ReturnType<typeof row> | null;
     result: PrepareResult | null;
     mutations: number;
@@ -152,6 +153,7 @@ function fixture(table: PrepareTable = 'processes') {
     cap: number;
   } = {
     drafts: [],
+    reviews: [],
     target: null,
     result: null,
     mutations: 0,
@@ -210,11 +212,13 @@ function fixture(table: PrepareTable = 'processes') {
     state.reads.push(url);
     if (parsed.searchParams.has('state_code')) {
       const offset = Number(parsed.searchParams.get('offset'));
-      const rows = state.drafts.slice(offset, offset + state.cap);
+      const members =
+        parsed.searchParams.get('state_code') === 'gte.20' ? state.reviews : state.drafts;
+      const rows = members.slice(offset, offset + state.cap);
       return response(
         rows,
         200,
-        rows.length ? `${offset}-${offset + rows.length - 1}/${state.drafts.length}` : '*/0',
+        rows.length ? `${offset}-${offset + rows.length - 1}/${members.length}` : '*/0',
       );
     }
     const version = parsed.searchParams.get('version')?.slice(3);
@@ -449,7 +453,7 @@ test('commit freezes created bytes and changing output directory cannot replay p
     assert.equal(recovered.status, 'prepared');
     assert.equal(recovered.mutation_dispatches, 0);
     assert.equal(f.state.mutations, 1);
-    assert.equal(f.state.reads.length, count + 1); // Independent target only; original source/census are not reinterpreted.
+    assert.equal(f.state.reads.length, count + 2); // Review census and independent target; original source/draft selection are not reinterpreted.
     const readonly = await runDatasetPrepareDraft(f.frozen());
     assert.equal(readonly.status, 'unknown');
     assert.equal(readonly.target, null);
@@ -1297,5 +1301,148 @@ test('a prepared target entering a model/result or elementary domain cannot read
     } finally {
       f.close();
     }
+  }
+});
+
+test('complete review census blocks zero-draft preparation and returns exact original review points', async () => {
+  const f = fixture();
+  try {
+    f.state.cap = 1;
+    f.state.reviews = [
+      { ...row('01.01.001', { state_code: 20 }), review_id: REQUEST },
+      { ...row('01.01.002', { state_code: 50 }), review_id: null },
+      { ...row('01.01.003', { state_code: 99 }), review_id: FOREIGN },
+    ];
+    const observed = await runDatasetPrepareDraft(f.options);
+    assert.equal(observed.status, 'review_conflict');
+    assert.equal(observed.target, null);
+    assert.equal(observed.save_ready, false);
+    assert.deepEqual(
+      observed.reviews.map((point) => [
+        point.table,
+        point.id,
+        point.version,
+        point.userId,
+        point.stateCode,
+        point.reviewId,
+      ]),
+      [
+        ['processes', ID, '01.01.001', ACTOR, 20, REQUEST],
+        ['processes', ID, '01.01.002', ACTOR, 50, null],
+        ['processes', ID, '01.01.003', ACTOR, 99, FOREIGN],
+      ],
+    );
+    assert.equal(observed.error?.code, 'DATASET_REVIEW_IN_PROGRESS');
+    const committed = await runDatasetPrepareDraft(
+      f.frozen({
+        inputPath: observed.files.request,
+        outDir: path.join(f.dir, 'review-commit'),
+        commit: true,
+      }),
+    );
+    assert.equal(committed.status, 'review_conflict');
+    assert.equal(committed.mutation_dispatches, 0);
+    assert.equal(committed.attempt_consumed, false);
+    assert.equal(f.state.mutations, 0);
+    assert.equal(existsSync(prepareAttemptPath(f.env, observed.request)), false);
+    f.state.drafts = [row('01.01.004')];
+    const withDraft = await runDatasetPrepareDraft({
+      ...f.options,
+      outDir: path.join(f.dir, 'review-and-draft'),
+    });
+    assert.equal(withDraft.status, 'review_conflict');
+    assert.equal(withDraft.drafts?.length, 1);
+    assert.equal(withDraft.target, null);
+  } finally {
+    f.close();
+  }
+});
+
+test('prepared target entering review retains original receipt but cannot authorize another draft or save', async () => {
+  const f = fixture();
+  try {
+    const prepared = await runDatasetPrepareDraft(f.frozen({ commit: true }));
+    assert.equal(prepared.status, 'prepared');
+    f.state.target!.state_code = 20;
+    f.state.reviews = [{ ...f.state.target!, review_id: REQUEST }];
+    const status = await runDatasetPrepareDraft(f.frozen({ statusOnly: true }));
+    assert.equal(status.status, 'review_conflict');
+    assert.equal(status.receipt?.requestId, REQUEST);
+    assert.equal(status.target, null);
+    assert.equal(status.save_ready, false);
+    const retried = await runDatasetPrepareDraft(
+      f.frozen({ commit: true, outDir: path.join(f.dir, 'other-review') }),
+    );
+    assert.equal(retried.status, 'review_conflict');
+    assert.equal(retried.mutation_dispatches, 0);
+    assert.equal(f.state.mutations, 1);
+    f.state.result = null;
+    const unknown = await runDatasetPrepareDraft(f.frozen({ statusOnly: true }));
+    assert.equal(unknown.status, 'review_conflict');
+    assert.equal(unknown.recovery_error?.code, 'REQUEST_NOT_RECORDED');
+  } finally {
+    f.close();
+  }
+});
+
+test('review race server response preserves complete fenced return points without hidden retry', async () => {
+  const f = fixture();
+  try {
+    const details = {
+      table: 'processes',
+      id: ID,
+      reviews: [
+        {
+          table: 'processes',
+          id: ID,
+          version: '01.01.001',
+          userId: ACTOR,
+          stateCode: 20,
+          reviewId: REQUEST,
+        },
+      ],
+    };
+    const fetchImpl: FetchLike = async (url, init) =>
+      url.endsWith('/app_dataset_prepare_stable_draft')
+        ? response({ ok: false, code: 'DATASET_REVIEW_IN_PROGRESS', details }, 409)
+        : f.fetchImpl(url, init);
+    const report = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(report.status, 'conflict');
+    assert.deepEqual(report.error?.details, details);
+    assert.equal(report.mutation_dispatches, 1);
+    assert.equal(report.attempt_consumed, true);
+    const again = await runDatasetPrepareDraft(f.frozen({ commit: true, fetchImpl }));
+    assert.equal(again.mutation_dispatches, 0);
+  } finally {
+    f.close();
+  }
+});
+
+test('review census rejects incomplete, foreign and out-of-range rows; UUID shape follows existing TIDAS', async () => {
+  const { readPrepareReviews } = await import('../src/lib/dataset-prepare-draft-remote.js');
+  const f = fixture();
+  try {
+    for (const review of [
+      null,
+      { id: FOREIGN, version: '01.01.001', user_id: ACTOR, state_code: 20, review_id: null },
+      { id: ID, version: '01.01.001', user_id: FOREIGN, state_code: 20, review_id: null },
+      { id: ID, version: '01.01.001', user_id: ACTOR, state_code: 19, review_id: null },
+      { id: ID, version: '01.01.001', user_id: ACTOR, state_code: 100, review_id: null },
+      { id: ID, version: '01.01.001', user_id: ACTOR, state_code: 20.5, review_id: null },
+      { id: ID, version: '01.01.001', user_id: ACTOR, state_code: 20, review_id: 'not-uuid' },
+    ]) {
+      await assert.rejects(
+        readPrepareReviews(
+          { ...f.context, fetch_impl: async () => response([review], 200, '0-0/1') },
+          'processes',
+          ID,
+        ),
+      );
+    }
+    const input = envelope();
+    input.request.id = '00000000-0000-7000-0000-000000000007';
+    assert.equal(parsePrepareEnvelope(input).request.id, input.request.id);
+  } finally {
+    f.close();
   }
 });

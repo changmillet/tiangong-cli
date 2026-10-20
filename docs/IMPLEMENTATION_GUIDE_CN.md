@@ -22,8 +22,8 @@ checkPaths:
   - src/**
   - test/**
 lastReviewedAt: 2026-10-21
-lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
-lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
+lastReviewedCommit: 1e646dc9aebb1cc6c568088d470e1c2d160bd4a0
+lastReviewedNote: 'CLI #372: reviewed complete draft/review census, immutable requests, readback-only recovery and offline identity-only proposal/context binding with valid same-proposal review reuse. Initial/bundle scope and native business gates remain separate; package, dependencies and release authority are unchanged.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1426,3 +1426,7 @@ Flow-only `dataset save-draft --execution-contract` 可在 dry-run／commit 中�
 ## 稳定当前编辑草稿准备
 
 `dataset prepare-draft` 默认仅通过已有公开 CLI 读取当前 actor、精确公开来源及完整 typed UUID/state-0 草稿集合，并冻结 `request.json`。零份允许后续显式服务端准入，一份固定复用，多份返回完整冲突并要求显式选择；普通准备不清理数据。独立目录锁与不可覆盖的请求文件保护恢复材料；发出前全局项目/actor/request UUID claim 落盘，失联只能原请求只读查询，换输出目录不允许重发。新后端或 RPC 不可用时明确失败，无旧 create 回退。服务端回执须与独立精确目标读回一致，创建仅改版本和永久 URI。仅 Contact、Source、Product/Waste Flow 及 standalone Process 进入此切片；初始创建、Elementary Flow 和 Model/resulting 整体派生合同保留依赖。后续科学内容修订仍使用已有 guarded `dataset save-draft --execution-contract` 的完整 before-image 与验证门禁。
+
+审核中的同 owner/typed UUID（20≤state<100）完整返回原 dataset/version/reviewId 位置，并阻止新准入；不会为绕过审核建立另一个草稿或队列。`dataset prepare-draft bind` 是独立离线路径，绑定审定 proposal/source canonical hash、prepared target/receipt 与显式已审定的前驱引用。仅版本、永久 URI 和前驱引用三字段可改变；UUID 与科学 projection 保持一致，所有输出 `save_ready=false`。缺少正确 exact-source 前驱时，必须提供 predecessor file/hash，不生成短描述或猜测 #348 语义。有效且绑定相同 proposal 的科学评审可复用；身份 rebind 不强制完整科学重审，实质科学修改才重开相关评审，既有 identity diff/native schema/refs/fresh owner/preimage 业务门禁继续适用。
+
+Process 原生 `semantic_context` 可通过显式 context file/canonical hash 一并传递；仅接受与已审 proposal hash 完全一致的 candidate 绑定和完整 Flow documents。仅在三字段 identity-only 证明成立后把 candidate hash 绑定到 desired hash，Flow 正文原样保留，并记录 context 前后摘要；未提供则明确 not_supplied。allocation_transformation、invalid_bindings 等生成派生证明交回 native owner，不能通过更新 hash 伪造。绑定不会自动报告 schema/allocation 通过。

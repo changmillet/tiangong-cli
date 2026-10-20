@@ -13,6 +13,7 @@ import {
 import { deriveSupabaseFunctionsBaseUrl } from './dataset-command.js';
 import {
   assertPrepareMutablePayload,
+  parsePrepareReviewPoint,
   prepareFail,
   prepareObject,
   prepareUuid,
@@ -105,24 +106,29 @@ function row(value: unknown, id: string, actorId?: string): PrepareRow {
     );
   return result;
 }
-export async function readPrepareCensus(
+async function readScopedPrepareRows<T extends { version: string }>(
   context: DatasetMaintenanceRemoteContext,
   table: PrepareTable,
   id: string,
+  scope: 'draft' | 'review',
+  parse: (value: unknown) => T,
 ) {
   return fetchCompletePostgrestPages({
     table,
     requestedPageSize: 1000,
-    rowIdentity: (item: PrepareRow) => item.version,
+    rowIdentity: (item: T) => item.version,
     fetchPage: async (offset) => {
       const url = new URL(`${context.rest_base_url}/${table}`);
       url.searchParams.set(
         'select',
-        `id,version,user_id,state_code,json_ordered${table === 'processes' ? ',model_id' : ''}`,
+        scope === 'review'
+          ? 'id,version,user_id,state_code,review_id'
+          : `id,version,user_id,state_code,json_ordered${table === 'processes' ? ',model_id' : ''}`,
       );
       url.searchParams.set('id', `eq.${id}`);
       url.searchParams.set('user_id', `eq.${context.account.user_id}`);
-      url.searchParams.set('state_code', 'eq.0');
+      url.searchParams.set('state_code', scope === 'review' ? 'gte.20' : 'eq.0');
+      if (scope === 'review') url.searchParams.append('state_code', 'lt.100');
       url.searchParams.set('order', 'version.asc');
       url.searchParams.set('limit', '1000');
       url.searchParams.set('offset', String(offset));
@@ -133,11 +139,43 @@ export async function readPrepareCensus(
           'DATASET_PREPARE_DRAFT_RESPONSE_INVALID',
         );
       return {
-        rows: response.body.map((value) => row(value, id, context.account.user_id)),
+        rows: response.body.map(parse),
         source_url: url.toString(),
         content_range: response.contentRange,
       };
     },
+  });
+}
+export async function readPrepareCensus(
+  context: DatasetMaintenanceRemoteContext,
+  table: PrepareTable,
+  id: string,
+) {
+  return readScopedPrepareRows(context, table, id, 'draft', (value) =>
+    row(value, id, context.account.user_id),
+  );
+}
+export async function readPrepareReviews(
+  context: DatasetMaintenanceRemoteContext,
+  table: PrepareTable,
+  id: string,
+) {
+  return readScopedPrepareRows(context, table, id, 'review', (value) => {
+    if (!prepareObject(value))
+      prepareFail('Review row is invalid.', 'DATASET_PREPARE_DRAFT_ROW_INVALID');
+    return parsePrepareReviewPoint(
+      {
+        table,
+        id: value.id,
+        version: value.version,
+        userId: value.user_id,
+        stateCode: value.state_code,
+        reviewId: value.review_id,
+      },
+      table,
+      id,
+      context.account.user_id,
+    );
   });
 }
 export async function readPrepareExact(

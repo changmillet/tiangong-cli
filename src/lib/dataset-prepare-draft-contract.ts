@@ -10,11 +10,48 @@ export const PREPARE_TYPES = {
   flow: 'flows',
   process: 'processes',
 } as const;
+export const PREPARE_IDENTITIES = {
+  contacts: {
+    root: 'contactDataSet',
+    information: 'contactInformation',
+    slug: 'contact',
+    referenceType: 'contact data set',
+  },
+  sources: {
+    root: 'sourceDataSet',
+    information: 'sourceInformation',
+    slug: 'source',
+    referenceType: 'source data set',
+  },
+  flows: {
+    root: 'flowDataSet',
+    information: 'flowInformation',
+    slug: 'productFlow',
+    referenceType: 'flow data set',
+  },
+  processes: {
+    root: 'processDataSet',
+    information: 'processInformation',
+    slug: 'process',
+    referenceType: 'process data set',
+  },
+} as const;
+export function prepareCanonicalUri(table: PrepareTable, id: string, version: string): string {
+  return `https://lcdn.tiangong.earth/datasetdetail/${PREPARE_IDENTITIES[table].slug}.xhtml?uuid=${id}&version=${version}`;
+}
 export type PrepareSnapshot = { version: string; jsonOrdered: PrepareJson };
 export type PrepareRow = PrepareSnapshot & {
   userId: string;
   stateCode: number;
   modelId: string | null;
+};
+export type PrepareReviewPoint = {
+  table: PrepareTable;
+  id: string;
+  version: string;
+  userId: string;
+  stateCode: number;
+  reviewId: string | null;
 };
 export type PrepareRequest = {
   table: PrepareTable;
@@ -42,7 +79,7 @@ export type PrepareResult = {
   selectedDraft: Omit<PrepareRow, 'modelId'>;
   replayed: boolean;
 };
-const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
 const VERSION = /^\d{2}\.\d{2}\.\d{3}$/u;
 
 export function prepareFail(
@@ -84,6 +121,34 @@ export function prepareTable(value: unknown): PrepareTable {
       'INVALID_DATASET_TABLE',
     );
   return value as PrepareTable;
+}
+export function parsePrepareReviewPoint(
+  value: unknown,
+  table: PrepareTable,
+  id: string,
+  actor: string,
+): PrepareReviewPoint {
+  shape(value, ['table', 'id', 'version', 'userId', 'stateCode', 'reviewId']);
+  if (
+    value.table !== table ||
+    value.id !== id ||
+    value.userId !== actor ||
+    !Number.isInteger(value.stateCode) ||
+    Number(value.stateCode) < 20 ||
+    Number(value.stateCode) >= 100
+  )
+    prepareFail(
+      'Review census violated its typed actor/state fence.',
+      'DATASET_PREPARE_DRAFT_ROW_INVALID',
+    );
+  return {
+    table,
+    id,
+    version: prepareVersion(value.version),
+    userId: actor,
+    stateCode: Number(value.stateCode),
+    reviewId: value.reviewId === null ? null : prepareUuid(value.reviewId),
+  };
 }
 export function assertPrepareMutablePayload(table: PrepareTable, payload: PrepareJson): void {
   if (table !== 'flows') return;
@@ -180,21 +245,18 @@ export function prepareSelection(
 
 export function createdPreparePayload(request: PrepareRequest, version: string): PrepareJson {
   const payload = structuredClone(request.source.jsonOrdered);
-  const roots = {
-    contacts: ['contactDataSet', 'contact'],
-    sources: ['sourceDataSet', 'source'],
-    flows: ['flowDataSet', 'productFlow'],
-    processes: ['processDataSet', 'process'],
-  } as const;
-  const [key, slug] = roots[request.table];
+  const key = PREPARE_IDENTITIES[request.table].root;
   const root = prepareObject(payload[key]) ? payload[key] : {};
   const admin = prepareObject(root.administrativeInformation) ? root.administrativeInformation : {};
   const publication = prepareObject(admin.publicationAndOwnership)
     ? admin.publicationAndOwnership
     : {};
   publication['common:dataSetVersion'] = version;
-  publication['common:permanentDataSetURI'] =
-    `https://lcdn.tiangong.earth/datasetdetail/${slug}.xhtml?uuid=${request.id}&version=${version}`;
+  publication['common:permanentDataSetURI'] = prepareCanonicalUri(
+    request.table,
+    request.id,
+    version,
+  );
   admin.publicationAndOwnership = publication;
   root.administrativeInformation = admin;
   payload[key] = root;

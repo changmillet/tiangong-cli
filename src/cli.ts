@@ -295,6 +295,11 @@ import {
   type RunDatasetPrepareDraftOptions,
 } from './lib/dataset-prepare-draft-run.js';
 import {
+  runDatasetBindPreparedProposal,
+  type DatasetPreparedProposalBinding,
+  type RunDatasetBindPreparedProposalOptions,
+} from './lib/dataset-prepare-draft-bind.js';
+import {
   runDatasetClassificationApply,
   runDatasetClassificationAudit,
   runDatasetClassificationChildren,
@@ -514,6 +519,9 @@ export type CliDeps = {
   runDatasetPatchApplyImpl?: (
     options: RunDatasetPatchApplyOptions,
   ) => Promise<DatasetPatchApplyReport>;
+  runDatasetBindPreparedProposalImpl?: (
+    options: RunDatasetBindPreparedProposalOptions,
+  ) => Promise<DatasetPreparedProposalBinding>;
   runDatasetPrepareDraftImpl?: (
     options: RunDatasetPrepareDraftOptions,
   ) => Promise<DatasetPrepareDraftReport>;
@@ -1617,10 +1625,119 @@ Outputs written under --out-dir:
 `.trim();
 }
 
+function renderDatasetBindPreparedProposalHelp(): string {
+  return `Usage:
+  tiangong-lca dataset prepare-draft bind --input <proposal.json> --proposal-sha256 <canonical-sha256> --source-sha256 <canonical-sha256> --preparation-report <report.json> --out-dir <new-dir> [options]
+
+Options:
+  --input <file>               Reviewed single canonical scientific proposal, still carrying public identity
+  --proposal-sha256 <sha256>    Independently frozen proposal canonical digest
+  --source-sha256 <sha256>      Independently frozen exact public source canonical digest
+  --preparation-report <file>  Successful fixed-target preparation or current read-only selected report
+  --predecessor-file <file>    Explicit reviewed single GlobalReferenceType reference to the exact public source
+  --predecessor-sha256 <sha256> Canonical predecessor digest; required with --predecessor-file
+  --semantic-context-file <file>
+                              Optional Process-only native context: original candidate hash and complete Flow docs
+  --semantic-context-sha256 <sha256>
+                              Canonical original context digest; required with the context file
+  --out-dir <dir>              New private binding directory; existing artifacts cannot be overwritten
+  --json                       Print compact JSON
+  -h, --help
+
+Offline only. Reuses dataset patch apply for version, permanent URI and an explicitly reviewed
+predecessor reference; the dataset UUID and all scientific content stay unchanged. An existing
+correct exact-source predecessor may be retained; otherwise the reviewed file/hash is mandatory.
+No short description or publication lineage is invented. Read-only selections remain observed_only.
+Outputs desired.json, identity-patch.json, evidence.json and binding.json all retain save_ready=false.
+Identity-diff review and existing schema/reference/current-owner/fresh-before-image gates remain required.
+A valid scientific review bound to the same proposal digest may be reused; hashes do not assert review acceptance.
+Explicit Process semantic context preserves Flow documents and only rebinds candidate_sha256 after
+scientific-projection equality. Generated allocation provenance requires its native owner.
+No context supplied is recorded explicitly; allocation/schema acceptance is never inferred.
+`.trim();
+}
+function parseDatasetBindPreparedProposalFlags(
+  args: string[],
+): RunDatasetBindPreparedProposalOptions & { help: boolean; json: boolean } {
+  const required = ['input', 'proposal-sha256', 'source-sha256', 'preparation-report', 'out-dir'];
+  const stringFlags = [
+    ...required,
+    'predecessor-file',
+    'predecessor-sha256',
+    'semantic-context-file',
+    'semantic-context-sha256',
+  ];
+  const seen = new Set<string>();
+  for (const arg of args) {
+    const name = arg.split('=')[0]!;
+    if (![...stringFlags.map((key) => `--${key}`), '--json'].includes(name)) continue;
+    if (seen.has(name))
+      throw new CliError(`Duplicate option ${name}.`, { code: 'INVALID_ARGS', exitCode: 2 });
+    seen.add(name);
+  }
+  let values: ReturnType<typeof parseArgs>['values'];
+  try {
+    ({ values } = parseArgs({
+      args,
+      allowPositionals: false,
+      strict: true,
+      options: {
+        help: { type: 'boolean', short: 'h' },
+        json: { type: 'boolean' },
+        input: { type: 'string' },
+        'proposal-sha256': { type: 'string' },
+        'source-sha256': { type: 'string' },
+        'preparation-report': { type: 'string' },
+        'predecessor-file': { type: 'string' },
+        'predecessor-sha256': { type: 'string' },
+        'semantic-context-file': { type: 'string' },
+        'semantic-context-sha256': { type: 'string' },
+        'out-dir': { type: 'string' },
+      },
+    }));
+  } catch (error) {
+    throw new CliError(String(error), { code: 'INVALID_ARGS', exitCode: 2 });
+  }
+  if (
+    !values.help &&
+    (required.some((key) => typeof values[key] !== 'string' || !(values[key] as string).trim()) ||
+      stringFlags.some((key) => values[key] !== undefined && !(values[key] as string).trim()) ||
+      Boolean(values['predecessor-file']) !== Boolean(values['predecessor-sha256']) ||
+      Boolean(values['semantic-context-file']) !== Boolean(values['semantic-context-sha256']))
+  )
+    throw new CliError(
+      'Binding requires proposal/source digests, preparation report and a new output directory; predecessor file/hash travel together.',
+      { code: 'INVALID_ARGS', exitCode: 2 },
+    );
+  return {
+    help: Boolean(values.help),
+    json: Boolean(values.json),
+    inputPath: typeof values.input === 'string' ? values.input : '',
+    proposalSha256: typeof values['proposal-sha256'] === 'string' ? values['proposal-sha256'] : '',
+    sourceSha256: typeof values['source-sha256'] === 'string' ? values['source-sha256'] : '',
+    preparationReportPath:
+      typeof values['preparation-report'] === 'string' ? values['preparation-report'] : '',
+    outDir: typeof values['out-dir'] === 'string' ? values['out-dir'] : '',
+    ...(typeof values['predecessor-file'] === 'string'
+      ? { predecessorFile: values['predecessor-file'] }
+      : {}),
+    ...(typeof values['predecessor-sha256'] === 'string'
+      ? { predecessorSha256: values['predecessor-sha256'] }
+      : {}),
+    ...(typeof values['semantic-context-file'] === 'string'
+      ? { semanticContextFile: values['semantic-context-file'] }
+      : {}),
+    ...(typeof values['semantic-context-sha256'] === 'string'
+      ? { semanticContextSha256: values['semantic-context-sha256'] }
+      : {}),
+  };
+}
+
 function renderDatasetPrepareDraftHelp(): string {
   return `Usage:
   tiangong-lca dataset prepare-draft --type <type> --id <UUID> --source-version <version> --out-dir <dir> [options]
   tiangong-lca dataset prepare-draft --input <request.json> --out-dir <dir> [--commit | --status-only] [options]
+  tiangong-lca dataset prepare-draft bind --help
 
 Options:
   --type <type>        contact, source, flow or standalone process (read-only scope)
@@ -1638,7 +1755,9 @@ Options:
   --json                Print compact JSON
   -h, --help
 
-Default mode reads the complete current-owner state-0 draft set and exact public source.
+Default mode reads the complete current-owner state-0 draft set, review-state 20..99 set and exact public source.
+Any in-progress review returns its exact dataset/review return points and blocks preparation. All
+preparation reports keep save_ready=false; a source clone is not a reviewed scientific candidate.
 It writes request.json, report.json and target.json without creating a dataset version.
 Commit requires the frozen request from that observation. Multiple drafts require explicit
 selection; none are silently chosen or deleted. Initial creation and LifecycleModel/resulting
@@ -7554,6 +7673,8 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
       deps.runDatasetImportLcaConvertImpl ?? runDatasetImportLcaConvert;
     const datasetAuthorImpl = deps.runDatasetAuthorImpl ?? runDatasetAuthor;
     const datasetPatchApplyImpl = deps.runDatasetPatchApplyImpl ?? runDatasetPatchApply;
+    const datasetBindPreparedProposalImpl =
+      deps.runDatasetBindPreparedProposalImpl ?? runDatasetBindPreparedProposal;
     const datasetPrepareDraftImpl = deps.runDatasetPrepareDraftImpl ?? runDatasetPrepareDraft;
     const datasetSaveDraftImpl = deps.runDatasetSaveDraftImpl ?? runDatasetSaveDraft;
     const datasetClassificationChildrenImpl =
@@ -8122,6 +8243,14 @@ export async function executeCli(argv: string[], deps: CliDeps): Promise<CliResu
         stdout: stringifyJson(report, datasetFlags.json),
         stderr: '',
       };
+    }
+
+    if (command === 'dataset' && subcommand === 'prepare-draft' && commandArgs[0] === 'bind') {
+      const { help, json, ...flags } = parseDatasetBindPreparedProposalFlags(commandArgs.slice(1));
+      if (help)
+        return { exitCode: 0, stdout: `${renderDatasetBindPreparedProposalHelp()}\n`, stderr: '' };
+      const report = await datasetBindPreparedProposalImpl(flags);
+      return { exitCode: 0, stdout: stringifyJson(report, json), stderr: '' };
     }
 
     if (command === 'dataset' && subcommand === 'prepare-draft') {
