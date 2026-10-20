@@ -642,6 +642,46 @@ const cliDefaults = {
   },
   dotEnvStatus: { loaded: false, path: '/unused/.env', count: 0 },
 };
+test('public root qualification rejects an additional candidate dataset wrapper before any observation', async (t) => {
+  const f = fixture(t);
+  f.candidate.flowDataSet = {
+    flowInformation: { dataSetInformation: { 'common:UUID': id(2) } },
+    administrativeInformation: {
+      publicationAndOwnership: { 'common:dataSetVersion': selectedVersion },
+    },
+  };
+  f.intent.candidate.payload_sha256 = sha(f.candidate);
+  const review = JSON.parse(fs.readFileSync(f.reviewFile, 'utf8'));
+  review.candidate = f.intent.candidate;
+  write(f.reviewFile, review);
+  f.intent.review.sha256 = digest(f.reviewFile);
+  write(f.intentFile, f.intent);
+  write(f.input, [f.candidate]);
+  const result = await executeCli(
+    [
+      'dataset',
+      'verify-remote',
+      '--input',
+      f.input,
+      '--out-dir',
+      f.options.outDir,
+      '--root-policy',
+      'candidate',
+      '--existing-draft-root-file',
+      f.intentFile,
+      '--json',
+    ],
+    {
+      ...cliDefaults,
+      runDatasetRemoteVerifyImpl: async (options) =>
+        runDatasetRemoteVerify({ ...f.options, ...options }),
+    },
+  );
+  assert.equal(result.exitCode, 2);
+  assert.match(result.stderr, /DATASET_EXISTING_DRAFT_ROOT_INVALID/u);
+  assert.deepEqual(f.calls, []);
+  assert.equal(fs.existsSync(f.options.outDir), false);
+});
 test('public CLI rejects repeated and empty root flags, documents qualification and forwards the selected file', async () => {
   for (const flags of [
     ['--existing-draft-root-file', ''],

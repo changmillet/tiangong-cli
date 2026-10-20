@@ -1048,6 +1048,13 @@ export async function runDatasetRemoteVerify(
           consumers: exactReferenceConsumers(rows),
           references,
         });
+  // Root discovery intentionally projects one identity for ordinary verification.
+  // This bounded qualification must also reject additional unverified payload roots.
+  if (rootIntent && Object.keys(unwrapDatasetPayload(rows[0]!)).join(',') !== 'processDataSet')
+    throw new CliError('Existing-draft root qualification requires only one Process wrapper.', {
+      code: 'DATASET_EXISTING_DRAFT_ROOT_INVALID',
+      exitCode: 2,
+    });
   if (
     rootIntent &&
     (rootPolicy !== 'candidate' ||
