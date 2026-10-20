@@ -459,6 +459,37 @@ test('family changed/missing/new bodies and malformed or forbidden rows fail clo
   );
 });
 
+test('latest hybrid match_count accepts 1–100 and rejects 101–200 before any request', async () => {
+  for (const match_count of [1, 100]) {
+    const coverage = hybrid();
+    const query = coverage.queries[0]!;
+    assert(query.kind === 'flow_hybrid_search');
+    query.match_count = match_count;
+    assert.equal(
+      (parseFlowIdentityCoverage(coverage, actor).queries[0] as { match_count: number })
+        .match_count,
+      match_count,
+    );
+  }
+  let requests = 0;
+  for (let match_count = 101; match_count <= 200; match_count += 1) {
+    const coverage = hybrid();
+    const query = coverage.queries[0]!;
+    assert(query.kind === 'flow_hybrid_search');
+    query.match_count = match_count;
+    await assert.rejects(
+      verify(coverage, async () => {
+        requests += 1;
+        throw new Error(
+          'Unsupported latest-search bounds must fail before authentication or data reads.',
+        );
+      }),
+      { code: 'FLOW_IDENTITY_COVERAGE_INVALID' },
+    );
+  }
+  assert.equal(requests, 0);
+});
+
 test('hybrid rechecks exact membership and hydrates only server-fenced public bodies', async () => {
   const coverage = hybrid([row(), row('01.00.001')]);
   let searches = 0;

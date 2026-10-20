@@ -302,7 +302,8 @@ export function parseFlowIdentityCoverage(
       query: text(query.query, 1_800, 'query'),
       filter: { flowType: 'Product flow', asInput: false },
       data_source: 'tg',
-      match_count: number(query.match_count, 1, 200, true),
+      // This profile uses the raw latest route, whose Edge contract caps this budget at 100.
+      match_count: number(query.match_count, 1, 100, true),
       page_size: pageSize,
       match_threshold: number(query.match_threshold, 0, 1, false),
       lexical_weight: lexical,
