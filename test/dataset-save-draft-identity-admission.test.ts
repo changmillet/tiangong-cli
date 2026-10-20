@@ -130,6 +130,33 @@ for (const [name, mutate] of Object.entries({
   });
 }
 
+for (const field of ['owner.email', 'action_id']) {
+  test(`public prepare rejects padded ${field} before issuing an unusable contract`, async (t) => {
+    const f = await identitySaveFixture(t);
+    const template = JSON.parse(fs.readFileSync(f.files.template!, 'utf8')) as Obj;
+    if (field === 'owner.email') {
+      const owner = template.owner as Obj;
+      owner.email = ` ${owner.email as string} `;
+    } else {
+      const action = (template.actions as Obj[])[0]!;
+      action.action_id = `\t${action.action_id as string}\n`;
+    }
+    write(f.files.template!, template);
+    const preparedDirectories = fs
+      .readdirSync(f.root)
+      .filter((entry) => entry.startsWith('prepared-'));
+    const result = await f.prepare();
+    assert.equal(result.exitCode, 2, result.stdout);
+    assert.match(result.stderr, /FLOW_IDENTITY_ADMISSION_INVALID/u);
+    assert.deepEqual(
+      fs.readdirSync(f.root).filter((entry) => entry.startsWith('prepared-')),
+      preparedDirectories,
+    );
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.writes.length, 0);
+  });
+}
+
 test('current family body drift fails before mutation and every public candidate read is fenced', async (t) => {
   const f = await identitySaveFixture(t);
   f.controls.candidate = { ...f.candidate, changed: true };

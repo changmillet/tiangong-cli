@@ -56,6 +56,8 @@ All preparation is offline. The input is exactly `{ "target": <complete Flow bod
 
 The template is a strict `dataset-save-draft-execution-contract.v1` with exactly one `flows` action: `expected_operation=insert`, `before_sha256=null`, no dependencies, fixed action/UUID/version/desired hash and one state-0 owner/project. It is not executed during prepare.
 
+The owner email must already be lowercase with no edge whitespace, and `action_id` must have no edge whitespace. Preparation rejects these non-normalized values before creating artifacts, rather than emitting a pinned contract whose save consumer would normalize and reject its owner or action binding.
+
 The output directory must be new and its parent must already exist. Files are created privately with exclusive creation and fsync:
 
 - `create_distinct`: `identity-admission.json` and `execution-contract.json`, with their raw file hashes in the JSON result.

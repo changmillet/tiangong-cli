@@ -106,6 +106,14 @@ function text(value: unknown): string {
   );
   return value;
 }
+function exactExecutionToken(value: unknown): string {
+  const result = text(value);
+  requireFact(
+    result === result.trim(),
+    'Admission owner email and action identifiers must not have edge whitespace.',
+  );
+  return result;
+}
 function hash(value: unknown): string {
   requireFact(typeof value === 'string' && HASH.test(value), 'Admission SHA-256 is invalid.');
   return value;
@@ -148,11 +156,12 @@ function target(value: unknown): Target {
 }
 function owner(value: unknown): FlowIdentityAdmissionOwner {
   const item = object(value, ['user_id', 'email', 'state_code'], 'Owner');
+  const email = exactExecutionToken(item.email);
   requireFact(
-    item.state_code === 0 && text(item.email) === text(item.email).toLowerCase(),
+    item.state_code === 0 && email === email.toLowerCase(),
     'Admission owner must be an exact normalized draft owner.',
   );
-  return { user_id: uuid(item.user_id), email: text(item.email), state_code: 0 };
+  return { user_id: uuid(item.user_id), email, state_code: 0 };
 }
 function project(value: unknown): string {
   requireFact(
@@ -268,7 +277,7 @@ function actionCore(value: unknown, withAdmission: boolean): FlowIdentityAdmissi
     'Identity admission supports only one independent new Flow insert.',
   );
   return {
-    action_id: text(item.action_id),
+    action_id: exactExecutionToken(item.action_id),
     desired_sha256: hash(item.desired_sha256),
     expected_operation: 'insert',
     table: 'flows',
