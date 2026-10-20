@@ -21,9 +21,9 @@ checkPaths:
   - .oxlintrc.json
   - src/**
   - test/**
-lastReviewedAt: 2026-10-18
-lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
-lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
+lastReviewedAt: 2026-10-21
+lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
+lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
 related:
   - ../AGENTS.md
   - ../.docpact/config.yaml
@@ -1422,3 +1422,7 @@ Model activity multiplier 要求显式 finite nonnegative numeric scalar，缺�
 Flow-only `dataset save-draft --execution-contract` 可在 dry-run／commit 中显式传入一个 `--reference-intent-file`，沿用 #289 的完整 consumer、每个引用 occurrence、selected/latest 正文与 review 文件绑定。CLI 在前检和真正 dispatch 前重新检查认证账号、引用正文、before image 和本地字节；异步 gate 完成后才写 attempt 并发请求。原 v1 execution contract 无新增字段，普通路径保持默认规则。
 
 `reference_intent_admission` 随 prepared/executed 行与原 action ledger 保存；consumed 恢复必须匹配原选择，缺失或变更只能报告 consumed 阻断／UNKNOWN，不能新建 ledger 或重放。字段、哈希域和 caller snapshot 约束见 [exact-reference contract](agents/exact-reference-intent-contract.md#guarded-flow-owner-drafts)。Foundry 的原 Task 状态、授权和候选准入须由其自己的公开接口证明。
+
+## 稳定当前编辑草稿准备
+
+`dataset prepare-draft` 默认仅通过已有公开 CLI 读取当前 actor、精确公开来源及完整 typed UUID/state-0 草稿集合，并冻结 `request.json`。零份允许后续显式服务端准入，一份固定复用，多份返回完整冲突并要求显式选择；普通准备不清理数据。独立目录锁与不可覆盖的请求文件保护恢复材料；发出前全局项目/actor/request UUID claim 落盘，失联只能原请求只读查询，换输出目录不允许重发。新后端或 RPC 不可用时明确失败，无旧 create 回退。服务端回执须与独立精确目标读回一致，创建仅改版本和永久 URI。仅 Contact、Source、Product/Waste Flow 及 standalone Process 进入此切片；初始创建、Elementary Flow 和 Model/resulting 整体派生合同保留依赖。后续科学内容修订仍使用已有 guarded `dataset save-draft --execution-contract` 的完整 before-image 与验证门禁。

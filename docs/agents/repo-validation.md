@@ -31,9 +31,9 @@ checkPaths:
   - scripts/docpact
   - scripts/docpact-gate.sh
   - scripts/install-git-hooks.sh
-lastReviewedAt: 2026-10-18
-lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
-lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
+lastReviewedAt: 2026-10-21
+lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
+lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
 related:
   - ../../AGENTS.md
   - ../../.docpact/config.yaml
@@ -109,6 +109,8 @@ scripts/docpact lint --root . --base <base> --head <head> --mode enforce
 First-install proof uses an isolated packed CLI without local public configuration or credentials. `doctor`, `auth status`, and `auth doctor-auth` must report the Production public profile and truthful `login-required` state without creating a session. OAuth tests use fake tokens and an isolated private session; live login qualification follows the private case guide.
 
 LifecycleModel save-draft regressions must preserve sanitized structured application `code` and `details` without exposing raw HTTP bodies. Private Production qualification requires explicit authorization, disposable fixtures, exact owner/state/payload readback, and actor-bound cleanup. Ambiguous mutation or cleanup blocks acceptance.
+
+`dataset-prepare-draft.test.ts` exercises default zero/one/many census under server caps, complete conflicts and explicit selection, exact public source/current-actor fences, source/candidate drift, private immutable requests and directory concurrency, global one-shot claims, changed input after await, missing backend codes and lost-response read-only recovery. It asserts actual dispatch counts and fixed selected versions. A local HTTP fixture drives the built public bin through observation, one admission and status lookup; these synthetic results do not qualify deployed backend availability. Receipt validation permits creation to change only version/permanent URI, and model/result or Elementary/unknown Flow transitions cannot become a prepared target. Initial/bundle scope remains explicit rather than claiming full #372 closure.
 
 ## Private real-account qualification
 

@@ -31,9 +31,9 @@ checkPaths:
   - test/auth-identity*.test.ts
   - test/public-auth-identity-receipt.test.ts
   - test/lca-release*.test.ts
-lastReviewedAt: 2026-10-18
-lastReviewedCommit: de62442b665701e72910d35150aacb1ee3d38d46
-lastReviewedNote: 'CLI #438: reviewed pnpm/setup 3.1.1 at immutable a0881977 with exact current-version fixture and guidance; product 0.1.28, runtime, graph, source pins, full gates and release authority remain unchanged. Hosted qualification and root integration remain pending.'
+lastReviewedAt: 2026-10-21
+lastReviewedCommit: 2b2eba10c68ff66d8f018b551c6c9b853a85267f
+lastReviewedNote: 'CLI #372: reviewed stable current-owner draft preparation, immutable source/census requests and readback-only recovery; initial creation and native bundle scope remain dependencies. Package, dependencies and release authority are unchanged.'
 ---
 
 Review note, 2026-10-07: CLI #407 prepares the separate version-only 0.1.26 release from reviewed allocation/reference PR #406 at main `0a476fee7569af67f4197a1469bb97666d9911e9`. The existing helper selected 0.1.26 from repository and npm latest 0.1.25, proved the target unpublished, and the canonical tag read found no cli-v0.1.26. Package identity and eight directly bound fixture values advance; runtime, exact SDK 0.5.1 dependency, pnpm lock, exports, authentication and workflows remain unchanged. Publication and installed/Foundry managed acceptance still require the existing exact-head four-platform gate, automatic merge tag, native pnpm Trusted Publishing/provenance, credential-free consumers and exact workspace integration.
@@ -496,6 +496,24 @@ Key `flow materialize-decisions` outputs:
 - `manual-semantic-merge-seed.current.json`
 - `decision-summary.json`
 - `blocked-clusters.json`
+
+## Stable owner draft preparation
+
+`dataset prepare-draft` observes a complete current-owner state-0 set for one typed UUID and an exact public state-100/200 source. It supports Contact, Source, Product/Waste Flow and standalone Process; initial-version creation, Elementary Flow, LifecycleModel and model/result-bound Process preparation retain their separate owners.
+
+```bash
+tiangong-lca dataset prepare-draft --type process --id <UUID> --source-version 01.01.000 --target-user-id <actor-UUID> --project-ref <project> --out-dir ./draft-observation --json
+tiangong-lca dataset prepare-draft --input ./draft-observation/request.json --out-dir ./draft-admission --commit --json
+tiangong-lca dataset prepare-draft --input ./draft-observation/request.json --out-dir ./draft-recovery --status-only --json
+```
+
+The default command uses existing authenticated read interfaces; it does not require the new prepare backend and emits no mutation. Zero drafts reports `needs_creation`, one returns its fixed exact target, and many returns the complete conflict set. An explicit `--selected-version` chooses only a member of that observed set and never consolidates or deletes siblings. Flow sources and the selected target must be Product/Waste; reference-only siblings remain visible in a complete conflict report.
+
+Each private output directory owns immutable `request.json` plus `report.json` and `target.json`. Repeating the same observation there retains its request identity; changed scope or source/census content fails instead of replacing recovery material. Use a distinct directory for a new observation. Commit takes the frozen request, rechecks the source and complete draft preimages, then delegates create-or-reuse to the server. Creation copies source content and changes only the assigned version and permanent URI. No corrected scientific payload is submitted by preparation.
+
+An emitted attempt is durably consumed under the platform user-state directory, scoped by project, actor and original request UUID. Changing the output directory cannot replay it. An uncertain response permits only original-request lookup, even when the server says `REQUEST_NOT_RECORDED`; no fallback insert, guessed version or automatic retry is allowed. Missing backend/RPC capability is reported explicitly. Recovery checks the immutable receipt against an independent current target read; changed, missing, model-bound or reference-only targets cannot report `prepared`. Structured server conflicts remain reviewable in the private report.
+
+`target.json` fixes identity and contains `jsonOrdered`; it grants no content-write permission. Prepare the reviewed desired payload separately, then use the existing `dataset save-draft --execution-contract` with fresh target before-image, schema/reference/owner gates and independent readback. Preparation does not make a later save enforce a sibling census, and does not establish production deployment or close the remaining initial/bundle dependencies of #372.
 
 ## Other Common Commands
 
