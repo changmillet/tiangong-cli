@@ -7,7 +7,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
-  realpathSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -298,11 +298,13 @@ async function runLockedPrepareDraft(
   const inputText = options.inputPath ? readFileSync(options.inputPath, 'utf8') : null;
   const assertInputCurrent = () => {
     if (!options.inputPath) return;
-    const inputFile = realpathSync(options.inputPath);
+    const inputFile = statSync(options.inputPath, { bigint: true });
     if (
-      [files.report, files.target].some(
-        (file) => existsSync(file) && realpathSync(file) === inputFile,
-      )
+      [files.report, files.target].some((file) => {
+        if (!existsSync(file)) return false;
+        const outputFile = statSync(file, { bigint: true });
+        return outputFile.dev === inputFile.dev && outputFile.ino === inputFile.ino;
+      })
     )
       prepareFail(
         'Frozen preparation input aliases a generated report or target artifact.',

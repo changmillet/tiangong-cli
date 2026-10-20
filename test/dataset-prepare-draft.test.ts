@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import {
   chmodSync,
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -1232,7 +1234,13 @@ test('frozen input is rechecked after awaited observation and cannot be overwrit
 
 test('frozen report/target input aliases fail before transport and preserve their original bytes', async () => {
   for (const name of ['report.json', 'target.json']) {
-    for (const alias of [false, true]) {
+    for (const alias of [
+      'direct',
+      'parent',
+      'relative',
+      'hardlink',
+      ...(process.platform === 'win32' ? ['default-stream', 'named-stream'] : []),
+    ]) {
       for (const mode of ['read_only', 'commit', 'status_only']) {
         const f = fixture();
         try {
@@ -1241,7 +1249,27 @@ test('frozen report/target input aliases fail before transport and preserve thei
           const original = `${JSON.stringify(f.input, null, 2)}\n`;
           writeFileSync(inputPath, original);
           const aliasDir = path.join(f.dir, 'out-alias');
-          if (alias) symlinkSync(f.options.outDir!, aliasDir, 'junction');
+          const hardlinkPath = path.join(f.dir, 'frozen-hardlink.json');
+          const streamPath = `${inputPath}:frozen-request`;
+          if (alias === 'parent') symlinkSync(f.options.outDir!, aliasDir, 'junction');
+          if (alias === 'hardlink') linkSync(inputPath, hardlinkPath);
+          if (alias === 'named-stream') writeFileSync(streamPath, original);
+          const selectedInput =
+            alias === 'parent'
+              ? path.join(aliasDir, name)
+              : alias === 'relative'
+                ? path.relative(process.cwd(), inputPath)
+                : alias === 'hardlink'
+                  ? hardlinkPath
+                  : alias === 'default-stream'
+                    ? `${inputPath}::$DATA`
+                    : alias === 'named-stream'
+                      ? streamPath
+                      : inputPath;
+          const selectedStat = statSync(selectedInput, { bigint: true });
+          const outputStat = statSync(inputPath, { bigint: true });
+          assert.equal(selectedStat.dev, outputStat.dev);
+          assert.equal(selectedStat.ino, outputStat.ino);
           let transportCalls = 0;
           const fetchImpl: FetchLike = async (url, init) => {
             transportCalls++;
@@ -1250,7 +1278,7 @@ test('frozen report/target input aliases fail before transport and preserve thei
           await assert.rejects(
             runDatasetPrepareDraft(
               f.frozen({
-                inputPath: alias ? path.join(aliasDir, name) : inputPath,
+                inputPath: selectedInput,
                 fetchImpl,
                 commit: mode === 'commit',
                 statusOnly: mode === 'status_only',
@@ -1259,6 +1287,7 @@ test('frozen report/target input aliases fail before transport and preserve thei
             { code: 'DATASET_PREPARE_DRAFT_OUTPUT_CONFLICT' },
           );
           assert.equal(readFileSync(inputPath, 'utf8'), original);
+          assert.equal(readFileSync(selectedInput, 'utf8'), original);
           assert.equal(transportCalls, 0);
           assert.equal(f.state.mutations, 0);
           assert.equal(f.state.lookups, 0);
@@ -1267,6 +1296,60 @@ test('frozen report/target input aliases fail before transport and preserve thei
         } finally {
           f.close();
         }
+      }
+    }
+  }
+});
+
+test('case aliases use physical identity while distinct case-sensitive files remain valid input', async () => {
+  for (const name of ['report.json', 'target.json']) {
+    for (const mode of ['read_only', 'commit', 'status_only']) {
+      const f = fixture();
+      try {
+        mkdirSync(f.options.outDir!, { recursive: true });
+        const outputPath = path.join(f.options.outDir!, name);
+        const inputPath = path.join(f.options.outDir!, name.toUpperCase());
+        const original = `${JSON.stringify(f.input, null, 2)}\n`;
+        writeFileSync(outputPath, original);
+        const caseAlias = existsSync(inputPath);
+        if (!caseAlias) writeFileSync(inputPath, original);
+        const outputStat = statSync(outputPath, { bigint: true });
+        const inputStat = statSync(inputPath, { bigint: true });
+        assert.equal(
+          outputStat.dev === inputStat.dev && outputStat.ino === inputStat.ino,
+          caseAlias,
+        );
+        let transportCalls = 0;
+        const fetchImpl: FetchLike = async (url, init) => {
+          transportCalls++;
+          return f.fetchImpl(url, init);
+        };
+        const running = runDatasetPrepareDraft(
+          f.frozen({
+            inputPath,
+            fetchImpl,
+            commit: mode === 'commit',
+            statusOnly: mode === 'status_only',
+          }),
+        );
+        if (caseAlias) {
+          await assert.rejects(running, { code: 'DATASET_PREPARE_DRAFT_OUTPUT_CONFLICT' });
+          assert.equal(transportCalls, 0);
+          assert.equal(f.state.mutations, 0);
+          assert.equal(f.state.lookups, 0);
+          assert.equal(existsSync(prepareAttemptPath(f.env, f.input)), false);
+          assert.equal(readFileSync(outputPath, 'utf8'), original);
+        } else {
+          const report = await running;
+          assert.equal(
+            report.status,
+            mode === 'commit' ? 'prepared' : mode === 'status_only' ? 'unknown' : 'needs_creation',
+          );
+          assert.equal(f.state.mutations, mode === 'commit' ? 1 : 0);
+        }
+        assert.equal(readFileSync(inputPath, 'utf8'), original);
+      } finally {
+        f.close();
       }
     }
   }
