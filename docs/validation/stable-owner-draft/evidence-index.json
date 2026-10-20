@@ -1,0 +1,38 @@
+{
+  "source_revision": "d053d6dcac55f7bfa8a089344c37ee0bc9075ad9",
+  "independent_review": {
+    "standards_remaining_material_findings": 0,
+    "spec_initial_p2": 2,
+    "spec_resolved_p2": 2,
+    "spec_remaining_material_findings": 0,
+    "independent_targeted_tests": 9
+  },
+  "redaction": "Actual test execution outputs retained; local absolute paths in integration/review outputs replaced with descriptive placeholders. Integration UUIDs are disposable synthetic fixtures, not original data/account identifiers. Original-workflow JSON is an explicit sanitized projection, not raw operational evidence.",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "ba38817a96a107a886c3e4419cacb6dd0986f289c7d688f003adbabdf91e8a65",
+      "bytes": 6251
+    },
+    {
+      "path": "independent-spec-tests.txt",
+      "sha256": "81c06a55364298d32bf0d3cfc294a39ad1f13a86f4fb2756c9fe07584ad63ace",
+      "bytes": 1964
+    },
+    {
+      "path": "local-integration.json",
+      "sha256": "cebc71344d339c0b1de1c446089c4ed2f7f916221c11a5b062e7d577d7529f2b",
+      "bytes": 3255
+    },
+    {
+      "path": "original-workflow-summary.json",
+      "sha256": "42783c77bcd6815bd228b676c6b480e96fa8b4b4e6c071003e0f731ec8389118",
+      "bytes": 2494
+    },
+    {
+      "path": "prepush.txt",
+      "sha256": "71da83b6e50dfc480fb0c34461588e75085b219892a1efa306bd930bafa61308",
+      "bytes": 200954
+    }
+  ]
+}
