@@ -8,6 +8,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -48,6 +49,7 @@ const ACTOR = '00000000-0000-4000-8000-000000000002';
 const ID = '00000000-0000-4000-8000-000000000001';
 const REQUEST = '00000000-0000-4000-8000-000000000003';
 const FOREIGN = '00000000-0000-4000-8000-000000000004';
+const mutableFs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
 const ROOTS = {
   contacts: 'contactDataSet',
   sources: 'sourceDataSet',
@@ -745,6 +747,128 @@ test('global create-only attempt is private, hash-bound and race-safe', () => {
     assert.throws(() => claimPrepareAttempt(path.join(f.dir, 'x'.repeat(300)), f.input, 'out'));
   } finally {
     f.close();
+  }
+});
+
+test('attempt permission policy preserves POSIX privacy and Windows read equality', () => {
+  const f = fixture();
+  const originalLstat = mutableFs.lstatSync;
+  const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  try {
+    const file = prepareAttemptPath(f.env, f.input);
+    claimPrepareAttempt(file, f.input, 'first');
+    const stat = originalLstat(file);
+    for (const platform of ['linux', 'win32'] as const) {
+      for (const mode of [0o600, 0o644]) {
+        Object.assign(mutableFs, {
+          lstatSync: ((target, options) =>
+            target === file
+              ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, {
+                  mode: (stat.mode & ~0o777) | mode,
+                })
+              : originalLstat(target, options)) as typeof mutableFs.lstatSync,
+        });
+        syncBuiltinESMExports();
+        Object.defineProperty(process, 'platform', { ...platformDescriptor, value: platform });
+        if (platform === 'linux' && mode === 0o644)
+          assert.throws(() => readPrepareAttempt(file, f.input), {
+            code: 'DATASET_PREPARE_DRAFT_ATTEMPT_INVALID',
+          });
+        else assert.equal(readPrepareAttempt(file, f.input), true);
+      }
+    }
+  } finally {
+    Object.defineProperty(process, 'platform', platformDescriptor);
+    Object.assign(mutableFs, { lstatSync: originalLstat });
+    syncBuiltinESMExports();
+    f.close();
+  }
+});
+
+test('attempt durability follows platform policy and closes a failed directory flush without retry', async () => {
+  for (const scenario of ['posix', 'windows', 'directory-flush-failure'] as const) {
+    const f = fixture();
+    const file = prepareAttemptPath(f.env, f.input);
+    const parent = path.dirname(file);
+    const directoryDescriptor = -372;
+    const original = {
+      openSync: mutableFs.openSync,
+      writeFileSync: mutableFs.writeFileSync,
+      fsyncSync: mutableFs.fsyncSync,
+      closeSync: mutableFs.closeSync,
+    };
+    const events: string[] = [];
+    let attemptDescriptor: number | undefined;
+    try {
+      mutableFs.openSync = ((target, flags, mode) => {
+        if (target === parent && flags === 'r') {
+          events.push('directory:open');
+          return directoryDescriptor;
+        }
+        const descriptor = original.openSync(target, flags, mode);
+        if (target === file) {
+          assert.equal(flags, 'wx');
+          assert.equal(mode, 0o600);
+          attemptDescriptor = descriptor;
+          events.push('attempt:open');
+        }
+        return descriptor;
+      }) as typeof mutableFs.openSync;
+      mutableFs.writeFileSync = ((target, data, options) => {
+        if (target === attemptDescriptor) events.push('attempt:write');
+        original.writeFileSync(target, data, options);
+      }) as typeof mutableFs.writeFileSync;
+      mutableFs.fsyncSync = (descriptor) => {
+        if (descriptor === directoryDescriptor) {
+          events.push('directory:fsync');
+          if (scenario === 'directory-flush-failure') throw new Error('directory flush failed');
+        } else {
+          if (descriptor === attemptDescriptor) events.push('attempt:fsync');
+          original.fsyncSync(descriptor);
+        }
+      };
+      mutableFs.closeSync = (descriptor) => {
+        if (descriptor === directoryDescriptor) events.push('directory:close');
+        else {
+          if (descriptor === attemptDescriptor) events.push('attempt:close');
+          original.closeSync(descriptor);
+        }
+      };
+      syncBuiltinESMExports();
+      const claim = () =>
+        claimPrepareAttempt(
+          file,
+          f.input,
+          f.options.outDir!,
+          scenario === 'windows' ? 'win32' : 'linux',
+        );
+      if (scenario === 'directory-flush-failure') assert.throws(claim, /directory flush failed/u);
+      else assert.equal(claim(), true);
+      assert.deepEqual(events, [
+        'attempt:open',
+        'attempt:write',
+        'attempt:fsync',
+        'attempt:close',
+        ...(scenario === 'windows' ? [] : ['directory:open', 'directory:fsync', 'directory:close']),
+      ]);
+    } finally {
+      Object.assign(mutableFs, original);
+      syncBuiltinESMExports();
+    }
+    try {
+      assert.equal(readPrepareAttempt(file, f.input), true);
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).original_out_dir, f.options.outDir);
+      if (scenario === 'directory-flush-failure') {
+        const report = await runDatasetPrepareDraft(f.frozen({ commit: true }));
+        assert.equal(report.status, 'unknown');
+        assert.equal(report.save_ready, false);
+        assert.equal(report.attempt_consumed, true);
+        assert.equal(f.state.lookups, 1);
+        assert.equal(f.state.mutations, 0);
+      }
+    } finally {
+      f.close();
+    }
   }
 });
 
