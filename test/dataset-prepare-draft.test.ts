@@ -730,9 +730,12 @@ test('global create-only attempt is private, hash-bound and race-safe', () => {
     changed.request.source.userId = FOREIGN;
     assert.throws(() => readPrepareAttempt(file, changed), { code: 'REQUEST_ID_REUSED' });
     chmodSync(file, 0o644);
-    assert.throws(() => readPrepareAttempt(file, f.input), {
-      code: 'DATASET_PREPARE_DRAFT_ATTEMPT_INVALID',
-    });
+    // Windows does not encode owner/group/other ACLs in these POSIX mode bits.
+    if (process.platform === 'win32') assert.equal(readPrepareAttempt(file, f.input), true);
+    else
+      assert.throws(() => readPrepareAttempt(file, f.input), {
+        code: 'DATASET_PREPARE_DRAFT_ATTEMPT_INVALID',
+      });
     chmodSync(file, 0o600);
     const link = path.join(f.dir, 'link');
     symlinkSync(file, link);
