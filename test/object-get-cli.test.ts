@@ -199,3 +199,66 @@ test('object get forwards explicit safe options and validates malformed requests
     assert.equal(invalid.stdout, '');
   }
 });
+
+test('built command dispatch preserves actual-version fallback for all seven getters', async () => {
+  const { executeCli: executeBuilt } = (await import(
+    new URL('../dist/src/cli.js', import.meta.url).href
+  )) as { executeCli: typeof executeCli };
+  const invalid = await executeBuilt(['contact', 'get', '--id', 'invalid'], deps());
+  assert.equal(invalid.exitCode, 2);
+  assert.match(invalid.stderr, /OBJECT_GET_OPTION_INVALID/u);
+  const all = {
+    ...descriptors,
+    process: ['processDataSet', 'processInformation'],
+    flow: ['flowDataSet', 'flowInformation'],
+  };
+  for (const [kind, [wrapper, info]] of Object.entries(all)) {
+    const help = await executeBuilt([kind, 'get', '--help'], deps());
+    assert.equal(help.exitCode, 0);
+    assert.match(help.stdout, /resolved_version/u);
+    const version = '00.00.002';
+    const payload = {
+      [wrapper]: {
+        [info]: { dataSetInformation: { 'common:UUID': id } },
+        administrativeInformation: {
+          publicationAndOwnership: { 'common:dataSetVersion': version },
+        },
+      },
+    };
+    let selections = 0;
+    const result = await executeBuilt(
+      [kind, 'get', '--id', id, '--version', '99.99.999', '--json'],
+      deps({
+        fetchImpl: async (url, init) => {
+          assert.ok(!init?.method || init.method === 'GET');
+          if (isSupabaseAuthTokenUrl(url)) return makeSupabaseAuthResponse({ userId: actor });
+          selections++;
+          const rows = new URL(url).searchParams.has('version')
+            ? []
+            : [
+                {
+                  id,
+                  version,
+                  user_id: actor,
+                  state_code: 100,
+                  modified_at: null,
+                  json: payload,
+                  json_ordered: payload,
+                },
+              ];
+          return new Response(JSON.stringify(rows), {
+            headers: { 'content-type': 'application/json' },
+          });
+        },
+      }),
+    );
+    assert.equal(result.exitCode, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.resolved_version, version);
+    assert.equal(report.requested_version, '99.99.999');
+    assert.equal(report.version_fallback, true);
+    assert.equal(report.warnings[0].code, 'VERSION_FALLBACK');
+    assert.deepEqual(report.payload ?? report[kind], payload);
+    assert.equal(selections, 2);
+  }
+});

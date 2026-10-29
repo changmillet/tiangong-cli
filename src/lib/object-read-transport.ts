@@ -159,7 +159,7 @@ export async function withObjectReadTransport<T>(
           const receipt = await runAuthIdentityReceipt({
             env,
             fetchImpl: boundedFetch,
-            cliVersion: loadCliPackageVersion(),
+            cliVersion: loadCliPackageVersion(new URL('../cli.js', import.meta.url).href),
             expectedProjectRef: options.expectedProjectRef,
             expectedUserId: actorUserId ?? options.expectedUserId,
             timeoutMs: options.timeoutMs,
