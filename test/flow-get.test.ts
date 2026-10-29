@@ -136,6 +136,7 @@ test('runFlowGet can fall back to process.env and global fetch', async () => {
   try {
     const report = await runFlowGet({
       flowId: '22222222-2222-4222-8222-222222222222',
+      version: null,
     });
 
     assert.equal(report.flow_id, '22222222-2222-4222-8222-222222222222');
@@ -326,7 +327,7 @@ test('runFlowGet rejects ambiguous latest matches', async () => {
               user_id: 'user-1',
               state_code: 0,
               modified_at: null,
-              json: payload('11111111-1111-4111-8111-111111111111', '01.00.001'),
+              json: payload('11111111-1111-4111-8111-111111111111', '01.00.003'),
             },
             {
               id: '11111111-1111-4111-8111-111111111111',
@@ -334,7 +335,7 @@ test('runFlowGet rejects ambiguous latest matches', async () => {
               user_id: 'user-2',
               state_code: 100,
               modified_at: null,
-              json: payload('11111111-1111-4111-8111-111111111111', '01.00.001'),
+              json: payload('11111111-1111-4111-8111-111111111111', '01.00.003'),
             },
           ],
         ]),
@@ -457,4 +458,72 @@ test('runFlowGet reports a fallback even when the latest visible version is lowe
   assert.equal(report.warnings[0].code, 'VERSION_FALLBACK');
   assert.equal(report.warnings[0].requested_version, '99.99.999');
   assert.equal(report.warnings[0].resolved_version, '01.00.001');
+});
+
+test('runFlowGet rejects HTTP-success JSON null in exact, latest and fallback reads', async () => {
+  for (const [version, responses] of [
+    ['01.00.001', [null]],
+    [undefined, [null]],
+    ['01.00.001', [[], null]],
+  ] as const) {
+    const urls: string[] = [];
+    await assert.rejects(
+      () =>
+        runFlowGet({
+          flowId: '11111111-1111-4111-8111-111111111111',
+          version,
+          env: buildSupabaseTestEnv(),
+          fetchImpl: jsonFetch([...responses], urls),
+        }),
+      (error) => error instanceof CliError && error.code === 'SUPABASE_REST_RESPONSE_INVALID',
+    );
+    assert.equal(urls.length, responses.length);
+  }
+});
+
+test('runFlowGet validates the whole latest row set and descending version order', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const row = { id, version: '01.00.003', json: payload(id, '01.00.003') };
+  const malformedSeconds = [
+    { ...row, id: '22222222-2222-4222-8222-222222222222', version: '01.00.002' },
+    { ...row, version: '' },
+    { ...row, version: '01.00.002', json: {} },
+    { ...row, version: '01.00.004', json: payload(id, '01.00.004') },
+  ];
+  for (const second of malformedSeconds) {
+    const urls: string[] = [];
+    await assert.rejects(
+      () =>
+        runFlowGet({
+          flowId: id,
+          env: buildSupabaseTestEnv(),
+          fetchImpl: jsonFetch([[row, second]], urls),
+        }),
+      (error) => error instanceof CliError && error.code === 'OBJECT_GET_RESPONSE_INVALID',
+    );
+    assert.equal(urls.length, 1);
+  }
+});
+
+test('runFlowGet rejects explicit invalid versions before authentication or data reads', async () => {
+  for (const version of ['', ' ', '1.00.001', '01.0.001', '01.00.01', '99.99.9999']) {
+    let reads = 0;
+    await assert.rejects(
+      () =>
+        runFlowGet({
+          flowId: '11111111-1111-4111-8111-111111111111',
+          version,
+          env: {},
+          fetchImpl: async () => {
+            reads++;
+            throw new Error('Unexpected network');
+          },
+        }),
+      (error) =>
+        error instanceof CliError &&
+        error.code === 'FLOW_GET_VERSION_INVALID' &&
+        error.exitCode === 2,
+    );
+    assert.equal(reads, 0);
+  }
 });

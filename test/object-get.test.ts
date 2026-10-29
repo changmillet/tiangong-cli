@@ -382,7 +382,10 @@ test('OAuth refresh verifies the refreshed live actor before replay and permanen
       },
     },
     async ({ runtime }) => {
-      await assert.rejects(runtime.refreshAccessToken!(), code('OBJECT_GET_SESSION_INVALID'));
+      await assert.rejects(
+        runtime.refreshAccessToken!(),
+        code('SUPABASE_OAUTH_REFRESH_UNAVAILABLE'),
+      );
       await assert.rejects(runtime.getAccessToken(), code('OBJECT_GET_SESSION_INVALID'));
       assert.equal(tokenCalls, 1);
       // The final actor check must also reject an invalidated session.
@@ -428,10 +431,107 @@ test('object readers canonicalize UUID spelling before querying and comparing ro
   const canonical = 'abcdef01-abcd-4abc-8def-abcdef012345';
   const selected = row();
   selected.id = canonical;
-  selected.json_ordered.contactDataSet.contactInformation.dataSetInformation['common:UUID'] =
+  selected.json_ordered.contactDataSet.contactInformation.dataSetInformation!['common:UUID'] =
     canonical;
   const fixture = setup([[selected]], { id: canonical.toUpperCase() });
   const result = await runObjectGet(fixture.options);
   assert.equal(result.id, canonical);
   assert.equal(fixture.urls[0]!.searchParams.get('id'), `eq.${canonical}`);
+});
+
+test('initial identity rejection refreshes through the session owner before any dataset request', async () => {
+  for (const switchActor of [false, true]) {
+    const env = buildSupabaseTestEnv();
+    const observed: string[] = [];
+    let refreshed = false;
+    let datasets = 0;
+    const fetchImpl: FetchLike = async (url, init) => {
+      const pathname = new URL(url).pathname;
+      observed.push(pathname);
+      if (pathname === '/auth/v1/oauth/token') {
+        refreshed = true;
+        return makeSupabaseAuthResponse({ accessToken: 'identity-rotated-token' });
+      }
+      if (pathname === '/auth/v1/oauth/userinfo')
+        return response({ sub: switchActor ? OTHER : ACTOR, email: 'user@example.com' });
+      if (pathname === '/auth/v1/user') {
+        if (!refreshed) return response({ error: 'expired-private-body' }, 401);
+        assert.equal(
+          new Headers(init!.headers).get('authorization'),
+          'Bearer identity-rotated-token',
+        );
+        return makeSupabaseAuthResponse({ userId: switchActor ? OTHER : ACTOR });
+      }
+      datasets++;
+      assert.equal(
+        new Headers(init!.headers).get('authorization'),
+        'Bearer identity-rotated-token',
+      );
+      return response([row()]);
+    };
+    const options = { ...setup([]).options, env, fetchImpl };
+    if (switchActor) {
+      await assert.rejects(runObjectGet(options), code('OBJECT_GET_SESSION_INVALID'));
+      assert.equal(datasets, 0);
+    } else {
+      assert.equal((await runObjectGet(options)).resolved_version, VERSION);
+      assert.equal(datasets, 1);
+    }
+    assert.deepEqual(observed.slice(0, 4), [
+      '/auth/v1/user',
+      '/auth/v1/oauth/token',
+      '/auth/v1/oauth/userinfo',
+      '/auth/v1/user',
+    ]);
+  }
+});
+
+test('missing OAuth sessions preserve the auth login handoff without network access', async () => {
+  const env = buildSupabaseTestEnv();
+  env.TIANGONG_LCA_SESSION_FILE += '.missing';
+  let requests = 0;
+  await assert.rejects(
+    runObjectGet({
+      ...setup([]).options,
+      env,
+      fetchImpl: async () => {
+        requests++;
+        throw new Error('unexpected-request');
+      },
+    }),
+    (error: unknown) => {
+      assert.ok(code('SUPABASE_OAUTH_LOGIN_REQUIRED')(error));
+      assert.match((error as Error).message, /tiangong-lca auth login/u);
+      return true;
+    },
+  );
+  assert.equal(requests, 0);
+});
+
+test('transient OAuth refresh failures retain their safe code at initial identity and dataset refresh boundaries', async () => {
+  for (const initialIdentity of [true, false]) {
+    const env = buildSupabaseTestEnv();
+    let datasetRequests = 0;
+    const fetchImpl: FetchLike = async (url) => {
+      if (url.endsWith('/auth/v1/oauth/token'))
+        return response({ message: 'private-provider-secret' }, 503);
+      if (url.endsWith('/auth/v1/user'))
+        return initialIdentity ? response({}, 401) : makeSupabaseAuthResponse({ userId: ACTOR });
+      datasetRequests++;
+      return response({}, 401);
+    };
+    await assert.rejects(
+      runObjectGet({ ...setup([]).options, env, fetchImpl }),
+      (error: unknown) => {
+        assert.ok(code('SUPABASE_OAUTH_REFRESH_UNAVAILABLE')(error));
+        assert.match((error as Error).message, /Retry the command later/u);
+        assert.doesNotMatch(
+          JSON.stringify(error),
+          /private-provider-secret|access-token|refresh-token/u,
+        );
+        return true;
+      },
+    );
+    assert.equal(datasetRequests, initialIdentity ? 0 : 1);
+  }
 });

@@ -129,6 +129,7 @@ test('runProcessGet can fall back to process.env and global fetch', async () => 
   try {
     const report = await runProcessGet({
       processId: '22222222-2222-4222-8222-222222222222',
+      version: null,
     });
 
     assert.equal(report.process_id, '22222222-2222-4222-8222-222222222222');
@@ -397,7 +398,7 @@ test('runProcessGet rejects ambiguous exact and highest-version rows without cha
     );
   }
   for (const version of [undefined, '00.00.001']) {
-    const latest = [row, { ...row, version: '00.00.002' }];
+    const latest = [row, { ...row, version: '00.00.002', json: payload(id, '00.00.002') }];
     const report = await runProcessGet({
       processId: id,
       version,
@@ -405,5 +406,80 @@ test('runProcessGet rejects ambiguous exact and highest-version rows without cha
       fetchImpl: jsonFetch(version ? [[], latest] : [latest]),
     });
     assert.equal(report.resolved_version, '00.00.003');
+  }
+});
+
+test('runProcessGet rejects HTTP-success JSON null in exact, latest and fallback reads', async () => {
+  for (const [version, responses] of [
+    ['00.00.001', [null]],
+    [undefined, [null]],
+    ['00.00.001', [[], null]],
+  ] as const) {
+    const urls: string[] = [];
+    await assert.rejects(
+      () =>
+        runProcessGet({
+          processId: '11111111-1111-4111-8111-111111111111',
+          version,
+          env: buildSupabaseTestEnv(),
+          fetchImpl: jsonFetch([...responses], urls),
+        }),
+      (error) => error instanceof CliError && error.code === 'SUPABASE_REST_RESPONSE_INVALID',
+    );
+    assert.equal(urls.length, responses.length);
+  }
+});
+
+test('runProcessGet validates the whole latest row set and descending version order', async () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const row = { id, version: '01.00.003', json: payload(id, '01.00.003') };
+  const malformedSeconds = [
+    { ...row, id: '22222222-2222-4222-8222-222222222222', version: '01.00.002' },
+    { ...row, version: '' },
+    { ...row, version: '01.00.002', json: {} },
+    { ...row, version: '01.00.004', json: payload(id, '01.00.004') },
+  ];
+  for (const second of malformedSeconds) {
+    const urls: string[] = [];
+    await assert.rejects(
+      () =>
+        runProcessGet({
+          processId: id,
+          env: buildSupabaseTestEnv(),
+          fetchImpl: jsonFetch([[row, second]], urls),
+        }),
+      (error) => error instanceof CliError && error.code === 'OBJECT_GET_RESPONSE_INVALID',
+    );
+    assert.equal(urls.length, 1);
+  }
+});
+
+test('runProcessGet rejects a missing runtime identifier before network access', async () => {
+  await assert.rejects(
+    () => runProcessGet({ processId: undefined as unknown as string, env: {} }),
+    (error) => error instanceof CliError && error.code === 'PROCESS_ID_REQUIRED',
+  );
+});
+
+test('runProcessGet rejects explicit invalid versions before authentication or data reads', async () => {
+  for (const version of ['', ' ', '1.00.001', '01.0.001', '01.00.01', '99.99.9999']) {
+    let reads = 0;
+    await assert.rejects(
+      () =>
+        runProcessGet({
+          processId: '11111111-1111-4111-8111-111111111111',
+          version,
+          env: {},
+          fetchImpl: async () => {
+            reads++;
+            throw new Error('Unexpected network');
+          },
+        }),
+      (error) =>
+        error instanceof CliError &&
+        error.code === 'PROCESS_GET_VERSION_INVALID' &&
+        error.exitCode === 2,
+    );
+    assert.equal(reads, 0);
   }
 });

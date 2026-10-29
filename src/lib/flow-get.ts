@@ -7,7 +7,11 @@ import {
 } from './flow-read.js';
 import { requireSupabaseRestRuntime } from './supabase-rest.js';
 import { createSupabaseDataRuntime } from './supabase-session.js';
-import { validateObjectReadResult, type ObjectReadWarning } from './object-read-result.js';
+import {
+  isObjectReadVersion,
+  validateObjectReadResult,
+  type ObjectReadWarning,
+} from './object-read-result.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -65,7 +69,13 @@ export async function runFlowGet(options: RunFlowGetOptions): Promise<FlowGetRep
     });
   }
 
-  const requestedVersion = normalizeToken(options.version ?? null);
+  const requestedVersion =
+    options.version === undefined || options.version === null ? null : options.version.trim();
+  if (requestedVersion !== null && !isObjectReadVersion(requestedVersion))
+    throw new CliError('The optional --version must use NN.NN.NNN format.', {
+      code: 'FLOW_GET_VERSION_INVALID',
+      exitCode: 2,
+    });
   const requestedUserId = normalizeToken(options.userId ?? null);
   const requestedStateCode =
     Number.isInteger(options.stateCode) && (options.stateCode as number) >= 0
@@ -89,6 +99,7 @@ export async function runFlowGet(options: RunFlowGetOptions): Promise<FlowGetRep
     timeoutMs,
     fetchImpl,
     fallbackToLatest: requestedVersion !== null,
+    validateGetResponse: true,
   });
 
   if (!lookup) {

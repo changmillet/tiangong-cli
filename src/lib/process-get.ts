@@ -8,7 +8,11 @@ import {
   type SupabaseProcessLookup,
 } from './supabase-rest.js';
 import { createSupabaseDataRuntime } from './supabase-session.js';
-import { validateObjectReadResult, type ObjectReadWarning } from './object-read-result.js';
+import {
+  isObjectReadVersion,
+  validateObjectReadResult,
+  type ObjectReadWarning,
+} from './object-read-result.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -61,7 +65,13 @@ export async function runProcessGet(options: RunProcessGetOptions): Promise<Proc
     });
   }
 
-  const requestedVersion = normalizeToken(options.version ?? null);
+  const requestedVersion =
+    options.version === undefined || options.version === null ? null : options.version.trim();
+  if (requestedVersion !== null && !isObjectReadVersion(requestedVersion))
+    throw new CliError('The optional --version must use NN.NN.NNN format.', {
+      code: 'PROCESS_GET_VERSION_INVALID',
+      exitCode: 2,
+    });
   const fetchImpl = options.fetchImpl ?? (fetch as FetchLike);
   const timeoutMs = options.timeoutMs ?? PROCESS_GET_TIMEOUT_MS;
   const runtime = createSupabaseDataRuntime({

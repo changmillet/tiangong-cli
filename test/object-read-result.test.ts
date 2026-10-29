@@ -5,6 +5,7 @@ import {
   isObjectReadUuid,
   isObjectReadVersion,
   validateObjectReadResult,
+  validateObjectReadRows,
   type ObjectReadDatasetType,
 } from '../src/lib/object-read-result.js';
 
@@ -151,4 +152,18 @@ test('identity format predicates reject unsupported values and accept UUID case'
   assert.equal(isObjectReadVersion(3), false);
   assert.equal(isObjectReadVersion('01.00.003'), true);
   assert.equal(isObjectReadVersion(' 01.00.003 '), false);
+});
+
+test('object row sets reject more rows than the bounded query requested', () => {
+  const row = { id, version, payload: canonical() };
+  assert.throws(
+    () =>
+      validateObjectReadRows({
+        datasetType: 'flow',
+        requestedId: id,
+        requestedVersion: version,
+        rows: [row, row, row],
+      }),
+    (error) => error instanceof CliError && error.code === 'OBJECT_GET_RESPONSE_INVALID',
+  );
 });

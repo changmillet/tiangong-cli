@@ -37,6 +37,36 @@ export function isObjectReadVersion(value: unknown): value is string {
   return typeof value === 'string' && /^\d{2}\.\d{2}\.\d{3}$/u.test(value);
 }
 
+export function validateObjectReadRows(options: {
+  datasetType: ObjectReadDatasetType;
+  requestedId: string;
+  requestedVersion: string | null;
+  rows: Array<{ id: unknown; version: unknown; payload: unknown }>;
+}): void {
+  const results = options.rows.map((row) =>
+    validateObjectReadResult({
+      datasetType: options.datasetType,
+      requestedId: options.requestedId,
+      requestedVersion: options.requestedVersion,
+      rowId: row.id,
+      rowVersion: row.version,
+      payload: row.payload,
+      resolution:
+        options.requestedVersion === null ? 'remote_supabase_latest' : 'remote_supabase_exact',
+    }),
+  );
+  if (
+    results.length > 2 ||
+    (options.requestedVersion === null &&
+      results.length === 2 &&
+      results[0].resolved_version < results[1].resolved_version)
+  )
+    throw new CliError('Object read response has an inconsistent row count or version order.', {
+      code: 'OBJECT_GET_RESPONSE_INVALID',
+      exitCode: 1,
+    });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

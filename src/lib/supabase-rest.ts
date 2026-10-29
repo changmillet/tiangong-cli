@@ -1,6 +1,7 @@
 // data-api-relations: processes
 import { CliError } from './errors.js';
 import type { FetchLike } from './http.js';
+import { validateObjectReadRows } from './object-read-result.js';
 import {
   createSupabaseDataClient,
   deriveSupabaseRestBaseUrl,
@@ -148,9 +149,11 @@ async function fetchExactOrLatestProcessRow(options: {
           .order('version', { ascending: false })
           .limit(options.requireUnique ? 2 : 1),
         latestUrl,
+        { requireArray: options.requireUnique },
       ),
       latestUrl,
     );
+    if (options.requireUnique) validateGetRows(latestRows, options.id, null);
 
     if (latestRows.length === 0) {
       return null;
@@ -185,7 +188,11 @@ async function fetchExactOrLatestProcessRow(options: {
   if (options.requireUnique) {
     exactQuery.limit(2);
   }
-  const exactRows = parseRows(await runSupabaseArrayQuery(exactQuery, exactUrl), exactUrl);
+  const exactRows = parseRows(
+    await runSupabaseArrayQuery(exactQuery, exactUrl, { requireArray: options.requireUnique }),
+    exactUrl,
+  );
+  if (options.requireUnique) validateGetRows(exactRows, options.id, options.version);
 
   if (exactRows.length > 0) {
     if (options.requireUnique && exactRows.length > 1)
@@ -218,9 +225,11 @@ async function fetchExactOrLatestProcessRow(options: {
         .order('version', { ascending: false })
         .limit(options.requireUnique ? 2 : 1),
       latestUrl,
+      { requireArray: options.requireUnique },
     ),
     latestUrl,
   );
+  if (options.requireUnique) validateGetRows(latestRows, options.id, null);
 
   if (latestRows.length === 0) {
     return null;
@@ -240,6 +249,19 @@ async function fetchExactOrLatestProcessRow(options: {
     sourceUrl: latestUrl,
     resolution: 'remote_supabase_latest_fallback',
   };
+}
+
+function validateGetRows(rows: SupabaseProcessRow[], id: string, version: string | null): void {
+  validateObjectReadRows({
+    datasetType: 'process',
+    requestedId: id,
+    requestedVersion: version,
+    rows: rows.map((row) => ({
+      id: row.id,
+      version: row.version,
+      payload: normalizeSupabaseProcessPayload(row.json, id),
+    })),
+  });
 }
 
 export {

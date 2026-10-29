@@ -20,6 +20,22 @@ export function objectReadError(code: string, message: string, exitCode = 1): ne
   throw new CliError(message, { code: `OBJECT_GET_${code}`, exitCode });
 }
 
+// Reproject only stable session-owner failures; provider text and details stay private.
+function safeSessionError(error: unknown): CliError | null {
+  if (!(error instanceof CliError)) return null;
+  if (error.code === 'SUPABASE_OAUTH_LOGIN_REQUIRED')
+    return new CliError(
+      'No usable OAuth session is available. Run `tiangong-lca auth login` in a trusted terminal.',
+      { code: error.code, exitCode: 1 },
+    );
+  if (error.code === 'SUPABASE_OAUTH_REFRESH_UNAVAILABLE')
+    return new CliError('OAuth refresh could not complete. Retry the command later.', {
+      code: error.code,
+      exitCode: 1,
+    });
+  return null;
+}
+
 async function responseText(response: ResponseLike, signal: AbortSignal): Promise<string> {
   if (Number(response.headers.get('content-length')) > OBJECT_READ_LIMITS.responseBytes)
     objectReadError('BYTE_LIMIT', 'Object response exceeded the byte limit.');
@@ -130,8 +146,9 @@ export async function withObjectReadTransport<T>(
     const token = async (forceRefresh = false): Promise<string> => {
       if (invalidated)
         objectReadError('SESSION_INVALID', 'Object read session is no longer valid.');
+      let resolverFailure: unknown;
       try {
-        const session = await resolveSupabaseUserSession({
+        let session = await resolveSupabaseUserSession({
           runtime: config,
           fetchImpl: boundedFetch,
           timeoutMs: options.timeoutMs,
@@ -147,14 +164,32 @@ export async function withObjectReadTransport<T>(
             expectedUserId: actorUserId ?? options.expectedUserId,
             timeoutMs: options.timeoutMs,
             now: options.now,
-            resolveSessionImpl: async () => session,
+            resolveSessionImpl: async (request) => {
+              if (request.forceRefresh) {
+                try {
+                  session = await resolveSupabaseUserSession({
+                    runtime: config,
+                    fetchImpl: boundedFetch,
+                    timeoutMs: options.timeoutMs,
+                    now: options.now,
+                    forceRefresh: true,
+                  });
+                } catch (error) {
+                  resolverFailure = error;
+                  throw error;
+                }
+              }
+              return session;
+            },
           });
           actorUserId = receipt.identity.user_id;
           verifiedToken = session.accessToken;
         }
         return session.accessToken;
-      } catch {
+      } catch (error) {
         invalidated = true;
+        const sessionError = safeSessionError(resolverFailure ?? error);
+        if (sessionError) throw sessionError;
         return objectReadError(
           'SESSION_INVALID',
           'Object read could not verify the current project and actor.',
@@ -179,6 +214,8 @@ export async function withObjectReadTransport<T>(
   try {
     return await Promise.race([deadline, work()]);
   } catch (error) {
+    const sessionError = safeSessionError(error);
+    if (sessionError) throw sessionError;
     if (error instanceof CliError && /^(OBJECT_GET_|OBJECT_READ_)/u.test(error.code)) throw error;
     return objectReadError('FAILED', 'Object read failed without a complete valid result.');
   } finally {
