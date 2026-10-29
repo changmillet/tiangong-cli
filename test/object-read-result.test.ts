@@ -167,3 +167,25 @@ test('object row sets reject more rows than the bounded query requested', () => 
     (error) => error instanceof CliError && error.code === 'OBJECT_GET_RESPONSE_INVALID',
   );
 });
+
+test('compiled result validation preserves native identities and refuses fabricated fallback versions', async () => {
+  const built = (await import(
+    new URL('../dist/src/lib/object-read-result.js', import.meta.url).href
+  )) as typeof import('../src/lib/object-read-result.js');
+  const selection = {
+    datasetType: 'flow' as const,
+    requestedId: id,
+    requestedVersion: version,
+    rows: [{ id, version, payload: canonical() }],
+  };
+  built.validateObjectReadRows(selection);
+  const input = {
+    ...options(),
+    requestedVersion: '99.99.999',
+    resolution: 'remote_supabase_latest_fallback' as const,
+  };
+  assert.deepEqual(built.validateObjectReadResult(input), validateObjectReadResult(input));
+  assert.throws(() => built.validateObjectReadResult({ ...input, rowVersion: undefined }), {
+    code: 'OBJECT_GET_RESPONSE_INVALID',
+  });
+});
