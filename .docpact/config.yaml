@@ -232,7 +232,8 @@ routing:
         - src/lib/errors.ts
         - src/lib/flow-*.ts
         - src/lib/object-get*.ts
-        - src/lib/object-read*.ts        - src/lib/identity-preflight.ts
+        - src/lib/object-read*.ts
+        - src/lib/identity-preflight.ts
         - src/lib/io.ts
         - src/lib/lifecyclemodel-*.ts
         - src/lib/lca-release.ts
